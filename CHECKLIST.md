@@ -55,9 +55,9 @@
 - [x] --decode-gzip
 - [x] --js-reconstruct
 - [x] --endpoints (flag wired, feature not implemented)
+- [x] --pipe (scan from stdin)
+- [x] --fail-on (CI gate: exit 1 if findings meet severity threshold)
 - [ ] --git-history
-- [ ] --fail-on (CI gate)
-- [ ] --pipe (scan from stdin)
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
 
@@ -79,8 +79,8 @@
 
 ## Finding Struct
 - [x] File, Line, Column, RuleName, Severity, Secret, Context, Entropy
-- [ ] ContextBefore field
-- [ ] ContextAfter field
+- [x] ContextBefore field
+- [x] ContextAfter field
 
 ## Documentation / Infra
 - [x] Module path: github.com/RA000WL/syck
