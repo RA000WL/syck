@@ -211,6 +211,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 
 	var findings []finding.Finding
 	lineNum := 0
+	var prevLine string
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 1024*1024)
 	scanner.Buffer(buf, len(buf))
@@ -225,6 +226,11 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNum++
+
+		var ctxBefore string
+		if lineNum > 1 {
+			ctxBefore = strings.TrimSpace(prevLine)
+		}
 
 		for _, rule := range cfg.Rules.Rules {
 			matches := rule.MatchAll(line)
@@ -247,14 +253,39 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				}
 
 				findings = append(findings, finding.Finding{
-					File:     path,
-					Line:     lineNum,
-					Column:   m[0],
-					RuleName: rule.Name,
-					Severity: sev,
-					Secret:   secret,
-					Context:  strings.TrimSpace(line),
-					Entropy:  e,
+					File:          path,
+					Line:          lineNum,
+					Column:        m[0],
+					RuleName:      rule.Name,
+					Severity:      sev,
+					Secret:        secret,
+					Context:       strings.TrimSpace(line),
+					ContextBefore: ctxBefore,
+					Entropy:       e,
+				})
+			}
+		}
+
+		// Entropy token scan
+		if entropy.HasSecretContext(line) {
+			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
+				if !entropy.IsEntropyTokenMatch(tok) {
+					continue
+				}
+				col := strings.Index(line, tok)
+				if col < 0 {
+					col = 0
+				}
+				findings = append(findings, finding.Finding{
+					File:          path,
+					Line:          lineNum,
+					Column:        col,
+					RuleName:      "high_entropy_token",
+					Severity:      finding.SeverityMedium,
+					Secret:        tok,
+					Context:       strings.TrimSpace(line),
+					ContextBefore: ctxBefore,
+					Entropy:       entropy.Shannon(tok),
 				})
 			}
 		}
@@ -263,6 +294,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 			findings = append(findings, decoder.DecodeAndRescan(line, path, lineNum,
 				cfg.Rules, cfg.MinSeverity, df)...)
 		}
+
+		prevLine = line
 	}
 
 	return findings, nil
@@ -282,6 +315,15 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 	for lineNum, line := range lines {
 		lineNum++
+
+		// ContextBefore/After
+		var ctxBefore, ctxAfter string
+		if lineNum > 1 {
+			ctxBefore = strings.TrimSpace(lines[lineNum-2])
+		}
+		if lineNum < len(lines) {
+			ctxAfter = strings.TrimSpace(lines[lineNum])
+		}
 
 		for _, rule := range cfg.Rules.Rules {
 			matches := rule.MatchAll(line)
@@ -321,14 +363,54 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 
 				findings = append(findings, finding.Finding{
-					File:     path,
-					Line:     lineNum,
-					Column:   m[0],
-					RuleName: ruleName,
-					Severity: sev,
-					Secret:   secret,
-					Context:  ctx,
-					Entropy:  e,
+					File:          path,
+					Line:          lineNum,
+					Column:        m[0],
+					RuleName:      ruleName,
+					Severity:      sev,
+					Secret:        secret,
+					Context:       ctx,
+					ContextBefore: ctxBefore,
+					ContextAfter:  ctxAfter,
+					Entropy:       e,
+				})
+			}
+		}
+
+		// Entropy token scan — only on lines with secret-context keywords
+		if entropy.HasSecretContext(line) {
+			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
+				if !entropy.IsEntropyTokenMatch(tok) {
+					continue
+				}
+				if skipSecrets != nil {
+					key := tok
+					if len(key) > 60 {
+						key = key[:60]
+					}
+					if skipSecrets[key] {
+						continue
+					}
+				}
+				col := strings.Index(line, tok)
+				if col < 0 {
+					col = 0
+				}
+				ctx := strings.TrimSpace(line)
+				if tagPrefix != "" {
+					ctx = "gzip decoded: " + ctx
+				}
+				findings = append(findings, finding.Finding{
+					File:          path,
+					Line:          lineNum,
+					Column:        col,
+					RuleName:      "high_entropy_token",
+					Severity:      finding.SeverityMedium,
+					Secret:        tok,
+					Context:       ctx,
+					ContextBefore: ctxBefore,
+					ContextAfter:  ctxAfter,
+					Entropy:       entropy.Shannon(tok),
 				})
 			}
 		}
@@ -359,6 +441,27 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	}
 
 	return findings
+}
+
+func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
+	scanner := bufio.NewScanner(r)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, len(buf))
+
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	content := strings.Join(lines, "\n")
+
+	findings := scanContent(content, "stdin", cfg, "", nil, false)
+
+	if cfg.JSReconstruct && content != "" {
+		jsFindings := jsrecon.ReconstructAndScan(content, "stdin", cfg.Rules, cfg.MinSeverity)
+		findings = append(findings, jsFindings...)
+	}
+
+	return findings, nil
 }
 
 func isTextFile(path string) bool {

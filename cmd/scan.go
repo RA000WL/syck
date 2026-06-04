@@ -29,7 +29,7 @@ Examples:
   syck scan . --severity CRITICAL
   syck scan . --format json -o results.json
   syck scan . --redact --no-color`,
-	Args: cobra.MinimumNArgs(1),
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runScan(cmd, args)
 	},
@@ -53,6 +53,8 @@ var (
 	decodeGzip     bool
 	jsReconstruct  bool
 	endpoints      bool
+	pipe           bool
+	failOn         string
 )
 
 func init() {
@@ -74,9 +76,15 @@ func init() {
 	scanCmd.Flags().BoolVar(&decodeGzip, "decode-gzip", false, "decompress gzip/zlib content and rescan")
 	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", false, "reconstruct JS concatenated strings")
 	scanCmd.Flags().BoolVar(&endpoints, "endpoints", false, "extract API/graphql/websocket URLs")
+	scanCmd.Flags().BoolVar(&pipe, "pipe", false, "scan from stdin")
+	scanCmd.Flags().StringVar(&failOn, "fail-on", "", "CI gate: exit 1 if findings at or above this severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
+	if !pipe && len(args) == 0 {
+		return fmt.Errorf("requires at least 1 path argument (or use --pipe for stdin)")
+	}
+
 	v, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -134,7 +142,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Endpoints:      endpoints,
 	}
 
-	findings, err := scanner.ScanPaths(args, scanCfg)
+	var findings []finding.Finding
+
+	if pipe {
+		findings, err = scanner.ScanReader(os.Stdin, scanCfg)
+	} else {
+		findings, err = scanner.ScanPaths(args, scanCfg)
+	}
 	if err != nil {
 		return fmt.Errorf("scan error: %w", err)
 	}
@@ -159,6 +173,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Print(output)
 	}
 
+	// --fail-on: CI gate — exit 1 only if findings meet severity threshold
+	if failOn != "" {
+		threshold := finding.ParseSeverity(failOn)
+		for _, f := range findings {
+			if f.Severity >= threshold {
+				os.Exit(1)
+			}
+		}
+		return nil
+	}
+
+	// default: exit 1 if any findings
 	if len(findings) > 0 {
 		os.Exit(1)
 	}

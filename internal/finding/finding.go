@@ -36,14 +36,16 @@ func ParseSeverity(s string) Severity {
 }
 
 type Finding struct {
-	File      string
-	Line      int
-	Column    int
-	RuleName  string
-	Severity  Severity
-	Secret    string
-	Context   string
-	Entropy   float64
+	File         string
+	Line         int
+	Column       int
+	RuleName     string
+	Severity     Severity
+	Secret       string
+	Context      string
+	ContextBefore string
+	ContextAfter  string
+	Entropy      float64
 }
 
 type Summary struct {

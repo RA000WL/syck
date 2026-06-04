@@ -15,14 +15,16 @@ type jsonOutput struct {
 }
 
 type jsonFinding struct {
-	File     string  `json:"file"`
-	Line     int     `json:"line"`
-	Column   int     `json:"column"`
-	Rule     string  `json:"rule"`
-	Severity string  `json:"severity"`
-	Secret   string  `json:"secret"`
-	Context  string  `json:"context"`
-	Entropy  float64 `json:"entropy"`
+	File          string  `json:"file"`
+	Line          int     `json:"line"`
+	Column        int     `json:"column"`
+	Rule          string  `json:"rule"`
+	Severity      string  `json:"severity"`
+	Secret        string  `json:"secret"`
+	Context       string  `json:"context"`
+	ContextBefore string  `json:"context_before,omitempty"`
+	ContextAfter  string  `json:"context_after,omitempty"`
+	Entropy       float64 `json:"entropy"`
 }
 
 type jsonSummary struct {
@@ -47,14 +49,16 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		}
 
 		out.Findings[i] = jsonFinding{
-			File:     f.File,
-			Line:     f.Line,
-			Column:   f.Column,
-			Rule:     f.RuleName,
-			Severity: finding.SeverityNames[f.Severity],
-			Secret:   secret,
-			Context:  f.Context,
-			Entropy:  f.Entropy,
+			File:          f.File,
+			Line:          f.Line,
+			Column:        f.Column,
+			Rule:          f.RuleName,
+			Severity:      finding.SeverityNames[f.Severity],
+			Secret:        secret,
+			Context:       f.Context,
+			ContextBefore: f.ContextBefore,
+			ContextAfter:  f.ContextAfter,
+			Entropy:       f.Entropy,
 		}
 	}
 
