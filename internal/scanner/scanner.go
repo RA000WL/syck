@@ -31,6 +31,7 @@ type Config struct {
 	DecodeGzip     bool
 	JSReconstruct  bool
 	Endpoints      bool
+	DowngradeFP    bool
 }
 
 var textExtensions = map[string]bool{
@@ -135,6 +136,10 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
+	}
+
+	if cfg.DowngradeFP {
+		allFindings = DowngradeFP(allFindings)
 	}
 
 	return allFindings, nil

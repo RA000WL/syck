@@ -16,6 +16,8 @@ func New(name string) Formatter {
 	switch name {
 	case "json":
 		return &JSONFormatter{}
+	case "sarif":
+		return &SARIFFormatter{}
 	default:
 		return &TextFormatter{}
 	}
