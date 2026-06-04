@@ -65,6 +65,10 @@
 - [x] --crawl-depth (max link follow depth, default 3)
 - [x] --headless (headless Chrome for SPA/JS-rendered pages via go-rod)
 - [x] --rate-limit (per-host request rate limiting with backoff)
+- [x] --cookies (enable cookie jar for session handling, default: true)
+- [x] --cookie-file (persist cookies to file between runs)
+- [x] --concurrency (max concurrent fetches, default 10)
+- [x] --host-concurrency (max concurrent fetches per host, default 2)
 - [ ] --git-history
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
@@ -95,11 +99,25 @@
 - [x] JS import/require regex extraction
 - [x] Headless Chrome support via go-rod (SPA/JS-rendered pages)
 - [x] Per-host rate limiting with configurable RPS
+- [x] Random user-agent rotation (9 generators, 80+ real browser strings)
+- [x] Cookie/session handling with optional file persistence
+- [x] Parallel fetching with worker pool (configurable concurrency)
+- [x] Per-host concurrency limits (avoid hammering one server)
 - [x] HTTP client with gzip support and redirect limits
 - [x] Scope filtering (regex-based domain/path filtering)
 - [x] Crawl limits (max URLs + max depth)
 - [x] Crawler with queue, visited set, and BFS traversal
 - [x] ScanURLs integration (fetch → scan content → dedup)
+
+## Crawler Features
+- [x] Cookie/session handling (net/http/cookiejar + JSON persistence)
+- [x] Parallel fetching with worker pool
+- [x] Per-host concurrency limits (semaphore per hostname)
+- [x] Clean Crawler struct refactor (stateful, holds jar/semaphores)
+- [ ] Robots.txt support (Phase 2)
+- [ ] Encoding detection + auto-conversion (Phase 2)
+- [ ] SQLite URL cache across runs (Phase 3)
+- [ ] Env var config (SYCK_*) (Phase 3)
 
 ## Documentation / Infra
 - [x] Module path: github.com/RA000WL/syck
