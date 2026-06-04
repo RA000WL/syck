@@ -1,0 +1,6 @@
+/syck
+/syck.exe
+*.test
+*.out
+vendor/
+dist/
