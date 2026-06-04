@@ -38,10 +38,6 @@ rules:
     severity: CRITICAL
     pattern: '-----BEGIN PRIVATE KEY-----'
     tags: [gcp, google]
-  - name: firebase_url
-    severity: MEDIUM
-    pattern: '\bhttps://[a-zA-Z0-9\-]+\.(?:firebaseio\.com|firebasedatabase\.app)\b'
-    tags: [gcp, firebase]
   - name: firebase_fcm_key
     severity: HIGH
     pattern: '\bAAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}\b'
@@ -54,7 +50,7 @@ rules:
     tags: [azure, cloud]
   - name: azure_client_id
     severity: MEDIUM
-    pattern: '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+    pattern: '(?i)(?:azure|msi)[_-]?client[_-]?id\s*[:=]\s*[''"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[''"]'
     tags: [azure, cloud]
   - name: azure_client_secret
     severity: CRITICAL
@@ -72,7 +68,7 @@ rules:
     tags: [github, vcs]
   - name: github_app_token
     severity: CRITICAL
-    pattern: '\b(ghu|ghs|ghr)_[0-9a-zA-Z]{36}\b'
+    pattern: '\b(ghu|ghs)_[0-9a-zA-Z]{36}\b'
     tags: [github, vcs]
   - name: github_refresh_token
     severity: CRITICAL
@@ -81,10 +77,6 @@ rules:
   - name: github_fine_grained_token
     severity: CRITICAL
     pattern: 'github_pat_[0-9a-zA-Z_]{82}\b'
-    tags: [github, vcs]
-  - name: github_old_token
-    severity: HIGH
-    pattern: '\b[0-9a-f]{40}\b'
     tags: [github, vcs]
 
   # ── GitLab ───────────────────────────────
@@ -98,14 +90,6 @@ rules:
     tags: [gitlab, ci]
 
   # ── Atlassian / Bitbucket ────────────────
-  - name: bitbucket_client_id
-    severity: MEDIUM
-    pattern: '\b[A-Za-z0-9]{32}\b'
-    tags: [bitbucket, vcs]
-  - name: atlassian_api_token
-    severity: HIGH
-    pattern: '\b[3-7][A-Za-z0-9\-_]{42,48}\b'
-    tags: [atlassian, jira]
   - name: jira_api_token
     severity: HIGH
     pattern: '(?i)(?:atlassian|jira)[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"]([A-Za-z0-9]{24})[''"]'
@@ -151,10 +135,6 @@ rules:
   - name: twilio_api_key_sid
     severity: HIGH
     pattern: '\bSK[a-z0-9]{32}\b'
-    tags: [twilio, sms]
-  - name: twilio_auth_token
-    severity: CRITICAL
-    pattern: '\b[a-z0-9]{32}\b'
     tags: [twilio, sms]
 
   # ── SendGrid / Mailgun / Mailchimp / Brevo ──
@@ -214,7 +194,9 @@ rules:
   # ── AI Providers ─────────────────────────
   - name: openai_api_key
     severity: CRITICAL
-    pattern: '\bsk-[a-zA-Z0-9\-_]{20,}\b'
+    # Note: sk- prefix overlaps with anthropic/deepseek/openrouter specific rules
+    # Those rules are more specific and should be checked first in dedup
+    pattern: '\bsk-proj-[a-zA-Z0-9\-_]{20,}\b'
     tags: [openai, ai]
   - name: openai_org_key
     severity: HIGH
@@ -240,10 +222,6 @@ rules:
     severity: HIGH
     pattern: '\br8_[0-9a-fA-F]{40,}\b'
     tags: [replicate, ai]
-  - name: cohere_api_key
-    severity: HIGH
-    pattern: '\b[A-Za-z0-9]{40}\b'
-    tags: [cohere, ai]
   - name: groq_api_key
     severity: HIGH
     pattern: '\bgsk_[a-zA-Z0-9]{30,}\b'
@@ -292,10 +270,6 @@ rules:
     severity: MEDIUM
     pattern: '\bmm-[a-zA-Z0-9]{30,}\b'
     tags: [minimax, ai]
-  - name: alibaba_model_studio_api_key
-    severity: MEDIUM
-    pattern: '\bsk-[a-f0-9]{32,}\b'
-    tags: [alibaba, ai]
   - name: moonshot_api_key
     severity: MEDIUM
     pattern: '\bms-[a-zA-Z0-9]{30,}\b'
@@ -312,10 +286,50 @@ rules:
     severity: MEDIUM
     pattern: '\bzai-[a-zA-Z0-9]{30,}\b'
     tags: [zai, ai]
+  - name: together_api_key
+    severity: HIGH
+    pattern: '\btogether_[a-zA-Z0-9]{30,}\b'
+    tags: [together, ai]
+  - name: tavily_api_key
+    severity: HIGH
+    pattern: '\btvly-[a-zA-Z0-9]{30,}\b'
+    tags: [tavily, ai]
+  - name: langsmith_api_key
+    severity: HIGH
+    pattern: '\bls_[a-zA-Z0-9]{30,}\b'
+    tags: [langsmith, ai]
+
+  # ── Vercel (prefixed tokens) ──────────────
+  - name: vercel_personal_token
+    severity: CRITICAL
+    pattern: '\bvcp_[a-zA-Z0-9]{20,}\b'
+    tags: [vercel, hosting]
+  - name: vercel_integration_token
+    severity: HIGH
+    pattern: '\bvci_[a-zA-Z0-9]{20,}\b'
+    tags: [vercel, hosting]
+  - name: vercel_app_token
+    severity: HIGH
+    pattern: '\bvca_[a-zA-Z0-9]{20,}\b'
+    tags: [vercel, hosting]
+  - name: vercel_refresh_token
+    severity: MEDIUM
+    pattern: '\bvcr_[a-zA-Z0-9]{20,}\b'
+    tags: [vercel, hosting]
+  - name: vercel_api_key
+    severity: HIGH
+    pattern: '\bvck_[a-zA-Z0-9]{20,}\b'
+    tags: [vercel, hosting]
+
+  # ── Modern Database / Hosting ─────────────
+  - name: neon_api_key
+    severity: HIGH
+    pattern: '\bneon_[a-zA-Z0-9]{30,}\b'
+    tags: [neon, database]
 
   # ── Modern SaaS ──────────────────────────
   - name: supabase_jwt_secret
-    severity: HIGH
+    severity: MEDIUM
     pattern: '\beyJ[a-z0-9\-_]{30,}\.eyJ[a-z0-9\-_]{30,}\b'
     tags: [supabase, saas]
   - name: planetscale_password
@@ -336,7 +350,7 @@ rules:
     tags: [ngrok, networking]
   - name: cloudflare_api_token
     severity: CRITICAL
-    pattern: '\b[0-9a-zA-Z\-_]{40,}\b'
+    pattern: '(?i)(?:cloudflare)[_-]?(?:api[_-]?)?(?:token|key)\s*[:=]\s*[''"][0-9a-zA-Z\-_]{40}[''"]'
     tags: [cloudflare, cdn]
   - name: cloudflare_origin_ca_key
     severity: HIGH
@@ -352,12 +366,8 @@ rules:
     tags: [grafana, monitoring]
   - name: algolia_api_key
     severity: HIGH
-    pattern: '\b[0-9a-zA-Z]{32}\b'
+    pattern: '(?i)(?:algolia)[_-]?(?:api[_-]?)?(?:key|token)\s*[:=]\s*[''"][0-9a-zA-Z]{32}[''"]'
     tags: [algolia, search]
-  - name: vercel_api_token
-    severity: CRITICAL
-    pattern: '\b[a-zA-Z0-9]{24,}\b'
-    tags: [vercel, hosting]
   - name: digitalocean_personal_token
     severity: HIGH
     pattern: '\bdop_v1_[a-f0-9]{64}\b'
@@ -382,11 +392,11 @@ rules:
   # ── Observability / DevOps ───────────────
   - name: datadog_api_key
     severity: HIGH
-    pattern: '\b[0-9a-f]{32}\b'
+    pattern: '(?i)(?:datadog|dd)[_-]?(?:api[_-]?)?key\s*[:=]\s*[''"][a-f0-9]{32}[''"]'
     tags: [datadog, monitoring]
   - name: datadog_app_key
     severity: HIGH
-    pattern: '\b[A-Za-z0-9]{40}\b'
+    pattern: '(?i)(?:datadog|dd)[_-]?app[_-]?key\s*[:=]\s*[''"][A-Za-z0-9]{40}[''"]'
     tags: [datadog, monitoring]
   - name: sentry_dsn
     severity: MEDIUM
@@ -402,15 +412,11 @@ rules:
     tags: [pagerduty, monitoring]
   - name: pagerduty_oauth_token
     severity: HIGH
-    pattern: '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+    pattern: '(?i)pagerduty[_-]?(?:oauth[_-]?)?token\s*[:=]\s*[''"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[''"]'
     tags: [pagerduty, monitoring]
   - name: sumo_logic_access_id
     severity: MEDIUM
     pattern: '\bsus[a-zA-Z0-9]{12,}\b'
-    tags: [sumologic, monitoring]
-  - name: sumo_logic_access_key
-    severity: HIGH
-    pattern: '\b[a-zA-Z0-9]{64}\b'
     tags: [sumologic, monitoring]
 
   # ── HashiCorp Vault / Infra ──────────────
@@ -418,30 +424,18 @@ rules:
     severity: CRITICAL
     pattern: '\bhvs\.[a-zA-Z0-9\-_]{30,}\b'
     tags: [vault, hashicorp]
-  - name: vault_approle_id
-    severity: HIGH
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [vault, hashicorp]
   - name: vault_approle_secret
     severity: CRITICAL
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
+    pattern: '(?i)(?:vault)[_-]?(?:approle[_-]?)?(?:secret|role[_-]?id)\s*[:=]\s*[''"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}[''"]'
     tags: [vault, hashicorp]
   - name: docker_hub_pat
     severity: HIGH
     pattern: '\bdckr_pat_[a-zA-Z0-9\-_]{40,}\b'
     tags: [docker, container]
-  - name: docker_hub_password
-    severity: HIGH
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [docker, container]
   - name: kubernetes_secret
     severity: HIGH
     pattern: '(?i)apiVersion:\s*v1\s*\nkind:\s*Secret\s*\n'
     tags: [kubernetes, container]
-  - name: terraform_api_token
-    severity: HIGH
-    pattern: '\b[a-zA-Z0-9\-_]{40,}\b'
-    tags: [terraform, hashicorp]
   - name: pulumi_access_token
     severity: CRITICAL
     pattern: '\bpul-[a-f0-9]{40}\b'
@@ -460,12 +454,16 @@ rules:
     severity: HIGH
     pattern: '\bamzn\.mws\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
     tags: [amazon, marketplace]
+  - name: paypal_braintree_token
+    severity: CRITICAL
+    pattern: '\baccess_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}\b'
+    tags: [braintree, payments]
+  - name: razorpay_api_key
+    severity: HIGH
+    pattern: '\brzp_(?:test|live)_[A-Za-z0-9]{14,}\b'
+    tags: [razorpay, payments]
 
   # ── Maps / Geo ───────────────────────────
-  - name: google_maps_api_key
-    severity: HIGH
-    pattern: '\bAIza[0-9A-Za-z\-_]{35}\b'
-    tags: [google, maps]
   - name: mapbox_api_token
     severity: HIGH
     pattern: '\bsk\.[a-zA-Z0-9]{80,110}\b'
@@ -480,7 +478,7 @@ rules:
   # ── Identity ─────────────────────────────
   - name: okta_api_token
     severity: HIGH
-    pattern: '\b[0-9a-zA-Z\-_]{40,}\b'
+    pattern: '(?i)okta[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][a-zA-Z0-9\-_]{40,}[''"]'
     tags: [okta, identity]
 
   # ── Misc SaaS ────────────────────────────
@@ -492,6 +490,114 @@ rules:
     severity: HIGH
     pattern: '\b[0-9/]+/[0-9a-f]{32}\b'
     tags: [asana, productivity]
+
+  # ── CI/CD ────────────────────────────────
+  - name: circleci_token
+    severity: HIGH
+    pattern: '(?i)(?:circleci|circle)[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][a-f0-9]{40}[''"]'
+    tags: [circleci, ci]
+  - name: jenkins_api_token
+    severity: HIGH
+    pattern: '(?i)jenkins[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][a-f0-9]{32}[''"]'
+    tags: [jenkins, ci]
+  - name: gitlab_runner_registration_token
+    severity: CRITICAL
+    pattern: '\bGR1348941[A-Za-z0-9\-_]{10,}\b'
+    tags: [gitlab, ci]
+
+  # ── Hosting / CDN ────────────────────────
+  - name: netlify_api_token
+    severity: HIGH
+    pattern: '(?i)netlify[_-]?(?:api[_-]?)?(?:token|key)\s*[:=]\s*[''"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}[''"]'
+    tags: [netlify, hosting]
+
+  # ── Cloud (non-AWS) ──────────────────────
+  - name: oracle_cloud_ocid
+    severity: MEDIUM
+    pattern: '\bocid1\.[a-z0-9]+\.[a-z0-9]+\.\.\.\b'
+    tags: [oracle, cloud]
+
+  # ── Push Notifications ───────────────────
+  - name: onesignal_api_key
+    severity: HIGH
+    pattern: '(?i)onesignal[_-]?(?:api[_-]?)?key\s*[:=]\s*[''"][a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}[''"]'
+    tags: [onesignal, notifications]
+
+  # ── LaunchDarkly ─────────────────────────
+  - name: launchdarkly_api_key
+    severity: HIGH
+    pattern: '\bsdk-[a-f0-9]{32}\b'
+    tags: [launchdarkly, feature-flags]
+  - name: launchdarkly_access_token
+    severity: HIGH
+    pattern: '\bapi-[a-f0-9]{32}\b'
+    tags: [launchdarkly, feature-flags]
+
+  # ── Elastic Cloud ────────────────────────
+  - name: elasticsearch_cloud_id
+    severity: LOW
+    pattern: '\b[a-zA-Z0-9\-_]{40,}:[a-zA-Z0-9\-_]{10,}\b'
+    tags: [elastic, cloud]
+
+  # ── CRM / Sales ──────────────────────────
+  - name: hubspot_api_key
+    severity: HIGH
+    pattern: '(?i)hubspot[_-]?(?:api[_-]?)?key\s*[:=]\s*[''"][0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}[''"]'
+    tags: [hubspot, crm]
+
+  # ── Analytics ────────────────────────────
+  - name: mixpanel_api_token
+    severity: MEDIUM
+    pattern: '(?i)mixpanel[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][a-f0-9]{32}[''"]'
+    tags: [mixpanel, analytics]
+  - name: segment_write_key
+    severity: HIGH
+    pattern: '(?i)segment[_-]?(?:write[_-]?)?key\s*[:=]\s*[''"][a-zA-Z0-9\-_]{32,}[''"]'
+    tags: [segment, analytics]
+
+  # ── Infrastructure ───────────────────────
+  - name: pypi_api_token
+    severity: CRITICAL
+    pattern: '\bpypi-[A-Za-z0-9\-_]{40,}\b'
+    tags: [pypi, package-manager]
+  - name: rubygems_api_key
+    severity: HIGH
+    pattern: '\brubygems-[a-f0-9]{40}\b'
+    tags: [rubygems, package-manager]
+  - name: ansible_vault_password
+    severity: MEDIUM
+    pattern: '(?i)ansible_vault_password\s*[:=]\s*.+'
+    tags: [ansible, infrastructure]
+
+  # ── Productivity / Design ────────────────
+  - name: figma_api_token
+    severity: HIGH
+    pattern: '\bfigd_[a-zA-Z0-9\-_]{20,}\b'
+    tags: [figma, design]
+  - name: notion_integration_token
+    severity: HIGH
+    pattern: '\bsecret_[a-zA-Z0-9]{43}\b'
+    tags: [notion, productivity]
+
+  # ── Social Media ─────────────────────────
+  - name: twitter_bearer_token
+    severity: HIGH
+    pattern: '\bAAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%]{80,}\b'
+    tags: [twitter, social]
+
+  # ── Misc / Productivity ───────────────────
+  - name: wakatime_api_key
+    severity: MEDIUM
+    pattern: '\bwaka_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
+    tags: [wakatime, productivity]
+  - name: airtable_api_key
+    severity: HIGH
+    pattern: '\bkey[A-Za-z0-9]{14,}\b'
+    tags: [airtable, database]
+  - name: recaptcha_key
+    severity: MEDIUM
+    pattern: '\b6L[eLd][A-Za-z0-9\-_]{30,}\b'
+    tags: [recaptcha, google]
 
   # ── JWT ──────────────────────────────────
   - name: jwt_token
@@ -543,158 +649,6 @@ rules:
     pattern: '\bsqlite[^:]*://[^\s]+'
     tags: [database, sqlite]
 
-  # ── Infrastructure ───────────────────────
-  - name: pypi_api_token
-    severity: CRITICAL
-    pattern: '\bpypi-[A-Za-z0-9\-_]{40,}\b'
-    tags: [pypi, package-manager]
-  - name: rubygems_api_key
-    severity: HIGH
-    pattern: '\brubygems-[a-f0-9]{40}\b'
-    tags: [rubygems, package-manager]
-  - name: ansible_vault_password
-    severity: MEDIUM
-    pattern: '(?i)ansible_vault_password\s*[:=]\s*.+'
-    tags: [ansible, infrastructure]
-
-  # ── Data / Analytics ─────────────────────
-  - name: segment_api_key
-    severity: MEDIUM
-    pattern: '\b[a-zA-Z0-9-_]{32,}\b'
-    tags: [segment, analytics]
-  - name: mixpanel_api_token
-    severity: MEDIUM
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [mixpanel, analytics]
-
-  # ── CRM / Sales ──────────────────────────
-  - name: hubspot_api_key
-    severity: HIGH
-    pattern: '\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b'
-    tags: [hubspot, crm]
-
-  # ── Monitoring / Observability ───────────
-  - name: elastic_cloud_key
-    severity: HIGH
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [elastic, search]
-  - name: logz_io_token
-    severity: HIGH
-    pattern: '\b[a-zA-Z0-9]{32,}\b'
-    tags: [logz, monitoring]
-  - name: rollbar_access_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [rollbar, monitoring]
-  - name: papertrail_api_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [papertrail, monitoring]
-
-  # ── Productivity / Design ────────────────
-  - name: figma_api_token
-    severity: HIGH
-    pattern: '\bfigd_[a-zA-Z0-9\-_]{20,}\b'
-    tags: [figma, design]
-  - name: notion_integration_token
-    severity: HIGH
-    pattern: '\bsecret_[a-zA-Z0-9]{43}\b'
-    tags: [notion, productivity]
-
-  # ── Social Media ─────────────────────────
-  - name: twitter_api_key
-    severity: MEDIUM
-    pattern: '\b[a-zA-Z0-9]{25}\b'
-    tags: [twitter, social]
-  - name: twitter_api_secret
-    severity: CRITICAL
-    pattern: '\b[a-zA-Z0-9]{50}\b'
-    tags: [twitter, social]
-
-  # ── CI/CD ────────────────────────────────
-  - name: circleci_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{40}\b'
-    tags: [circleci, ci]
-  - name: jenkins_api_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [jenkins, ci]
-  - name: travis_ci_api_token
-    severity: HIGH
-    pattern: '\b[a-zA-Z0-9\-_]{22,}\b'
-    tags: [travis, ci]
-  - name: gitlab_runner_registration_token
-    severity: CRITICAL
-    pattern: '\bGR1348941[A-Za-z0-9\-_]{10,}\b'
-    tags: [gitlab, ci]
-
-  # ── Hosting / CDN ────────────────────────
-  - name: netlify_api_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [netlify, hosting]
-
-  # ── Cloud (non-AWS) ──────────────────────
-  - name: oracle_cloud_ocid
-    severity: MEDIUM
-    pattern: '\bocid1\.[a-z0-9]+\.[a-z0-9]+\.\.\.\b'
-    tags: [oracle, cloud]
-
-  # ── Payment / Fintech ────────────────────
-  - name: paypal_braintree_token
-    severity: CRITICAL
-    pattern: '\baccess_token\$production\$[a-z0-9]{16}\$[a-f0-9]{32}\b'
-    tags: [braintree, payments]
-  - name: recurly_api_key
-    severity: HIGH
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [recurly, payments]
-  - name: razorpay_api_key
-    severity: HIGH
-    pattern: '\brzp_(?:test|live)_[A-Za-z0-9]{14,}\b'
-    tags: [razorpay, payments]
-
-  # ── Media / CDN ──────────────────────────
-  - name: cloudinary_api_key
-    severity: MEDIUM
-    pattern: '\b[0-9]{6,15}\b'
-    tags: [cloudinary, media]
-
-  # ── Push Notifications ───────────────────
-  - name: onesignal_api_key
-    severity: HIGH
-    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [onesignal, notifications]
-
-  # ── LaunchDarkly ─────────────────────────
-  - name: launchdarkly_api_key
-    severity: HIGH
-    pattern: '\bsdk-[a-f0-9]{32}\b'
-    tags: [launchdarkly, feature-flags]
-  - name: launchdarkly_access_token
-    severity: HIGH
-    pattern: '\bapi-[a-f0-9]{32}\b'
-    tags: [launchdarkly, feature-flags]
-
-  # ── Elastic Cloud ────────────────────────
-  - name: elasticsearch_cloud_id
-    severity: LOW
-    pattern: '\b[a-zA-Z0-9\-_]{40,}:[a-zA-Z0-9\-_]{10,}\b'
-    tags: [elastic, cloud]
-
-  # ── Mixpanel ─────────────────────────────
-  - name: mixpanel_service_token
-    severity: HIGH
-    pattern: '\b[a-f0-9]{32}\b'
-    tags: [mixpanel, analytics]
-
-  # ── Segment ──────────────────────────────
-  - name: segment_write_key
-    severity: HIGH
-    pattern: '\b[a-zA-Z0-9-_]{32,}\b'
-    tags: [segment, analytics]
-
   # ── SPA embedded config ──────────────────
   - name: firebase_config
     severity: MEDIUM
@@ -705,7 +659,7 @@ rules:
     pattern: 'UserPoolId:\s*[''"][a-zA-Z0-9_]+[''"]'
     tags: [aws, spa]
 
-  # ── Generic patterns ─────────────────────
+  # ── Generic / catch-all ──────────────────
   - name: generic_secret
     severity: HIGH
     pattern: '(?i)(?:secret|password|passwd|pwd|token|api[_-]?key|access[_-]?key|auth[_-]?token|private[_-]?key)\s*[:=]\s*[''"]([A-Za-z0-9_\-+!@#$%^&*()=]{20,})[''"]'
@@ -715,21 +669,9 @@ rules:
     pattern: '(?i)^\s*(?:export\s+)?(?:SECRET|TOKEN|API_KEY|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY)\s*=\s*[''"]([A-Za-z0-9_\-+!@#$%^&*()=]{20,})[''"]'
     tags: [generic, dotenv]
   - name: basic_auth_header
-    severity: HIGH
+    severity: MEDIUM
     pattern: '\b(?:Basic|Bearer)\s+[A-Za-z0-9\-_+/=]{20,}\b'
     tags: [generic, auth]
-  - name: wakatime_api_key
-    severity: MEDIUM
-    pattern: '\bwaka_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
-    tags: [wakatime, productivity]
-  - name: airtable_api_key
-    severity: HIGH
-    pattern: '\bkey[A-Za-z0-9]{14,}\b'
-    tags: [airtable, database]
-  - name: recaptcha_key
-    severity: MEDIUM
-    pattern: '\b6L[eLd][A-Za-z0-9\-_]{30,}\b'
-    tags: [recaptcha, google]
   - name: credential_url
     severity: HIGH
     pattern: '\bhttps?://[^\s:@]+:[^\s:@]+@[^\s]{3,}\b'
@@ -738,14 +680,6 @@ rules:
     severity: HIGH
     pattern: '(?i)(?:x-)?api-?key\s*:\s*[''"]([A-Za-z0-9_\-+!@#$%^&*()=]{20,})[''"]'
     tags: [generic, api-key]
-  - name: heroku_api_key
-    severity: HIGH
-    pattern: '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
-    tags: [heroku, hosting]
-  - name: heroku_deploy_key
-    severity: HIGH
-    pattern: '-----BEGIN RSA PRIVATE KEY-----'
-    tags: [heroku, hosting]
   - name: ssh_private_key
     severity: HIGH
     pattern: '\bssh-(?:rsa|dss|ed25519)\s+[A-Za-z0-9+/=]{100,}\b'

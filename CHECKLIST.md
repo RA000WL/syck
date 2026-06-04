@@ -24,10 +24,10 @@
 - [ ] Git history scanning
 
 ## Rules
-- [x] 162 embedded YAML rules
+- [x] 166 embedded YAML rules (parity with Python's 166 unique rules)
 - [x] Custom rules file override (--rules)
-- [ ] Port remaining ~18 missing rules (Python has 180)
-- [ ] Fix ~17 RE2-incompatible patterns (lookahead/lookbehind)
+- [x] Port missing rules (vault_approle_id/secret, docker_hub_password, papertrail_api_token)
+- [x] Fix kubernetes_secret case-insensitive flag
 
 ## CLI Flags
 - [x] --severity
@@ -85,7 +85,7 @@
 - [ ] Release binaries
 
 ## Benchmark Parity
+- [x] Rules parity: 166 unique rules in both Python and Go
 - [ ] Match Python: 160 findings across 39 files
-- [x] Current: 146 findings across 38 files (default, no decode flags)
-- [x] With all flags: 153 findings
-- [ ] Delta: 14 missing (18 missing rules, no entropy token scan gap)
+- [x] Current: 146 findings (default) / 153 (with --decode-base64)
+- [ ] Remaining gap: 7 findings from scanner engine differences (dedup/word-boundary behavior on generic rules)
