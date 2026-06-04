@@ -24,6 +24,7 @@ type CrawlConfig struct {
 	CookieFile      string // path to persist cookies between runs (empty = in-memory)
 	Concurrency     int    // max concurrent fetches (default 10)
 	HostConcurrency int    // max concurrent fetches per host (default 2)
+	RespectRobots   bool   // respect robots.txt Disallow rules (default true)
 }
 
 type hostRateLimiter struct {
@@ -70,6 +71,7 @@ type crawler struct {
 	client     *http.Client
 	rateLim    *hostRateLimiter
 	hostSema   *HostSemaphores
+	robots     *RobotsCache
 	mu         sync.Mutex // protects results and visited
 	results    []CrawledURL
 	visited    map[string]bool
@@ -136,6 +138,11 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		debug:   cfg.Debug,
 	}
 
+	// Initialize robots.txt cache if enabled
+	if cfg.RespectRobots {
+		c.robots = NewRobotsCache(client, cfg.UserAgent)
+	}
+
 	// Seed the queue
 	for _, u := range initialURLs {
 		c.queue = append(c.queue, queueEntry{url: u, depth: 0})
@@ -194,6 +201,21 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		go func(e queueEntry, h string) {
 			defer wg.Done()
 			defer c.hostSema.Release(h)
+
+			// Check robots.txt
+			if c.robots != nil && !c.robots.Allowed(e.url) {
+				if c.debug {
+					fmt.Printf("[debug] robots.txt disallows %s\n", e.url)
+				}
+				return
+			}
+
+			// Respect crawl-delay from robots.txt
+			if c.robots != nil {
+				if delay := c.robots.CrawlDelay(e.url); delay > 0 {
+					time.Sleep(delay)
+				}
+			}
 
 			var content, contentType string
 			var fetchErr error
@@ -329,5 +351,9 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 		contentType = "application/octet-stream"
 	}
 
-	return string(body), contentType, nil
+	// Auto-detect encoding and convert to UTF-8
+	charset := DetectEncoding(contentType, body)
+	utf8Body, _ := ConvertToUTF8(body, charset)
+
+	return string(utf8Body), contentType, nil
 }

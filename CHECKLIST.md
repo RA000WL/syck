@@ -69,6 +69,7 @@
 - [x] --cookie-file (persist cookies to file between runs)
 - [x] --concurrency (max concurrent fetches, default 10)
 - [x] --host-concurrency (max concurrent fetches per host, default 2)
+- [x] --ignore-robots (skip robots.txt Disallow rules)
 - [ ] --git-history
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
@@ -114,8 +115,8 @@
 - [x] Parallel fetching with worker pool
 - [x] Per-host concurrency limits (semaphore per hostname)
 - [x] Clean Crawler struct refactor (stateful, holds jar/semaphores)
-- [ ] Robots.txt support (Phase 2)
-- [ ] Encoding detection + auto-conversion (Phase 2)
+- [x] Robots.txt support (Phase 2)
+- [x] Encoding detection + auto-conversion (Phase 2)
 - [ ] SQLite URL cache across runs (Phase 3)
 - [ ] Env var config (SYCK_*) (Phase 3)
 

@@ -71,6 +71,7 @@ var (
 	cookieFile     string
 	concurrency    int
 	hostConcurrency int
+	ignoreRobots   bool
 )
 
 func init() {
@@ -108,6 +109,7 @@ func init() {
 	scanCmd.Flags().StringVar(&cookieFile, "cookie-file", "", "persist cookies to file between runs")
 	scanCmd.Flags().IntVar(&concurrency, "concurrency", 10, "max concurrent fetches")
 	scanCmd.Flags().IntVar(&hostConcurrency, "host-concurrency", 2, "max concurrent fetches per host")
+	scanCmd.Flags().BoolVar(&ignoreRobots, "ignore-robots", false, "ignore robots.txt Disallow rules")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -212,6 +214,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		CookieFile:      cookieFile,
 		Concurrency:     concurrency,
 		HostConcurrency: hostConcurrency,
+		RespectRobots:   !ignoreRobots,
 	}
 
 	var findings []finding.Finding

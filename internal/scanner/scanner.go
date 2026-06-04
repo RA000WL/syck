@@ -45,6 +45,7 @@ type Config struct {
 	CookieFile     string
 	Concurrency    int
 	HostConcurrency int
+	RespectRobots   bool
 }
 
 var textExtensions = map[string]bool{
@@ -495,6 +496,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		CookieFile:      cfg.CookieFile,
 		Concurrency:     cfg.Concurrency,
 		HostConcurrency: cfg.HostConcurrency,
+		RespectRobots:   cfg.RespectRobots,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)
