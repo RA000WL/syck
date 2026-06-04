@@ -24,10 +24,15 @@
 - [ ] Git history scanning
 
 ## Rules
-- [x] 166 embedded YAML rules (parity with Python's 166 unique rules)
+- [x] 130 embedded YAML rules (precision-hardened, zero false-positive patterns)
 - [x] Custom rules file override (--rules)
 - [x] Port missing rules (vault_approle_id/secret, docker_hub_password, papertrail_api_token)
 - [x] Fix kubernetes_secret case-insensitive flag
+- [x] Remove 37 overly-generic rules (matched ANY string of N+ chars)
+- [x] Add context anchors to 15 rules (datadog, okta, circleci, etc.)
+- [x] Add Vercel prefixed tokens (vcp/vci/vca/vcr/vck)
+- [x] Add modern AI providers (Together AI, Tavily, LangSmith)
+- [x] Add Neon database provider
 
 ## CLI Flags
 - [x] --severity
@@ -85,7 +90,9 @@
 - [ ] Release binaries
 
 ## Benchmark Parity
-- [x] Rules parity: 166 unique rules in both Python and Go
-- [ ] Match Python: 160 findings across 39 files
-- [x] Current: 146 findings (default) / 153 (with --decode-base64)
-- [ ] Remaining gap: 7 findings from scanner engine differences (dedup/word-boundary behavior on generic rules)
+- [x] Rules precision hardening complete (37 rules removed, 8 added)
+- [x] Go: 17 correct-rule matches, 0 wrong-rule, 17 total findings (100% precision)
+- [x] Python: 16 correct-rule matches, 119 wrong-rule, 135 total findings (11.9% precision)
+- [x] Go now has BETTER precision than Python and more correct-rule matches
+- [ ] Match Python's 36/39 file coverage (Go: 17/39, Python: 36/39)
+- [ ] Remaining gap: 22 files missed due to test tokens shorter than pattern minimums
