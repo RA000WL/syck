@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,39 @@ type CrawlConfig struct {
 	MaxDepth   int
 	Debug      bool
 	HTTPClient *http.Client
+	Headless   bool
+	RateLimit  int // requests per second (0 = unlimited)
+}
+
+type hostRateLimiter struct {
+	mu       sync.Mutex
+	lastTime map[string]time.Time
+	minGap   time.Duration
+}
+
+func newHostRateLimiter(rps int) *hostRateLimiter {
+	if rps <= 0 {
+		return nil
+	}
+	return &hostRateLimiter{
+		lastTime: make(map[string]time.Time),
+		minGap:   time.Second / time.Duration(rps),
+	}
+}
+
+func (h *hostRateLimiter) Wait(host string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if last, ok := h.lastTime[host]; ok {
+		wait := h.minGap - time.Since(last)
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+	}
+	h.lastTime[host] = time.Now()
 }
 
 type CrawledURL struct {
@@ -47,6 +81,21 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		client = defaultHTTPClient
 	}
 
+	var headless *HeadlessBrowser
+	if cfg.Headless {
+		var err error
+		headless, err = NewHeadlessBrowser()
+		if err != nil {
+			if cfg.Debug {
+				fmt.Printf("[debug] headless browser failed: %v, falling back to HTTP\n", err)
+			}
+		} else {
+			defer headless.Close()
+		}
+	}
+
+	rateLimiter := newHostRateLimiter(cfg.RateLimit)
+
 	var results []CrawledURL
 	visited := make(map[string]bool)
 	type queueEntry struct {
@@ -74,10 +123,31 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		}
 
 		visited[entry.url] = true
-		content, contentType, err := fetchURL(client, entry.url)
-		if err != nil {
+
+		// Rate limit per host
+		if parsed, err := url.Parse(entry.url); err == nil && rateLimiter != nil {
+			rateLimiter.Wait(parsed.Hostname())
+		}
+
+		var content, contentType string
+		var fetchErr error
+
+		// Try headless browser for HTML pages, fall back to HTTP
+		if headless != nil {
+			content, fetchErr = headless.FetchPage(entry.url, 15*time.Second)
+			contentType = "text/html"
+			if fetchErr != nil && cfg.Debug {
+				fmt.Printf("[debug] headless fetch %s: %v, trying HTTP\n", entry.url, fetchErr)
+			}
+		}
+
+		if content == "" {
+			content, contentType, fetchErr = fetchURL(client, entry.url)
+		}
+
+		if fetchErr != nil {
 			if cfg.Debug {
-				fmt.Printf("[debug] fetch %s: %v\n", entry.url, err)
+				fmt.Printf("[debug] fetch %s: %v\n", entry.url, fetchErr)
 			}
 			continue
 		}

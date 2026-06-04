@@ -38,6 +38,8 @@ type Config struct {
 	Scope          *regexp.Regexp
 	CrawlLimit     int
 	CrawlDepth     int
+	Headless       bool
+	RateLimit      int
 }
 
 var textExtensions = map[string]bool{
@@ -481,6 +483,8 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		Limit:      cfg.CrawlLimit,
 		MaxDepth:   cfg.CrawlDepth,
 		Debug:      cfg.Debug,
+		Headless:   cfg.Headless,
+		RateLimit:  cfg.RateLimit,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)

@@ -64,6 +64,8 @@ var (
 	scopeStr       string
 	crawlLimit     int
 	crawlDepth     int
+	headless       bool
+	rateLimit      int
 )
 
 func init() {
@@ -94,6 +96,8 @@ func init() {
 	scanCmd.Flags().StringVar(&scopeStr, "scope", "", "regex to filter crawled URLs by domain/path")
 	scanCmd.Flags().IntVar(&crawlLimit, "crawl-limit", 100, "max URLs to crawl")
 	scanCmd.Flags().IntVar(&crawlDepth, "crawl-depth", 3, "max link follow depth")
+	scanCmd.Flags().BoolVar(&headless, "headless", false, "use headless Chrome for JS-rendered pages (SPA)")
+	scanCmd.Flags().IntVar(&rateLimit, "rate-limit", 0, "max requests per second per host (0=unlimited)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -191,6 +195,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Scope:          scopeRegex,
 		CrawlLimit:     crawlLimit,
 		CrawlDepth:     crawlDepth,
+		Headless:       headless,
+		RateLimit:      rateLimit,
 	}
 
 	var findings []finding.Finding

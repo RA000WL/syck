@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"net/url"
+	"sort"
 	"testing"
 )
 
@@ -20,11 +21,13 @@ func TestExtractHTMLScripts(t *testing.T) {
 		t.Fatalf("expected 4 URLs, got %d: %v", len(urls), urls)
 	}
 	expected := []string{
-		"https://target.com/app.js",
+		"https://target.com/about",
 		"https://cdn.example.com/lib.js",
 		"https://target.com/styles.css",
-		"https://target.com/about",
+		"https://target.com/app.js",
 	}
+	sort.Strings(urls)
+	sort.Strings(expected)
 	for i, want := range expected {
 		if urls[i] != want {
 			t.Errorf("urls[%d] = %q, want %q", i, urls[i], want)

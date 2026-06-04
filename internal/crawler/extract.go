@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"golang.org/x/net/html"
+	"github.com/PuerkitoBio/goquery"
 )
 
 var jsImportRe = regexp.MustCompile(
@@ -27,56 +27,250 @@ func ExtractURLs(content string, base *url.URL, contentType string) []string {
 }
 
 func extractHTML(content string, base *url.URL) []string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(content))
+	if err != nil {
+		return nil
+	}
+
 	var urls []string
-	tokenizer := html.NewTokenizer(strings.NewReader(content))
+	seen := make(map[string]bool)
 
-	for {
-		tt := tokenizer.Next()
-		if tt == html.ErrorToken {
-			break
-		}
-		if tt != html.StartTagToken {
-			continue
-		}
-
-		token := tokenizer.Token()
-		tagName := token.Data
-
-		var attrName string
-		switch tagName {
-		case "script":
-			attrName = "src"
-		case "link":
-			attrName = "href"
-		case "a":
-			attrName = "href"
-		default:
-			continue
-		}
-
-		for _, attr := range token.Attr {
-			if attr.Key == attrName {
-				resolved := resolveURL(attr.Val, base)
-				if resolved != "" {
-					urls = append(urls, resolved)
-				}
-				break
-			}
+	addURL := func(raw string) {
+		resolved := resolveURL(raw, base)
+		if resolved != "" && !seen[resolved] {
+			seen[resolved] = true
+			urls = append(urls, resolved)
 		}
 	}
+
+	// a[href], a[ping]
+	doc.Find("a").Each(func(i int, s *goquery.Selection) {
+		if href, ok := s.Attr("href"); ok {
+			addURL(href)
+		}
+		if ping, ok := s.Attr("ping"); ok {
+			addURL(ping)
+		}
+	})
+
+	// link[href]
+	doc.Find("link[href]").Each(func(i int, s *goquery.Selection) {
+		if href, ok := s.Attr("href"); ok {
+			addURL(href)
+		}
+	})
+
+	// script[src]
+	doc.Find("script[src]").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+	})
+
+	// img[src], img[srcset]
+	doc.Find("img").Each(func(i int, s *goquery.Selection) {
+		for _, attr := range []string{"src", "dynsrc", "lowsrc", "longdesc"} {
+			if val, ok := s.Attr(attr); ok && val != "" && val != "#" {
+				addURL(val)
+			}
+		}
+		if srcset, ok := s.Attr("srcset"); ok {
+			for _, v := range parseSrcset(srcset) {
+				addURL(v)
+			}
+		}
+	})
+
+	// iframe[src]
+	doc.Find("iframe").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+	})
+
+	// frame[src]
+	doc.Find("frame[src]").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+	})
+
+	// embed[src]
+	doc.Find("embed[src]").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+	})
+
+	// object[data], object[codebase]
+	doc.Find("object").Each(func(i int, s *goquery.Selection) {
+		if data, ok := s.Attr("data"); ok {
+			addURL(data)
+		}
+		if cb, ok := s.Attr("codebase"); ok {
+			addURL(cb)
+		}
+	})
+
+	// video[src], video[poster]
+	doc.Find("video").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+		if poster, ok := s.Attr("poster"); ok {
+			addURL(poster)
+		}
+	})
+
+	// audio[src], source[src], source[srcset]
+	doc.Find("audio").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+		s.Find("source").Each(func(i int, s *goquery.Selection) {
+			if src, ok := s.Attr("src"); ok {
+				addURL(src)
+			}
+			if srcset, ok := s.Attr("srcset"); ok {
+				for _, v := range parseSrcset(srcset) {
+					addURL(v)
+				}
+			}
+		})
+	})
+
+	// source[src], source[srcset] (outside audio/video)
+	doc.Find("source").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+		if srcset, ok := s.Attr("srcset"); ok {
+			for _, v := range parseSrcset(srcset) {
+				addURL(v)
+			}
+		}
+	})
+
+	// table[background], td[background]
+	doc.Find("table[background]").Each(func(i int, s *goquery.Selection) {
+		if bg, ok := s.Attr("background"); ok {
+			addURL(bg)
+		}
+	})
+	doc.Find("td[background]").Each(func(i int, s *goquery.Selection) {
+		if bg, ok := s.Attr("background"); ok {
+			addURL(bg)
+		}
+	})
+
+	// body[background]
+	doc.Find("body[background]").Each(func(i int, s *goquery.Selection) {
+		if bg, ok := s.Attr("background"); ok {
+			addURL(bg)
+		}
+	})
+
+	// button[formaction]
+	doc.Find("button[formaction]").Each(func(i int, s *goquery.Selection) {
+		if fa, ok := s.Attr("formaction"); ok {
+			addURL(fa)
+		}
+	})
+
+	// blockquote[cite]
+	doc.Find("blockquote[cite]").Each(func(i int, s *goquery.Selection) {
+		if cite, ok := s.Attr("cite"); ok {
+			addURL(cite)
+		}
+	})
+
+	// input[type=image][src]
+	doc.Find("input[type='image' i]").Each(func(i int, s *goquery.Selection) {
+		if src, ok := s.Attr("src"); ok {
+			addURL(src)
+		}
+	})
+
+	// area[ping]
+	doc.Find("area[ping]").Each(func(i int, s *goquery.Selection) {
+		if ping, ok := s.Attr("ping"); ok {
+			addURL(ping)
+		}
+	})
+
+	// base[href]
+	doc.Find("base[href]").Each(func(i int, s *goquery.Selection) {
+		if href, ok := s.Attr("href"); ok {
+			addURL(href)
+		}
+	})
+
+	// meta[content] (refresh URLs)
+	doc.Find("meta[content]").Each(func(i int, s *goquery.Selection) {
+		if content, ok := s.Attr("content"); ok {
+			if idx := strings.Index(strings.ToLower(content), "url="); idx >= 0 {
+				addURL(content[idx+4:])
+			}
+		}
+	})
+
+	// html[manifest]
+	doc.Find("html[manifest]").Each(func(i int, s *goquery.Selection) {
+		if manifest, ok := s.Attr("manifest"); ok {
+			addURL(manifest)
+		}
+	})
+
+	// htmx attributes: hx-get, hx-post, hx-put, hx-patch
+	doc.Find("[hx-get],[hx-post],[hx-put],[hx-patch]").Each(func(i int, s *goquery.Selection) {
+		for _, attr := range []string{"hx-get", "hx-post", "hx-put", "hx-patch"} {
+			if val, ok := s.Attr(attr); ok {
+				addURL(val)
+			}
+		}
+	})
+
+	// svg image/script href
+	doc.Find("svg").Each(func(i int, s *goquery.Selection) {
+		s.Find("image").Each(func(i int, s *goquery.Selection) {
+			if href, ok := s.Attr("href"); ok {
+				addURL(href)
+			}
+		})
+		s.Find("script").Each(func(i int, s *goquery.Selection) {
+			if href, ok := s.Attr("href"); ok {
+				addURL(href)
+			}
+		})
+	})
+
+	// Inline script content — extract relative endpoints
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		text := s.Text()
+		if text == "" {
+			return
+		}
+		for _, m := range jsImportRe.FindAllStringSubmatch(text, -1) {
+			if len(m) >= 2 {
+				addURL(m[1])
+			}
+		}
+	})
 
 	return urls
 }
 
 func extractJS(content string, base *url.URL) []string {
 	var urls []string
+	seen := make(map[string]bool)
 	matches := jsImportRe.FindAllStringSubmatch(content, -1)
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
 		}
 		resolved := resolveURL(m[1], base)
-		if resolved != "" {
+		if resolved != "" && !seen[resolved] {
+			seen[resolved] = true
 			urls = append(urls, resolved)
 		}
 	}
@@ -86,6 +280,10 @@ func extractJS(content string, base *url.URL) []string {
 func resolveURL(raw string, base *url.URL) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, "data:") {
+		return ""
+	}
+	lc := strings.ToLower(raw)
+	if strings.HasPrefix(lc, "mailto:") || strings.HasPrefix(lc, "javascript:") || strings.HasPrefix(lc, "vbscript:") {
 		return ""
 	}
 	u, err := url.Parse(raw)
@@ -99,4 +297,20 @@ func resolveURL(raw string, base *url.URL) string {
 		return ""
 	}
 	return u.String()
+}
+
+// parseSrcset splits a srcset attribute value into individual URLs.
+func parseSrcset(srcset string) []string {
+	var urls []string
+	for _, part := range strings.Split(srcset, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Fields(part)
+		if len(fields) > 0 {
+			urls = append(urls, fields[0])
+		}
+	}
+	return urls
 }
