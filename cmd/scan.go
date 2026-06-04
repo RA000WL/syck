@@ -36,16 +36,23 @@ Examples:
 }
 
 var (
-	rulesFile   string
-	severityStr string
-	formatStr   string
-	outputFile  string
-	redact      bool
-	noDedup     bool
-	excludeStr  string
-	quiet       bool
-	workers     int
-	maxFileSize string
+	rulesFile      string
+	severityStr    string
+	formatStr      string
+	outputFile     string
+	redact         bool
+	noDedup        bool
+	excludeStr     string
+	quiet          bool
+	workers        int
+	maxFileSize    string
+	decodeBase64   bool
+	decodeHex      bool
+	decodeUnicode  bool
+	decodeURL      bool
+	decodeGzip     bool
+	jsReconstruct  bool
+	endpoints      bool
 )
 
 func init() {
@@ -59,6 +66,14 @@ func init() {
 	scanCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress banner/warnings")
 	scanCmd.Flags().IntVarP(&workers, "workers", "w", 10, "concurrent workers")
 	scanCmd.Flags().StringVar(&maxFileSize, "max-file-size", "5M", "maximum file size to scan")
+
+	scanCmd.Flags().BoolVar(&decodeBase64, "decode-base64", false, "base64 decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeHex, "decode-hex", false, "hex decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeUnicode, "decode-unicode", false, "decode \\uXXXX escapes and rescan")
+	scanCmd.Flags().BoolVar(&decodeURL, "decode-url", false, "URL-decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeGzip, "decode-gzip", false, "decompress gzip/zlib content and rescan")
+	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", false, "reconstruct JS concatenated strings")
+	scanCmd.Flags().BoolVar(&endpoints, "endpoints", false, "extract API/graphql/websocket URLs")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -103,13 +118,20 @@ func runScan(cmd *cobra.Command, args []string) error {
 	maxSize := parseSize(maxFileSize)
 
 	scanCfg := scanner.Config{
-		Workers:     workers,
-		MaxFileSize: maxSize,
-		Exclude:     excludeRegex,
-		Rules:       rs,
-		MinSeverity: sev,
-		NoDedup:     noDedup,
-		Debug:       debugMode,
+		Workers:        workers,
+		MaxFileSize:    maxSize,
+		Exclude:        excludeRegex,
+		Rules:          rs,
+		MinSeverity:    sev,
+		NoDedup:        noDedup,
+		Debug:          debugMode,
+		DecodeBase64:   decodeBase64,
+		DecodeHex:      decodeHex,
+		DecodeUnicode:  decodeUnicode,
+		DecodeURL:      decodeURL,
+		DecodeGzip:     decodeGzip,
+		JSReconstruct:  jsReconstruct,
+		Endpoints:      endpoints,
 	}
 
 	findings, err := scanner.ScanPaths(args, scanCfg)

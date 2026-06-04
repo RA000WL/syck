@@ -131,12 +131,36 @@ func hasMixedCase(s string) bool {
 	return hasUpper && hasLower
 }
 
-var AllDecoders = []struct {
-	Name    string
-	Decode  func(string) []DecodeResult
-}{
-	{"unicode", tryUnicodeEscapes},
-	{"url", tryURLEncoded},
-	{"base64", tryBase64},
-	{"hex", tryHex},
+type Flags struct {
+	Base64  bool
+	Hex     bool
+	Unicode bool
+	URL     bool
+}
+
+func (f Flags) HasAny() bool {
+	return f.Base64 || f.Hex || f.Unicode || f.URL
+}
+
+type decoderEntry struct {
+	Name   string
+	Decode func(string) []DecodeResult
+	Flag   bool
+}
+
+func activeDecoders(flags Flags) []decoderEntry {
+	var decoders []decoderEntry
+	if flags.Unicode {
+		decoders = append(decoders, decoderEntry{"unicode", tryUnicodeEscapes, true})
+	}
+	if flags.URL {
+		decoders = append(decoders, decoderEntry{"url", tryURLEncoded, true})
+	}
+	if flags.Base64 {
+		decoders = append(decoders, decoderEntry{"base64", tryBase64, true})
+	}
+	if flags.Hex {
+		decoders = append(decoders, decoderEntry{"hex", tryHex, true})
+	}
+	return decoders
 }

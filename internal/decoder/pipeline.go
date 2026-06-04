@@ -19,9 +19,11 @@ func DecodeAndRescan(
 	lineno int,
 	rs *rules.RuleSet,
 	minSev finding.Severity,
+	flags Flags,
 ) []finding.Finding {
 	var findings []finding.Finding
-	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth)
+	decoders := activeDecoders(flags)
+	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders)
 	return findings
 }
 
@@ -34,16 +36,17 @@ func recursiveDecode(
 	findings *[]finding.Finding,
 	depth int,
 	maxDepth int,
+	decoders []decoderEntry,
 ) {
 	if depth >= maxDepth {
 		return
 	}
 
-	for _, dec := range AllDecoders {
+	for _, dec := range decoders {
 		results := dec.Decode(text)
 		for _, res := range results {
 			scanDecoded(res.Text, path, lineno, res.SourceTag, rs, minSev, findings)
-			recursiveDecode(res.Text, path, lineno, rs, minSev, findings, depth+1, maxDepth)
+			recursiveDecode(res.Text, path, lineno, rs, minSev, findings, depth+1, maxDepth, decoders)
 		}
 	}
 }
