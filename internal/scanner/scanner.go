@@ -12,6 +12,7 @@ import (
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/jsrecon"
+	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/rules"
 )
 
@@ -175,6 +176,23 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 
 	content := string(raw)
 	findings = append(findings, scanContent(content, path, cfg, "", gzipScanned, hasDecoders)...)
+
+	// JSON-aware scan for .json files
+	jsonFindings := json_scanner.ScanJSONFile(path, content, cfg.Rules, cfg.MinSeverity)
+	if skipSecrets := gzipScanned; skipSecrets != nil && len(jsonFindings) > 0 {
+		var filtered []finding.Finding
+		for _, f := range jsonFindings {
+			key := f.Secret
+			if len(key) > 60 {
+				key = key[:60]
+			}
+			if !skipSecrets[key] {
+				filtered = append(filtered, f)
+			}
+		}
+		jsonFindings = filtered
+	}
+	findings = append(findings, jsonFindings...)
 
 	if cfg.JSReconstruct && content != "" {
 		jsFindings := jsrecon.ReconstructAndScan(content, path, cfg.Rules, cfg.MinSeverity)
