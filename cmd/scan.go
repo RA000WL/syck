@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"regexp"
@@ -19,8 +20,8 @@ import (
 
 var scanCmd = &cobra.Command{
 	Use:   "scan [paths...]",
-	Short: "Scan files and directories for secrets",
-	Long: `Scan files and directories for API keys, tokens, passwords,
+	Short: "Scan files, directories, or URLs for secrets",
+	Long: `Scan files, directories, or URLs for API keys, tokens, passwords,
 and other secrets.
 
 Examples:
@@ -28,7 +29,9 @@ Examples:
   syck scan ./src ./config
   syck scan . --severity CRITICAL
   syck scan . --format json -o results.json
-  syck scan . --redact --no-color`,
+  syck scan . --redact --no-color
+  syck scan -u https://example.com/app.js
+  syck scan -l urls.txt --scope "example\\.com" --crawl-limit 50`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runScan(cmd, args)
@@ -56,6 +59,11 @@ var (
 	pipe           bool
 	failOn         string
 	downgradeFP    bool
+	urlList        []string
+	urlFile        string
+	scopeStr       string
+	crawlLimit     int
+	crawlDepth     int
 )
 
 func init() {
@@ -80,11 +88,38 @@ func init() {
 	scanCmd.Flags().BoolVar(&pipe, "pipe", false, "scan from stdin")
 	scanCmd.Flags().StringVar(&failOn, "fail-on", "", "CI gate: exit 1 if findings at or above this severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)")
 	scanCmd.Flags().BoolVar(&downgradeFP, "downgrade-fp", false, "downgrade severity for findings in test/mock/vendor dirs and placeholder patterns")
+
+	scanCmd.Flags().StringArrayVarP(&urlList, "url", "u", nil, "URL to scan (can be repeated)")
+	scanCmd.Flags().StringVarP(&urlFile, "url-file", "l", "", "file containing URLs to scan (one per line)")
+	scanCmd.Flags().StringVar(&scopeStr, "scope", "", "regex to filter crawled URLs by domain/path")
+	scanCmd.Flags().IntVar(&crawlLimit, "crawl-limit", 100, "max URLs to crawl")
+	scanCmd.Flags().IntVar(&crawlDepth, "crawl-depth", 3, "max link follow depth")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
-	if !pipe && len(args) == 0 {
-		return fmt.Errorf("requires at least 1 path argument (or use --pipe for stdin)")
+	// Collect URLs from -u flags and -l file
+	var allURLs []string
+	allURLs = append(allURLs, urlList...)
+
+	if urlFile != "" {
+		f, err := os.Open(urlFile)
+		if err != nil {
+			return fmt.Errorf("open url file: %w", err)
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line != "" && !strings.HasPrefix(line, "#") {
+				allURLs = append(allURLs, line)
+			}
+		}
+	}
+
+	urlMode := len(allURLs) > 0
+
+	if !pipe && !urlMode && len(args) == 0 {
+		return fmt.Errorf("requires at least 1 path argument, --url, --url-file, or use --pipe for stdin")
 	}
 
 	v, err := config.Load(cfgFile)
@@ -127,6 +162,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	maxSize := parseSize(maxFileSize)
 
+	var scopeRegex *regexp.Regexp
+	if scopeStr != "" {
+		scopeRegex, err = regexp.Compile(scopeStr)
+		if err != nil {
+			return fmt.Errorf("invalid scope regex: %w", err)
+		}
+	}
+
 	scanCfg := scanner.Config{
 		Workers:        workers,
 		MaxFileSize:    maxSize,
@@ -143,11 +186,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 		JSReconstruct:  jsReconstruct,
 		Endpoints:      endpoints,
 		DowngradeFP:    downgradeFP,
+		URLs:           allURLs,
+		URLFile:        urlFile,
+		Scope:          scopeRegex,
+		CrawlLimit:     crawlLimit,
+		CrawlDepth:     crawlDepth,
 	}
 
 	var findings []finding.Finding
 
-	if pipe {
+	if urlMode {
+		findings, err = scanner.ScanURLs(allURLs, scanCfg)
+	} else if pipe {
 		findings, err = scanner.ScanReader(os.Stdin, scanCfg)
 	} else {
 		findings, err = scanner.ScanPaths(args, scanCfg)

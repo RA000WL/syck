@@ -36,7 +36,7 @@
 
 ## CLI Flags
 - [x] --severity
-- [x] --format (text/json)
+- [x] --format (text/json/sarif)
 - [x] --output (-o file)
 - [x] --redact
 - [x] --no-dedup
@@ -57,6 +57,12 @@
 - [x] --endpoints (flag wired, feature not implemented)
 - [x] --pipe (scan from stdin)
 - [x] --fail-on (CI gate: exit 1 if findings meet severity threshold)
+- [x] --downgrade-fp (auto-downgrade test/mock/vendor findings)
+- [x] --url / -u (URL to scan, can be repeated)
+- [x] --url-file / -l (file containing URLs)
+- [x] --scope (regex to filter crawled URLs)
+- [x] --crawl-limit (max URLs to crawl, default 100)
+- [x] --crawl-depth (max link follow depth, default 3)
 - [ ] --git-history
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
@@ -64,14 +70,14 @@
 ## Output Formatters
 - [x] Text (colorized terminal)
 - [x] JSON
-- [ ] SARIF 2.1.0
+- [x] SARIF 2.1.0
 - [ ] Markdown
 - [ ] CSV
 - [ ] HTML (dark-themed)
 
 ## Post-Processing Pipeline
 - [x] Deduplication
-- [ ] FP downgrade (test/mock/vendor dirs, placeholder patterns)
+- [x] FP downgrade (test/mock/vendor dirs, placeholder patterns)
 - [ ] .syckignore fingerprint support
 - [ ] Live secret validation (--validate)
 - [ ] Webhook dispatch (--webhook-url)
@@ -81,6 +87,14 @@
 - [x] File, Line, Column, RuleName, Severity, Secret, Context, Entropy
 - [x] ContextBefore field
 - [x] ContextAfter field
+
+## URL Scanning
+- [x] HTML/JS URL extraction (script tags, import/require statements)
+- [x] HTTP client with gzip support and redirect limits
+- [x] Scope filtering (regex-based domain/path filtering)
+- [x] Crawl limits (max URLs + max depth)
+- [x] Crawler with queue, visited set, and BFS traversal
+- [x] ScanURLs integration (fetch → scan content → dedup)
 
 ## Documentation / Infra
 - [x] Module path: github.com/RA000WL/syck

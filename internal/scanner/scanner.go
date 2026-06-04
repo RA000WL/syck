@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
@@ -32,6 +33,11 @@ type Config struct {
 	JSReconstruct  bool
 	Endpoints      bool
 	DowngradeFP    bool
+	URLs           []string
+	URLFile        string
+	Scope          *regexp.Regexp
+	CrawlLimit     int
+	CrawlDepth     int
 }
 
 var textExtensions = map[string]bool{
@@ -467,6 +473,33 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
+	crawlCfg := crawler.CrawlConfig{
+		Scope:      cfg.Scope,
+		Limit:      cfg.CrawlLimit,
+		MaxDepth:   cfg.CrawlDepth,
+		Debug:      cfg.Debug,
+	}
+
+	crawled := crawler.Crawl(urls, crawlCfg)
+
+	var allFindings []finding.Finding
+	for _, c := range crawled {
+		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
+		allFindings = append(allFindings, findings...)
+	}
+
+	if !cfg.NoDedup {
+		allFindings = finding.Deduplicate(allFindings)
+	}
+	if cfg.DowngradeFP {
+		allFindings = DowngradeFP(allFindings)
+	}
+
+	return allFindings, nil
 }
 
 func isTextFile(path string) bool {
