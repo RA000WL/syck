@@ -67,6 +67,10 @@ var (
 	headless       bool
 	rateLimit      int
 	userAgent      string
+	cookies        bool
+	cookieFile     string
+	concurrency    int
+	hostConcurrency int
 )
 
 func init() {
@@ -100,6 +104,10 @@ func init() {
 	scanCmd.Flags().BoolVar(&headless, "headless", false, "use headless Chrome for JS-rendered pages (SPA)")
 	scanCmd.Flags().IntVar(&rateLimit, "rate-limit", 0, "max requests per second per host (0=unlimited)")
 	scanCmd.Flags().StringVar(&userAgent, "user-agent", "", "custom User-Agent string (empty = random rotation)")
+	scanCmd.Flags().BoolVar(&cookies, "cookies", true, "enable cookie jar for session handling")
+	scanCmd.Flags().StringVar(&cookieFile, "cookie-file", "", "persist cookies to file between runs")
+	scanCmd.Flags().IntVar(&concurrency, "concurrency", 10, "max concurrent fetches")
+	scanCmd.Flags().IntVar(&hostConcurrency, "host-concurrency", 2, "max concurrent fetches per host")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -197,9 +205,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Scope:          scopeRegex,
 		CrawlLimit:     crawlLimit,
 		CrawlDepth:     crawlDepth,
-		Headless:       headless,
-		RateLimit:      rateLimit,
-		UserAgent:      userAgent,
+		Headless:        headless,
+		RateLimit:       rateLimit,
+		UserAgent:       userAgent,
+		Cookies:         cookies,
+		CookieFile:      cookieFile,
+		Concurrency:     concurrency,
+		HostConcurrency: hostConcurrency,
 	}
 
 	var findings []finding.Finding

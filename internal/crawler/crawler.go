@@ -12,14 +12,18 @@ import (
 )
 
 type CrawlConfig struct {
-	Scope      *regexp.Regexp
-	Limit      int
-	MaxDepth   int
-	Debug      bool
-	HTTPClient *http.Client
-	Headless   bool
-	RateLimit  int
-	UserAgent  string // empty = random rotation, set = fixed UA
+	Scope           *regexp.Regexp
+	Limit           int
+	MaxDepth        int
+	Debug           bool
+	HTTPClient      *http.Client
+	Headless        bool
+	RateLimit       int
+	UserAgent       string // empty = random rotation, set = fixed UA
+	Cookies         bool   // enable cookie jar (default true for URL mode)
+	CookieFile      string // path to persist cookies between runs (empty = in-memory)
+	Concurrency     int    // max concurrent fetches (default 10)
+	HostConcurrency int    // max concurrent fetches per host (default 2)
 }
 
 type hostRateLimiter struct {
@@ -60,6 +64,25 @@ type CrawledURL struct {
 	Depth       int
 }
 
+// crawler holds state for a crawl session.
+type crawler struct {
+	config     CrawlConfig
+	client     *http.Client
+	rateLim    *hostRateLimiter
+	hostSema   *HostSemaphores
+	mu         sync.Mutex // protects results and visited
+	results    []CrawledURL
+	visited    map[string]bool
+	queue      []queueEntry
+	queueMu    sync.Mutex
+	debug      bool
+}
+
+type queueEntry struct {
+	url   string
+	depth int
+}
+
 var defaultHTTPClient = &http.Client{
 	Timeout: 10 * time.Second,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -70,6 +93,8 @@ var defaultHTTPClient = &http.Client{
 	},
 }
 
+// Crawl fetches URLs and discovers linked pages via BFS.
+// This is the public API — creates a crawler and runs it.
 func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	if cfg.Limit <= 0 {
 		cfg.Limit = 100
@@ -77,17 +102,52 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	if cfg.MaxDepth <= 0 {
 		cfg.MaxDepth = 3
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = defaultHTTPClient
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 10
+	}
+	if cfg.HostConcurrency <= 0 {
+		cfg.HostConcurrency = 2
 	}
 
+	// Build HTTP client with optional cookie jar
+	client := cfg.HTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		}
+	}
+	if cfg.Cookies {
+		jar := newCookieJar(cfg.CookieFile)
+		client.Jar = jar
+	}
+
+	c := &crawler{
+		config:  cfg,
+		client:  client,
+		rateLim: newHostRateLimiter(cfg.RateLimit),
+		hostSema: NewHostSemaphores(cfg.Concurrency, cfg.HostConcurrency),
+		visited: make(map[string]bool),
+		debug:   cfg.Debug,
+	}
+
+	// Seed the queue
+	for _, u := range initialURLs {
+		c.queue = append(c.queue, queueEntry{url: u, depth: 0})
+	}
+
+	// Headless browser setup
 	var headless *HeadlessBrowser
 	if cfg.Headless {
 		var err error
 		headless, err = NewHeadlessBrowser()
 		if err != nil {
-			if cfg.Debug {
+			if c.debug {
 				fmt.Printf("[debug] headless browser failed: %v, falling back to HTTP\n", err)
 			}
 		} else {
@@ -95,27 +155,19 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		}
 	}
 
-	rateLimiter := newHostRateLimiter(cfg.RateLimit)
-
-	var results []CrawledURL
-	visited := make(map[string]bool)
-	type queueEntry struct {
-		url   string
-		depth int
-	}
-	var queue []queueEntry
-
-	for _, u := range initialURLs {
-		queue = append(queue, queueEntry{url: u, depth: 0})
-	}
-
-	for len(queue) > 0 && len(visited) < cfg.Limit {
-		entry := queue[0]
-		queue = queue[1:]
-
-		if visited[entry.url] {
-			continue
+	// BFS loop with parallel fetching
+	var wg sync.WaitGroup
+	for len(c.visited) < cfg.Limit {
+		entry := c.nextURL()
+		if entry == nil {
+			// Wait for in-flight requests to finish before checking again
+			wg.Wait()
+			entry = c.nextURL()
+			if entry == nil {
+				break // no more URLs to crawl
+			}
 		}
+
 		if entry.depth > cfg.MaxDepth {
 			continue
 		}
@@ -123,55 +175,116 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			continue
 		}
 
-		visited[entry.url] = true
+		c.markVisited(entry.url)
 
 		// Rate limit per host
-		if parsed, err := url.Parse(entry.url); err == nil && rateLimiter != nil {
-			rateLimiter.Wait(parsed.Hostname())
+		if parsed, err := url.Parse(entry.url); err == nil && c.rateLim != nil {
+			c.rateLim.Wait(parsed.Hostname())
 		}
 
-		var content, contentType string
-		var fetchErr error
-
-		// Try headless browser for HTML pages, fall back to HTTP
-		if headless != nil {
-			content, fetchErr = headless.FetchPage(entry.url, 15*time.Second)
-			contentType = "text/html"
-			if fetchErr != nil && cfg.Debug {
-				fmt.Printf("[debug] headless fetch %s: %v, trying HTTP\n", entry.url, fetchErr)
-			}
+		// Acquire semaphores (blocks if at capacity)
+		host := ""
+		if parsed, err := url.Parse(entry.url); err == nil {
+			host = parsed.Hostname()
 		}
+		c.hostSema.Acquire(host)
 
-		if content == "" {
-			content, contentType, fetchErr = fetchURL(client, entry.url, cfg.UserAgent)
-		}
+		entryVal := *entry
+		wg.Add(1)
+		go func(e queueEntry, h string) {
+			defer wg.Done()
+			defer c.hostSema.Release(h)
 
-		if fetchErr != nil {
-			if cfg.Debug {
-				fmt.Printf("[debug] fetch %s: %v\n", entry.url, fetchErr)
-			}
-			continue
-		}
+			var content, contentType string
+			var fetchErr error
 
-		results = append(results, CrawledURL{
-			URL:         entry.url,
-			Content:     content,
-			ContentType: contentType,
-			Depth:       entry.depth,
-		})
-
-		if entry.depth < cfg.MaxDepth && len(visited) < cfg.Limit {
-			base, _ := url.Parse(entry.url)
-			newURLs := ExtractURLs(content, base, contentType)
-			for _, nu := range newURLs {
-				if !visited[nu] {
-					queue = append(queue, queueEntry{url: nu, depth: entry.depth + 1})
+			// Try headless for HTML pages, fall back to HTTP
+			if headless != nil {
+				content, fetchErr = headless.FetchPage(e.url, 15*time.Second)
+				contentType = "text/html"
+				if fetchErr != nil && c.debug {
+					fmt.Printf("[debug] headless fetch %s: %v, trying HTTP\n", e.url, fetchErr)
 				}
 			}
-		}
+
+			if content == "" {
+				content, contentType, fetchErr = fetchURL(c.client, e.url, c.config.UserAgent)
+			}
+
+			if fetchErr != nil {
+				if c.debug {
+					fmt.Printf("[debug] fetch %s: %v\n", e.url, fetchErr)
+				}
+				return
+			}
+
+			c.addResult(CrawledURL{
+				URL:         e.url,
+				Content:     content,
+				ContentType: contentType,
+				Depth:       e.depth,
+			})
+
+			// Enqueue discovered URLs
+			if e.depth < cfg.MaxDepth && len(c.visited) < cfg.Limit {
+				base, _ := url.Parse(e.url)
+				newURLs := ExtractURLs(content, base, contentType)
+				c.enqueueURLs(newURLs, e.depth+1)
+			}
+		}(entryVal, host)
 	}
 
-	return results
+	wg.Wait()
+	return c.results
+}
+
+// nextURL pops the next unvisited URL from the queue.
+func (c *crawler) nextURL() *queueEntry {
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+
+	for len(c.queue) > 0 {
+		entry := c.queue[0]
+		c.queue = c.queue[1:]
+
+		c.mu.Lock()
+		visited := c.visited[entry.url]
+		c.mu.Unlock()
+
+		if !visited {
+			return &entry
+		}
+	}
+	return nil
+}
+
+// markVisited marks a URL as visited.
+func (c *crawler) markVisited(url string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.visited[url] = true
+}
+
+// addResult appends a crawled URL to results.
+func (c *crawler) addResult(r CrawledURL) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.results = append(c.results, r)
+}
+
+// enqueueURLs adds new URLs to the queue if not already visited.
+func (c *crawler) enqueueURLs(urls []string, depth int) {
+	c.queueMu.Lock()
+	defer c.queueMu.Unlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, u := range urls {
+		if !c.visited[u] {
+			c.queue = append(c.queue, queueEntry{url: u, depth: depth})
+		}
+	}
 }
 
 func fetchURL(client *http.Client, rawURL string, customUA string) (string, string, error) {

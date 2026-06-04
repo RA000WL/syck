@@ -41,6 +41,10 @@ type Config struct {
 	Headless       bool
 	RateLimit      int
 	UserAgent      string
+	Cookies        bool
+	CookieFile     string
+	Concurrency    int
+	HostConcurrency int
 }
 
 var textExtensions = map[string]bool{
@@ -480,13 +484,17 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 
 func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	crawlCfg := crawler.CrawlConfig{
-		Scope:      cfg.Scope,
-		Limit:      cfg.CrawlLimit,
-		MaxDepth:   cfg.CrawlDepth,
-		Debug:      cfg.Debug,
-		Headless:   cfg.Headless,
-		RateLimit:  cfg.RateLimit,
-		UserAgent:  cfg.UserAgent,
+		Scope:           cfg.Scope,
+		Limit:           cfg.CrawlLimit,
+		MaxDepth:        cfg.CrawlDepth,
+		Debug:           cfg.Debug,
+		Headless:        cfg.Headless,
+		RateLimit:       cfg.RateLimit,
+		UserAgent:       cfg.UserAgent,
+		Cookies:         cfg.Cookies,
+		CookieFile:      cfg.CookieFile,
+		Concurrency:     cfg.Concurrency,
+		HostConcurrency: cfg.HostConcurrency,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)
