@@ -63,6 +63,8 @@
 - [x] --scope (regex to filter crawled URLs)
 - [x] --crawl-limit (max URLs to crawl, default 100)
 - [x] --crawl-depth (max link follow depth, default 3)
+- [x] --headless (headless Chrome for SPA/JS-rendered pages via go-rod)
+- [x] --rate-limit (per-host request rate limiting with backoff)
 - [ ] --git-history
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
@@ -89,7 +91,10 @@
 - [x] ContextAfter field
 
 ## URL Scanning
-- [x] HTML/JS URL extraction (script tags, import/require statements)
+- [x] goquery-based HTML extraction (25+ tag types: a, link, script, img, iframe, frame, embed, object, video, audio, source, svg, table, button, blockquote, input, area, base, meta, htmx)
+- [x] JS import/require regex extraction
+- [x] Headless Chrome support via go-rod (SPA/JS-rendered pages)
+- [x] Per-host rate limiting with configurable RPS
 - [x] HTTP client with gzip support and redirect limits
 - [x] Scope filtering (regex-based domain/path filtering)
 - [x] Crawl limits (max URLs + max depth)

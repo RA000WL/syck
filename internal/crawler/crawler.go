@@ -18,7 +18,8 @@ type CrawlConfig struct {
 	Debug      bool
 	HTTPClient *http.Client
 	Headless   bool
-	RateLimit  int // requests per second (0 = unlimited)
+	RateLimit  int
+	UserAgent  string // empty = random rotation, set = fixed UA
 }
 
 type hostRateLimiter struct {
@@ -142,7 +143,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		}
 
 		if content == "" {
-			content, contentType, fetchErr = fetchURL(client, entry.url)
+			content, contentType, fetchErr = fetchURL(client, entry.url, cfg.UserAgent)
 		}
 
 		if fetchErr != nil {
@@ -173,12 +174,16 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	return results
 }
 
-func fetchURL(client *http.Client, rawURL string) (string, string, error) {
+func fetchURL(client *http.Client, rawURL string, customUA string) (string, string, error) {
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("User-Agent", "syck/2.0.0")
+	ua := customUA
+	if ua == "" {
+		ua = RandomUserAgent()
+	}
+	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Encoding", "gzip")
 

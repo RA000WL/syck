@@ -40,6 +40,7 @@ type Config struct {
 	CrawlDepth     int
 	Headless       bool
 	RateLimit      int
+	UserAgent      string
 }
 
 var textExtensions = map[string]bool{
@@ -485,6 +486,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		Debug:      cfg.Debug,
 		Headless:   cfg.Headless,
 		RateLimit:  cfg.RateLimit,
+		UserAgent:  cfg.UserAgent,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)

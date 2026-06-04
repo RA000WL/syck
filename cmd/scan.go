@@ -66,6 +66,7 @@ var (
 	crawlDepth     int
 	headless       bool
 	rateLimit      int
+	userAgent      string
 )
 
 func init() {
@@ -98,6 +99,7 @@ func init() {
 	scanCmd.Flags().IntVar(&crawlDepth, "crawl-depth", 3, "max link follow depth")
 	scanCmd.Flags().BoolVar(&headless, "headless", false, "use headless Chrome for JS-rendered pages (SPA)")
 	scanCmd.Flags().IntVar(&rateLimit, "rate-limit", 0, "max requests per second per host (0=unlimited)")
+	scanCmd.Flags().StringVar(&userAgent, "user-agent", "", "custom User-Agent string (empty = random rotation)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -197,6 +199,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		CrawlDepth:     crawlDepth,
 		Headless:       headless,
 		RateLimit:      rateLimit,
+		UserAgent:      userAgent,
 	}
 
 	var findings []finding.Finding
