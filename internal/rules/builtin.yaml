@@ -418,13 +418,25 @@ rules:
     severity: CRITICAL
     pattern: '\bhvs\.[a-zA-Z0-9\-_]{30,}\b'
     tags: [vault, hashicorp]
+  - name: vault_approle_id
+    severity: HIGH
+    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
+    tags: [vault, hashicorp]
+  - name: vault_approle_secret
+    severity: CRITICAL
+    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
+    tags: [vault, hashicorp]
   - name: docker_hub_pat
     severity: HIGH
     pattern: '\bdckr_pat_[a-zA-Z0-9\-_]{40,}\b'
     tags: [docker, container]
+  - name: docker_hub_password
+    severity: HIGH
+    pattern: '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b'
+    tags: [docker, container]
   - name: kubernetes_secret
     severity: HIGH
-    pattern: 'apiVersion:\s*v1\s*\nkind:\s*Secret\s*\n'
+    pattern: '(?i)apiVersion:\s*v1\s*\nkind:\s*Secret\s*\n'
     tags: [kubernetes, container]
   - name: terraform_api_token
     severity: HIGH
@@ -574,6 +586,10 @@ rules:
     severity: HIGH
     pattern: '\b[a-f0-9]{32}\b'
     tags: [rollbar, monitoring]
+  - name: papertrail_api_token
+    severity: HIGH
+    pattern: '\b[a-f0-9]{32}\b'
+    tags: [papertrail, monitoring]
 
   # ── Productivity / Design ────────────────
   - name: figma_api_token

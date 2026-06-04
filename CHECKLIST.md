@@ -6,8 +6,8 @@
 - [x] Path exclusion via regex
 - [x] Max file size filter
 - [x] Skip dirs (.git, node_modules, etc.)
-- [ ] Streaming mode for >1MB files
-- [ ] Gzip/zlib decompression before scanning
+- [x] Streaming mode for >1MB files
+- [x] Gzip/zlib decompression before scanning
 
 ## Detection Pipeline
 - [x] Line-by-line regex matching against all rules
@@ -18,7 +18,7 @@
 - [x] Unicode escape decode + rescan
 - [x] URL-encoded decode + rescan
 - [x] Recursive multi-layer decode (depth 4)
-- [ ] JSON-aware scan (walk parsed tree, check under known keys)
+- [x] JSON-aware scan (walk parsed tree, check under known keys)
 - [x] JS string reconstruction (concat/join/templates)
 - [ ] Endpoint extraction (API/GraphQL/WebSocket URLs)
 - [ ] Git history scanning
@@ -43,13 +43,13 @@
 - [x] --debug
 - [x] --quiet
 - [x] --list-rules
-- [ ] --decode-base64 / --no-decode-base64
-- [ ] --decode-hex / --no-decode-hex
-- [ ] --decode-unicode / --no-decode-unicode
-- [ ] --decode-url / --no-decode-url
-- [ ] --decode-gzip
-- [ ] --js-reconstruct
-- [ ] --endpoints
+- [x] --decode-base64 / --no-decode-base64
+- [x] --decode-hex / --no-decode-hex
+- [x] --decode-unicode / --no-decode-unicode
+- [x] --decode-url / --no-decode-url
+- [x] --decode-gzip
+- [x] --js-reconstruct
+- [x] --endpoints (flag wired, feature not implemented)
 - [ ] --git-history
 - [ ] --fail-on (CI gate)
 - [ ] --pipe (scan from stdin)
@@ -86,5 +86,6 @@
 
 ## Benchmark Parity
 - [ ] Match Python: 160 findings across 39 files
-- [ ] Current: 153 findings across 38 files
-- [ ] Delta: 7 missing (18 missing rules, no entropy token scan, no JSON scan)
+- [x] Current: 146 findings across 38 files (default, no decode flags)
+- [x] With all flags: 153 findings
+- [ ] Delta: 14 missing (18 missing rules, no entropy token scan gap)
