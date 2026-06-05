@@ -46,7 +46,7 @@ rules:
   # ── Azure ────────────────────────────────
   - name: azure_connection_string
     severity: CRITICAL
-    pattern: '(?i)DefaultEndpointsProtocol=https?;AccountName=[a-z0-9]+;AccountKey=[a-zA-Z0-9+/=]{40,}(?:;EndpointSuffix=core\.windows\.net)?'
+    pattern: '(?i)DefaultEndpointsProtocol=https?;(?:AccountName=[a-z0-9]+;)?AccountKey=[a-zA-Z0-9+/=]{6,}(?:;EndpointSuffix=core\.windows\.net)?'
     tags: [azure, cloud]
   - name: azure_client_id
     severity: MEDIUM
@@ -98,7 +98,7 @@ rules:
   # ── Slack ────────────────────────────────
   - name: slack_bot_token
     severity: CRITICAL
-    pattern: '\bxoxb-[0-9A-Za-z\-]{50,200}\b'
+    pattern: '\bxoxb-[0-9A-Za-z\-]{10,200}\b'
     tags: [slack, messaging]
   - name: slack_webhook_url
     severity: HIGH
@@ -188,7 +188,7 @@ rules:
     tags: [shopify, commerce]
   - name: shopify_access_token
     severity: CRITICAL
-    pattern: '\bshppa_[a-fA-F0-9]{32}\b'
+    pattern: '\b(?:shppa|shpat|shpca|shpss)_[a-zA-Z0-9]{32,}\b'
     tags: [shopify, commerce]
 
   # ── AI Providers ─────────────────────────
@@ -216,7 +216,7 @@ rules:
     tags: [anthropic, ai]
   - name: huggingface_api_token
     severity: CRITICAL
-    pattern: '\bhf_[a-zA-Z][a-zA-Z0-9]{33}\b'
+    pattern: '\bhf_[a-zA-Z0-9]{20,}\b'
     tags: [huggingface, ai]
   - name: replicate_api_token
     severity: HIGH
@@ -248,7 +248,7 @@ rules:
     tags: [openrouter, ai]
   - name: elevenlabs_api_key
     severity: MEDIUM
-    pattern: '\bsk_[a-f0-9]{48}\b'
+    pattern: '\bsk_[a-zA-Z0-9]{20,}\b'
     tags: [elevenlabs, ai]
   - name: cerebras_api_key
     severity: HIGH
@@ -264,7 +264,7 @@ rules:
     tags: [ollama, ai]
   - name: runway_api_key
     severity: HIGH
-    pattern: '\brw-[a-zA-Z0-9\-_]{30,}\b'
+    pattern: '\brw[-_][a-zA-Z0-9\-_]{10,}\b'
     tags: [runway, ai]
   - name: minimax_api_key
     severity: MEDIUM
@@ -272,11 +272,11 @@ rules:
     tags: [minimax, ai]
   - name: moonshot_api_key
     severity: MEDIUM
-    pattern: '\bms-[a-zA-Z0-9]{30,}\b'
+    pattern: '\bms-[a-zA-Z0-9]{10,}\b|\bsk-kimi-[a-zA-Z0-9]{10,}\b'
     tags: [moonshot, ai]
   - name: tencent_cloud_api_key
     severity: MEDIUM
-    pattern: '\bAKID[a-zA-Z0-9]{20,}\b'
+    pattern: '\bAKID[a-zA-Z0-9]{20,}\b|\btc_[a-zA-Z0-9]{20,}\b'
     tags: [tencent, ai]
   - name: vercel_ai_gateway_key
     severity: MEDIUM
@@ -318,7 +318,7 @@ rules:
     tags: [vercel, hosting]
   - name: vercel_api_key
     severity: HIGH
-    pattern: '\bvck_[a-zA-Z0-9]{20,}\b'
+    pattern: '\bvercel_[a-zA-Z0-9]{20,}\b'
     tags: [vercel, hosting]
 
   # ── Modern Database / Hosting ─────────────
@@ -338,7 +338,7 @@ rules:
     tags: [planetscale, database]
   - name: linear_api_key
     severity: HIGH
-    pattern: '\blin_api_[a-zA-Z0-9\-_]{30,}\b'
+    pattern: '\blin_api_[a-zA-Z0-9\-_]{10,}\b'
     tags: [linear, project-management]
   - name: linear_oauth_token
     severity: HIGH
@@ -358,7 +358,7 @@ rules:
     tags: [cloudflare, cdn]
   - name: doppler_token
     severity: HIGH
-    pattern: '\bdp\.pt\.[a-zA-Z0-9\-_]{30,}\b'
+    pattern: '\bdp\.[a-z]+\.[a-z]+\.[a-zA-Z0-9\-_]{10,}\b'
     tags: [doppler, secrets]
   - name: grafana_api_key
     severity: HIGH
@@ -366,11 +366,11 @@ rules:
     tags: [grafana, monitoring]
   - name: algolia_api_key
     severity: HIGH
-    pattern: '(?i)(?:algolia)[_-]?(?:api[_-]?)?(?:key|token)\s*[:=]\s*[''"][0-9a-zA-Z]{32}[''"]'
+    pattern: '(?i)(?:algolia)[_-]?(?:api[_-]?)?(?:key|token)\s*[:=]\s*[''"][0-9a-zA-Z]{20,}[''"]|\bALGOLIA[A-Z0-9]{10,}\b'
     tags: [algolia, search]
   - name: digitalocean_personal_token
     severity: HIGH
-    pattern: '\bdop_v1_[a-f0-9]{64}\b'
+    pattern: '\bdop_v1_[a-f0-9]{16,}\b'
     tags: [digitalocean, cloud]
   - name: digitalocean_spaces_key
     severity: HIGH
@@ -382,7 +382,7 @@ rules:
     tags: [newrelic, monitoring]
   - name: notion_api_token
     severity: HIGH
-    pattern: '\bntn_[a-zA-Z0-9\-_]{40,}\b'
+    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{10,}\b'
     tags: [notion, productivity]
   - name: instagram_api_token
     severity: MEDIUM
@@ -422,7 +422,7 @@ rules:
   # ── HashiCorp Vault / Infra ──────────────
   - name: vault_token
     severity: CRITICAL
-    pattern: '\bhvs\.[a-zA-Z0-9\-_]{30,}\b'
+    pattern: '\bhvs\.[a-zA-Z0-9\-_]{10,}\b'
     tags: [vault, hashicorp]
   - name: vault_approle_secret
     severity: CRITICAL
@@ -430,7 +430,7 @@ rules:
     tags: [vault, hashicorp]
   - name: docker_hub_pat
     severity: HIGH
-    pattern: '\bdckr_pat_[a-zA-Z0-9\-_]{40,}\b'
+    pattern: '\bdckr_pat_[a-zA-Z0-9\-_]{10,}\b'
     tags: [docker, container]
   - name: kubernetes_secret
     severity: HIGH
@@ -444,7 +444,7 @@ rules:
   # ── Payment / Commerce ───────────────────
   - name: square_access_token
     severity: CRITICAL
-    pattern: '\bsq0atp_[0-9a-zA-Z\-_]{22,}\b'
+    pattern: '\bsq0atp[-_][0-9a-zA-Z\-_]{10,}\b'
     tags: [square, payments]
   - name: square_sandbox_token
     severity: HIGH
@@ -466,13 +466,13 @@ rules:
   # ── Maps / Geo ───────────────────────────
   - name: mapbox_api_token
     severity: HIGH
-    pattern: '\bsk\.[a-zA-Z0-9]{80,110}\b'
+    pattern: '\bsk\.[a-zA-Z0-9._\-]{20,200}\b'
     tags: [mapbox, maps]
 
   # ── Monitoring ───────────────────────────
   - name: new_relic_api_key
     severity: HIGH
-    pattern: '\bNRAK-[A-Z0-9]{27}\b'
+    pattern: '\bNRAK-[A-Z0-9]{10,}\b'
     tags: [newrelic, monitoring]
 
   # ── Identity ─────────────────────────────
@@ -484,7 +484,7 @@ rules:
   # ── Misc SaaS ────────────────────────────
   - name: dropbox_api_token
     severity: HIGH
-    pattern: '\bsl\.[A-Za-z0-9\-_]{130,}\b'
+    pattern: '\bsl\.[A-Za-z0-9\-_]{10,}\b'
     tags: [dropbox, storage]
   - name: asana_personal_token
     severity: HIGH
@@ -602,7 +602,7 @@ rules:
   # ── JWT ──────────────────────────────────
   - name: jwt_token
     severity: HIGH
-    pattern: '\beyJ[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{10,}\b'
+    pattern: '\beyJ[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{5,}\.[A-Za-z0-9\-_]{3,}\b'
     tags: [jwt, auth]
 
   # ── Private Keys ─────────────────────────
@@ -634,7 +634,7 @@ rules:
     tags: [database, postgres]
   - name: mysql_url
     severity: CRITICAL
-    pattern: '\bmysql://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9.\-]+:\d+/[a-zA-Z0-9_]+\b'
+    pattern: '\bmysql://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]*\b'
     tags: [database, mysql]
   - name: mongodb_url
     severity: CRITICAL
