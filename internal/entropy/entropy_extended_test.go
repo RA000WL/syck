@@ -44,4 +44,8 @@ func TestIsEntropyTokenMatchUsesAlphabet(t *testing.T) {
 	if !IsEntropyTokenMatch(b64) {
 		t.Error("expected high-entropy base64 token to match")
 	}
+	lowHex := "0000000000000000000000000000000000000000000000000000000000000000"
+	if IsEntropyTokenMatch(lowHex) {
+		t.Error("expected all-zero hex token to be rejected (entropy=0, below hex threshold)")
+	}
 }
