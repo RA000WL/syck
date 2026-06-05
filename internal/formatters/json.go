@@ -40,12 +40,15 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 
 	for i, f := range findings {
 		secret := f.Secret
+		ctx := f.Context
+		ctxBefore := f.ContextBefore
+		ctxAfter := f.ContextAfter
 		if opts.Redact {
-			if len(secret) > 4 {
-				secret = secret[:4] + strings.Repeat("*", len(secret)-4)
-			} else {
-				secret = strings.Repeat("*", len(secret))
-			}
+			masked := RedactSecret(f.Secret)
+			secret = masked
+			ctx = strings.ReplaceAll(f.Context, f.Secret, masked)
+			ctxBefore = strings.ReplaceAll(f.ContextBefore, f.Secret, masked)
+			ctxAfter = strings.ReplaceAll(f.ContextAfter, f.Secret, masked)
 		}
 
 		out.Findings[i] = jsonFinding{
@@ -55,9 +58,9 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			Rule:          f.RuleName,
 			Severity:      finding.SeverityNames[f.Severity],
 			Secret:        secret,
-			Context:       f.Context,
-			ContextBefore: f.ContextBefore,
-			ContextAfter:  f.ContextAfter,
+			Context:       ctx,
+			ContextBefore: ctxBefore,
+			ContextAfter:  ctxAfter,
 			Entropy:       f.Entropy,
 		}
 	}

@@ -1,0 +1,108 @@
+package formatters
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/RA000WL/syck/internal/finding"
+)
+
+type HTMLFormatter struct{}
+
+var sevBadgeColor = map[finding.Severity]string{
+	finding.SeverityCritical: "#ff4444",
+	finding.SeverityHigh:     "#ff8800",
+	finding.SeverityMedium:   "#ffcc00",
+	finding.SeverityLow:      "#888888",
+	finding.SeverityInfo:     "#666666",
+}
+
+func (f *HTMLFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
+	var b strings.Builder
+
+	b.WriteString(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Syck Scan Results</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;padding:2rem}
+.container{max-width:1200px;margin:0 auto}
+h1{margin-bottom:.5rem;color:#fff}
+.warning{background:#332200;border-left:4px solid #ffcc00;padding:.75rem 1rem;margin-bottom:1.5rem;border-radius:4px;color:#ffcc00}
+h2{margin:1.5rem 0 .75rem;color:#ccc;font-size:1.1rem}
+table{width:100%;border-collapse:collapse;margin-bottom:1.5rem}
+th,td{padding:.5rem .75rem;text-align:left;border-bottom:1px solid #333;font-size:.9rem}
+th{color:#aaa;font-weight:600}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.8rem;font-weight:600;color:#fff}
+.summary-box{background:#16213e;border:1px solid #333;border-radius:8px;padding:1rem 1.5rem;margin-top:1rem}
+.summary-box p{margin:.25rem 0}
+.secret-cell{font-family:monospace;word-break:break-all}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Syck Scan Results</h1>
+`)
+
+	if !opts.Quiet {
+		b.WriteString(`<div class="warning">WARNING: secrets are shown IN FULL — do not share this output publicly.</div>
+`)
+	}
+
+	byFile := make(map[string][]finding.Finding)
+	for _, f := range findings {
+		cp := f
+		if opts.Redact {
+			cp.Secret = RedactSecret(f.Secret)
+		}
+		byFile[f.File] = append(byFile[f.File], cp)
+	}
+
+	for _, file := range sortedFiles(byFile) {
+		ff := byFile[file]
+		b.WriteString(fmt.Sprintf("<h2><code>%s</code></h2>\n", htmlEscape(file)))
+		b.WriteString("<table>\n<tr><th>Line</th><th>Severity</th><th>Rule</th><th>Entropy</th><th>Secret</th></tr>\n")
+		for _, f := range ff {
+			color := sevBadgeColor[f.Severity]
+			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td><code>%s</code></td><td>%.3f</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
+				f.Line, color, finding.SeverityNames[f.Severity], htmlEscape(f.RuleName), f.Entropy, htmlEscape(f.Secret)))
+		}
+		b.WriteString("</table>\n")
+	}
+
+	summary := finding.BuildSummary(findings)
+	b.WriteString(`<div class="summary-box">
+`)
+	b.WriteString(fmt.Sprintf("<p><strong>Files with findings:</strong> %d</p>\n", summary.FilesWithFindings))
+	b.WriteString(fmt.Sprintf("<p><strong>Total findings:</strong> %d</p>\n", summary.TotalFindings))
+
+	if summary.TotalFindings > 0 {
+		b.WriteString("<table>\n<tr><th>Severity</th><th>Count</th></tr>\n")
+		sevs := make([]finding.Severity, 0, len(summary.BySeverity))
+		for s := range summary.BySeverity {
+			sevs = append(sevs, s)
+		}
+		finding.SeverityOrder(sevs)
+		for _, s := range sevs {
+			color := sevBadgeColor[s]
+			b.WriteString(fmt.Sprintf("<tr><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%d</td></tr>\n",
+				color, finding.SeverityNames[s], summary.BySeverity[s]))
+		}
+		b.WriteString("</table>\n")
+	}
+
+	b.WriteString("</div>\n</div>\n</body>\n</html>\n")
+
+	return b.String(), nil
+}
+
+func htmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	return s
+}

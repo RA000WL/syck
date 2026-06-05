@@ -41,16 +41,14 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 
 	byFile := make(map[string][]finding.Finding)
 	for _, f := range findings {
-		secret := f.Secret
-		if opts.Redact {
-			if len(secret) > 4 {
-				secret = secret[:4] + strings.Repeat("*", len(secret)-4)
-			} else {
-				secret = strings.Repeat("*", len(secret))
-			}
-		}
 		cp := f
-		cp.Secret = secret
+		if opts.Redact {
+			masked := RedactSecret(f.Secret)
+			cp.Secret = masked
+			cp.Context = strings.ReplaceAll(f.Context, f.Secret, masked)
+			cp.ContextBefore = strings.ReplaceAll(f.ContextBefore, f.Secret, masked)
+			cp.ContextAfter = strings.ReplaceAll(f.ContextAfter, f.Secret, masked)
+		}
 		byFile[f.File] = append(byFile[f.File], cp)
 	}
 

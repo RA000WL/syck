@@ -110,8 +110,8 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 	var results []sarifResult
 	for _, f := range findings {
 		secret := f.Secret
-		if opts.Redact && len(secret) > 4 {
-			secret = secret[:4] + strings.Repeat("*", len(secret)-4)
+		if opts.Redact {
+			secret = RedactSecret(f.Secret)
 		}
 
 		level := sevToSARIFLevel[f.Severity]
@@ -127,6 +127,9 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 			region.StartColumn = f.Column
 		}
 		ctx := f.Context
+		if opts.Redact {
+			ctx = strings.ReplaceAll(ctx, f.Secret, secret)
+		}
 		if len(ctx) > 200 {
 			ctx = ctx[:200]
 		}
