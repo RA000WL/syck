@@ -117,7 +117,23 @@ func IsEntropyTokenMatch(token string) bool {
 	if entropyExcludeRe.MatchString(token) {
 		return false
 	}
-	return LikelySecret(token, 32, 4.5)
+	if len(token) < 32 {
+		return false
+	}
+	a := DetectAlphabet(token)
+	if a == AlphabetUnknown {
+		return LikelySecret(token, 32, 4.5)
+	}
+	return EntropyByAlphabet(token, a) >= thresholdFor(a)
+}
+
+func thresholdFor(a Alphabet) float64 {
+	switch a {
+	case AlphabetLowerHex, AlphabetUpperHex:
+		return 3.0
+	default:
+		return 4.0
+	}
 }
 
 var lowEntropyPatterns = []string{

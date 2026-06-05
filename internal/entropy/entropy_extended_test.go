@@ -34,3 +34,14 @@ func TestJwtEntropy(t *testing.T) {
 		t.Errorf("JwtEntropy(\"aGVsbG8_aGVsbG8\") = %v, want >= 2.5", got)
 	}
 }
+
+func TestIsEntropyTokenMatchUsesAlphabet(t *testing.T) {
+	hex := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if !IsEntropyTokenMatch(hex) {
+		t.Error("expected 16-unique-char lowercase hex token to match")
+	}
+	b64 := "abcdefghijklmnopqrstuvwxyz+/0123"
+	if !IsEntropyTokenMatch(b64) {
+		t.Error("expected high-entropy base64 token to match")
+	}
+}
