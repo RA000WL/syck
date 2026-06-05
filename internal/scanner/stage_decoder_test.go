@@ -12,5 +12,7 @@ func TestDecoderStagePassthrough(t *testing.T) {
 	_ = rs.CompileAll()
 	d := NewDecoderStage(rs, finding.ParseSeverity("LOW"), DecoderFlags{})
 	findings := d.Process("plain text without any secrets", "x.txt", 1)
-	_ = findings
+	if len(findings) != 0 {
+		t.Errorf("want 0 findings, got %d", len(findings))
+	}
 }
