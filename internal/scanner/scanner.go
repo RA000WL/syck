@@ -1,8 +1,8 @@
 // Package scanner is the V1 pipeline entry point.
 //
-// V1 pipeline: Collector -> Decoder -> Rule -> Entropy -> Correlation -> Verifier -> Confidence -> Reporter.
+// V1 pipeline: Collector -> Decoder -> Rule -> Entropy -> Verifier -> Confidence -> Reporter.
 // The legacy V6 entry points (ScanPaths, ScanFile, ScanReader, ScanURLs, ScanContent) are preserved
-// as thin wrappers around the new Pipeline type.
+// alongside the new Pipeline type.
 package scanner
 
 import (
@@ -43,5 +43,3 @@ type Config struct {
 	RespectRobots   bool
 	GitHistory      bool
 }
-
-type ExcludeRegex = *regexp.Regexp

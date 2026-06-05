@@ -12,8 +12,8 @@ import (
 	"github.com/RA000WL/syck/internal/endpoints"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
-	"github.com/RA000WL/syck/internal/jsrecon"
 	"github.com/RA000WL/syck/internal/json_scanner"
+	"github.com/RA000WL/syck/internal/jsrecon"
 )
 
 var textExtensions = map[string]bool{
@@ -306,6 +306,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 			}
 		}
 		// Entropy token scan
+
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
 				if !entropy.IsEntropyTokenMatch(tok) {
@@ -416,6 +417,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 			}
 		}
 		// Entropy token scan — only on lines with secret-context keywords
+
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
 				if !entropy.IsEntropyTokenMatch(tok) {
