@@ -14,6 +14,7 @@ import (
 	"github.com/RA000WL/syck/config"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/formatters"
+	"github.com/RA000WL/syck/internal/gitscan"
 	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/scanner"
 )
@@ -72,6 +73,7 @@ var (
 	concurrency    int
 	hostConcurrency int
 	ignoreRobots   bool
+	gitHistory     bool
 )
 
 func init() {
@@ -110,6 +112,7 @@ func init() {
 	scanCmd.Flags().IntVar(&concurrency, "concurrency", 10, "max concurrent fetches")
 	scanCmd.Flags().IntVar(&hostConcurrency, "host-concurrency", 2, "max concurrent fetches per host")
 	scanCmd.Flags().BoolVar(&ignoreRobots, "ignore-robots", false, "ignore robots.txt Disallow rules")
+	scanCmd.Flags().BoolVar(&gitHistory, "git-history", false, "scan files in git commit history")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -215,6 +218,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Concurrency:     concurrency,
 		HostConcurrency: hostConcurrency,
 		RespectRobots:   !ignoreRobots,
+		GitHistory:      gitHistory,
 	}
 
 	var findings []finding.Finding
@@ -228,6 +232,17 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("scan error: %w", err)
+	}
+
+	if gitHistory {
+		repoPath := "."
+		if len(args) > 0 {
+			repoPath = args[0]
+		}
+		gitFindings, gErr := gitscan.ScanHistory(repoPath, scanCfg)
+		if gErr == nil {
+			findings = append(findings, gitFindings...)
+		}
 	}
 
 	fmtter := formatters.New(formatStr)

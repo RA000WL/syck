@@ -47,6 +47,7 @@ type Config struct {
 	Concurrency    int
 	HostConcurrency int
 	RespectRobots   bool
+	GitHistory      bool
 }
 
 var textExtensions = map[string]bool{
@@ -237,6 +238,42 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func ScanContent(content string, path string, cfg Config) []finding.Finding {
+	var findings []finding.Finding
+	gzipScanned := make(map[string]bool)
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+
+	findings = append(findings, scanContent(content, path, cfg, "", gzipScanned, hasDecoders)...)
+
+	if strings.HasSuffix(strings.ToLower(path), ".json") {
+		jsonFindings := json_scanner.ScanJSONFile(path, content, cfg.Rules, cfg.MinSeverity)
+		findings = append(findings, jsonFindings...)
+	}
+
+	if cfg.JSReconstruct && content != "" {
+		jsFindings := jsrecon.ReconstructAndScan(content, path, cfg.Rules, cfg.MinSeverity)
+		findings = append(findings, jsFindings...)
+	}
+
+	if cfg.Endpoints && content != "" {
+		eps := endpoints.ExtractEndpoints(path, content)
+		for _, ep := range eps {
+			findings = append(findings, finding.Finding{
+				File:     ep.File,
+				Line:     ep.Line,
+				Column:   0,
+				RuleName: "endpoint",
+				Severity: finding.SeverityInfo,
+				Secret:   ep.Endpoint,
+				Context:  ep.Context,
+				Entropy:  0.0,
+			})
+		}
+	}
+
+	return findings
 }
 
 func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
