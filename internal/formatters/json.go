@@ -25,12 +25,15 @@ type jsonFinding struct {
 	ContextBefore string  `json:"context_before,omitempty"`
 	ContextAfter  string  `json:"context_after,omitempty"`
 	Entropy       float64 `json:"entropy"`
+	Confidence    string  `json:"confidence,omitempty"`
+	Verification  string  `json:"verification_status,omitempty"`
+	DecodedPrev   string  `json:"decoded_value_preview,omitempty"`
 }
 
 type jsonSummary struct {
-	FilesWithFindings int              `json:"files_with_findings"`
-	TotalFindings     int              `json:"total_findings"`
-	BySeverity        map[string]int   `json:"by_severity"`
+	FilesWithFindings int            `json:"files_with_findings"`
+	TotalFindings     int            `json:"total_findings"`
+	BySeverity        map[string]int `json:"by_severity"`
 }
 
 func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
@@ -62,6 +65,9 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			ContextBefore: ctxBefore,
 			ContextAfter:  ctxAfter,
 			Entropy:       f.Entropy,
+			Confidence:    f.Confidence,
+			Verification:  f.VerificationStatus,
+			DecodedPrev:   f.DecodedValuePreview,
 		}
 	}
 

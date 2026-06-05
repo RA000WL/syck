@@ -54,12 +54,18 @@ type sarifTextBlock struct {
 	Text string `json:"text"`
 }
 
+type sarifProperties struct {
+	Confidence         string `json:"confidence"`
+	VerificationStatus string `json:"verificationStatus"`
+}
+
 type sarifResult struct {
-	RuleID    string          `json:"ruleId"`
-	RuleIndex int             `json:"ruleIndex"`
-	Level     string          `json:"level"`
-	Message   sarifTextBlock  `json:"message"`
-	Locations []sarifLocation `json:"locations"`
+	RuleID     string          `json:"ruleId"`
+	RuleIndex  int             `json:"ruleIndex"`
+	Level      string          `json:"level"`
+	Message    sarifTextBlock  `json:"message"`
+	Locations  []sarifLocation `json:"locations"`
+	Properties sarifProperties `json:"properties,omitempty"`
 }
 
 type sarifLocation struct {
@@ -148,6 +154,10 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 					Region:           region,
 				},
 			}},
+			Properties: sarifProperties{
+				Confidence:         f.Confidence,
+				VerificationStatus: f.VerificationStatus,
+			},
 		})
 	}
 

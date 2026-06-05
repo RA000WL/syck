@@ -20,7 +20,7 @@ func csvEscape(field string) string {
 func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
 	var b strings.Builder
 
-	b.WriteString("file,line,column,rule,severity,secret,entropy,context\n")
+	b.WriteString("file,line,column,rule,severity,secret,entropy,context,confidence,verification_status,decoded_value_preview\n")
 
 	for _, f := range findings {
 		secret := f.Secret
@@ -31,7 +31,7 @@ func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (s
 			ctx = strings.ReplaceAll(f.Context, f.Secret, masked)
 		}
 
-		b.WriteString(fmt.Sprintf("%s,%d,%d,%s,%s,%s,%.3f,%s\n",
+		b.WriteString(fmt.Sprintf("%s,%d,%d,%s,%s,%s,%.3f,%s,%s,%s,%s\n",
 			csvEscape(f.File),
 			f.Line,
 			f.Column,
@@ -40,6 +40,9 @@ func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (s
 			csvEscape(secret),
 			f.Entropy,
 			csvEscape(ctx),
+			csvEscape(f.Confidence),
+			csvEscape(f.VerificationStatus),
+			csvEscape(f.DecodedValuePreview),
 		))
 	}
 

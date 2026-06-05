@@ -64,11 +64,23 @@ th{color:#aaa;font-weight:600}
 	for _, file := range sortedFiles(byFile) {
 		ff := byFile[file]
 		b.WriteString(fmt.Sprintf("<h2><code>%s</code></h2>\n", htmlEscape(file)))
-		b.WriteString("<table>\n<tr><th>Line</th><th>Severity</th><th>Rule</th><th>Entropy</th><th>Secret</th></tr>\n")
+		b.WriteString("<table>\n<tr><th>Line</th><th>Severity</th><th>Confidence</th><th>Verification</th><th>Rule</th><th>Entropy</th><th>Decoded</th><th>Secret</th></tr>\n")
 		for _, f := range ff {
 			color := sevBadgeColor[f.Severity]
-			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td><code>%s</code></td><td>%.3f</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
-				f.Line, color, finding.SeverityNames[f.Severity], htmlEscape(f.RuleName), f.Entropy, htmlEscape(f.Secret)))
+			confBadge := ""
+			if f.Confidence != "" {
+				confBadge = fmt.Sprintf(`<span class="badge" style="background:%s">%s</span>`, confColor(f.Confidence), htmlEscape(f.Confidence))
+			}
+			verBadge := ""
+			if f.VerificationStatus != "" {
+				verBadge = fmt.Sprintf(`<span class="badge" style="background:%s">%s</span>`, verColor(f.VerificationStatus), htmlEscape(f.VerificationStatus))
+			}
+			decoded := ""
+			if f.DecodedValuePreview != "" {
+				decoded = fmt.Sprintf(`<details><summary>preview</summary><code>%s</code></details>`, htmlEscape(f.DecodedValuePreview))
+			}
+			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%.3f</td><td>%s</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
+				f.Line, color, finding.SeverityNames[f.Severity], confBadge, verBadge, htmlEscape(f.RuleName), f.Entropy, decoded, htmlEscape(f.Secret)))
 		}
 		b.WriteString("</table>\n")
 	}
@@ -97,6 +109,34 @@ th{color:#aaa;font-weight:600}
 	b.WriteString("</div>\n</div>\n</body>\n</html>\n")
 
 	return b.String(), nil
+}
+
+func confColor(confidence string) string {
+	switch confidence {
+	case "CRITICAL", "VERY_HIGH":
+		return "#ff4444"
+	case "HIGH":
+		return "#ff8800"
+	case "MEDIUM":
+		return "#ffcc00"
+	case "LOW":
+		return "#888888"
+	default:
+		return "#666666"
+	}
+}
+
+func verColor(status string) string {
+	switch status {
+	case "VERIFIED":
+		return "#00cc66"
+	case "LIKELY":
+		return "#3399ff"
+	case "POTENTIAL":
+		return "#ffcc00"
+	default:
+		return "#888888"
+	}
 }
 
 func htmlEscape(s string) string {
