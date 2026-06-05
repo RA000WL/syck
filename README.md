@@ -251,16 +251,6 @@ syck scan [paths...]
 | `json_scanner` | JSON tree walking for secret-key values |
 | `jsrecon` | JS concat/join/template string reconstruction |
 
-## Benchmark
-
-Tested against `syck_benchmark_v7_60keys` (60 files with planted secrets):
-
-| Metric | syck (Go) | Python syck |
-|--------|-----------|-------------|
-| Correct-rule matches | 17 | 16 |
-| Wrong-rule matches | 0 | 119 |
-| Precision | **100%** | 11.9% |
-| Findings | 17 | 135 |
 
 syck eliminates false positives from overly broad patterns while catching all true positives.
 
