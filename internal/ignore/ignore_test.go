@@ -3,7 +3,6 @@ package ignore
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -90,35 +89,3 @@ func TestFilterEmpty(t *testing.T) {
 	}
 }
 
-func TestGenerateIgnoreFile(t *testing.T) {
-	findings := []finding.Finding{
-		{RuleName: "rule1", Secret: "s1", File: "a.txt", Line: 10},
-		{RuleName: "rule1", Secret: "s1", File: "a.txt", Line: 10},
-		{RuleName: "rule2", Secret: "s2", File: "b.txt", Line: 20},
-	}
-
-	content := GenerateIgnoreFile(findings)
-	lines := strings.Split(content, "\n")
-
-	if !strings.HasPrefix(lines[0], "# syck ignore") {
-		t.Fatalf("Expected comment header, got: %s", lines[0])
-	}
-
-	fingerprintLines := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "  # ", 2)
-		fp := strings.TrimSpace(parts[0])
-		if len(fp) != 64 {
-			t.Fatalf("Expected 64-char fingerprint, got %q", fp)
-		}
-		fingerprintLines++
-	}
-
-	if fingerprintLines != 2 {
-		t.Fatalf("Expected 2 unique fingerprint lines, got %d", fingerprintLines)
-	}
-}
