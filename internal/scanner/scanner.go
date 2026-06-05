@@ -10,6 +10,7 @@ import (
 
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
+	"github.com/RA000WL/syck/internal/endpoints"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/jsrecon"
@@ -216,6 +217,23 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	if cfg.JSReconstruct && content != "" {
 		jsFindings := jsrecon.ReconstructAndScan(content, path, cfg.Rules, cfg.MinSeverity)
 		findings = append(findings, jsFindings...)
+	}
+
+	// Endpoint extraction
+	if cfg.Endpoints && content != "" {
+		eps := endpoints.ExtractEndpoints(path, content)
+		for _, ep := range eps {
+			findings = append(findings, finding.Finding{
+				File:     ep.File,
+				Line:     ep.Line,
+				Column:   0,
+				RuleName: "endpoint",
+				Severity: finding.SeverityInfo,
+				Secret:   ep.Endpoint,
+				Context:  ep.Context,
+				Entropy:  0.0,
+			})
+		}
 	}
 
 	return findings, nil
@@ -475,6 +493,23 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 
 	findings := scanContent(content, "stdin", cfg, "", nil, false)
 
+	// Endpoint extraction for stdin
+	if cfg.Endpoints && content != "" {
+		eps := endpoints.ExtractEndpoints("stdin", content)
+		for _, ep := range eps {
+			findings = append(findings, finding.Finding{
+				File:     ep.File,
+				Line:     ep.Line,
+				Column:   0,
+				RuleName: "endpoint",
+				Severity: finding.SeverityInfo,
+				Secret:   ep.Endpoint,
+				Context:  ep.Context,
+				Entropy:  0.0,
+			})
+		}
+	}
+
 	if cfg.JSReconstruct && content != "" {
 		jsFindings := jsrecon.ReconstructAndScan(content, "stdin", cfg.Rules, cfg.MinSeverity)
 		findings = append(findings, jsFindings...)
@@ -506,6 +541,23 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
 		allFindings = append(allFindings, findings...)
+
+		// Endpoint extraction for crawled URLs
+		if cfg.Endpoints && c.Content != "" {
+			eps := endpoints.ExtractEndpoints(c.URL, c.Content)
+			for _, ep := range eps {
+				allFindings = append(allFindings, finding.Finding{
+					File:     ep.File,
+					Line:     ep.Line,
+					Column:   0,
+					RuleName: "endpoint",
+					Severity: finding.SeverityInfo,
+					Secret:   ep.Endpoint,
+					Context:  ep.Context,
+					Entropy:  0.0,
+				})
+			}
+		}
 	}
 
 	if !cfg.NoDedup {
