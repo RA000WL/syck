@@ -17,6 +17,8 @@ var ansi = struct {
 	magenta string
 	gray    string
 	bold    string
+	dim     string
+	green   string
 }{
 	reset:   "\033[0m",
 	red:     "\033[91m",
@@ -25,6 +27,8 @@ var ansi = struct {
 	magenta: "\033[95m",
 	gray:    "\033[90m",
 	bold:    "\033[1m",
+	dim:     "\033[2m",
+	green:   "\033[92m",
 }
 
 func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
@@ -69,18 +73,24 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			line := f.Line
 			col := f.Column
 			rule := f.RuleName
+			confColor := confidenceColor(f.Confidence, opts.NoColor)
+			verStr := ""
+			if f.VerificationStatus != "" {
+				verStr = " [" + f.VerificationStatus + "]"
+			}
 
 			if !opts.NoColor {
-				b.WriteString(fmt.Sprintf("  %s%d%s:%s%d%s  %s[%s]%s %s[%s]%s  entropy=%s%.3f%s\n",
+				b.WriteString(fmt.Sprintf("  %s%d%s:%s%d%s  %s[%s]%s %s[%s]%s  entropy=%s%.3f%s  confidence=%s%s%s%s\n",
 					ansi.gray, line, ansi.reset,
 					ansi.gray, col, ansi.reset,
 					sevColor, sevName, ansi.reset,
 					ansi.cyan, rule, ansi.reset,
-					ansi.gray, f.Entropy, ansi.reset))
+					ansi.gray, f.Entropy, ansi.reset,
+					confColor, f.Confidence, ansi.reset, verStr))
 				b.WriteString(fmt.Sprintf("       secret : %s%s%s\n", ansi.yellow, f.Secret, ansi.reset))
 				b.WriteString(fmt.Sprintf("       context: %s%s%s\n", ansi.gray, f.Context, ansi.reset))
 			} else {
-				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s]  entropy=%.3f\n", line, col, sevName, rule, f.Entropy))
+				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s]  entropy=%.3f  confidence=%s%s\n", line, col, sevName, rule, f.Entropy, f.Confidence, verStr))
 				b.WriteString(fmt.Sprintf("       secret : %s\n", f.Secret))
 				b.WriteString(fmt.Sprintf("       context: %s\n", f.Context))
 			}
@@ -124,6 +134,24 @@ func severityColor(s finding.Severity, noColor bool) string {
 		return ""
 	case finding.SeverityLow:
 		return ""
+	default:
+		return ""
+	}
+}
+
+func confidenceColor(confidence string, noColor bool) string {
+	if noColor || confidence == "" {
+		return ""
+	}
+	switch confidence {
+	case "CRITICAL", "VERY_HIGH":
+		return ansi.red + ansi.bold
+	case "HIGH":
+		return ansi.bold
+	case "MEDIUM":
+		return ""
+	case "LOW":
+		return ansi.dim
 	default:
 		return ""
 	}

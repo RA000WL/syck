@@ -15,10 +15,19 @@ func (s *VerifierStage) Process(in []finding.Finding) []finding.Finding {
 		if !ok {
 			continue
 		}
-		if res.Valid {
+		switch {
+		case res.State == validator.StateVerified:
 			in[i].VerificationStatus = "VERIFIED"
-		} else {
+		case res.State == validator.StateLikely:
+			in[i].VerificationStatus = "LIKELY"
+		case res.State == validator.StatePotential:
 			in[i].VerificationStatus = "POTENTIAL"
+		default:
+			if res.Valid {
+				in[i].VerificationStatus = "LIKELY"
+			} else {
+				in[i].VerificationStatus = "POTENTIAL"
+			}
 		}
 	}
 	return in

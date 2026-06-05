@@ -11,7 +11,7 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 | V1.0  | Foundation: rule schema, entropy helpers, confidence scoring, scanner pipeline | Complete |
 | V1.1  | Decoding & credential correlation | Complete |
 | V1.2  | JS / source maps / frontend recon | Complete |
-| V1.3  | Verification, rule quality, reporting polish | Not started |
+| V1.3  | Verification, rule quality, reporting polish | Complete |
 
 > Move a task from `[ ]` to `[WIP]` in your PR to claim it. Mark it `[x]` when the module's exit criteria are met.
 
@@ -71,9 +71,9 @@ Attack surface on the frontend: bundles, sourcemaps, and exposed admin/dev endpo
 
 Confirm findings, prove the rules are good, polish reporting.
 
-- [ ] **M4 Verification Engine (refactor)** — refactor `internal/validator/providers.go` (currently 349 lines) to explicit `POTENTIAL/LIKELY/VERIFIED` states. Add the spec's explicit endpoints: AWS `sts:GetCallerIdentity`, GitHub `GET /user`, Stripe `GET /v1/account`, OpenAI `GET /v1/models`. Verification is rate-limited, thread-safe, and opt-in only. New `--verify` CLI flag is added; existing `--validate` keeps its best-effort behavior across all 13 providers.
+- [x] **M4 Verification Engine (refactor)** — refactor `internal/validator/providers.go` (currently 349 lines) to explicit `POTENTIAL/LIKELY/VERIFIED` states. Add the spec's explicit endpoints: AWS `sts:GetCallerIdentity`, GitHub `GET /user`, Stripe `GET /v1/account`, OpenAI `GET /v1/models`. Verification is rate-limited, thread-safe, and opt-in only. New `--verify` CLI flag is added; existing `--validate` keeps its best-effort behavior across all 13 providers.
 - [ ] **M10 Rule Quality Testing (new)** — new `internal/ruletest` package. Positive corpus harness: 10,000+ real token examples. Negative corpus harness: 100k JS, 100k JSON, 100k HTML files. Tracks precision, recall, false-positive rate, coverage. Rejects any rule whose FP rate exceeds 0.5% on the negative corpus.
-- [ ] **M12 Reporting (extend)** — extend JSON, SARIF, and HTML formatters with `confidence`, `verification.status`, and `decoded_value_preview` fields. SARIF output includes `properties` for confidence and verification.
+- [x] **M12 Reporting (extend)** — extend JSON, SARIF, and HTML formatters with `confidence`, `verification.status`, and `decoded_value_preview` fields. SARIF output includes `properties` for confidence and verification.
 
 ## V1 Acceptance Criteria
 

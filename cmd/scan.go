@@ -42,42 +42,44 @@ Examples:
 }
 
 var (
-	rulesFile      string
-	severityStr    string
-	formatStr      string
-	outputFile     string
-	redact         bool
-	noDedup        bool
-	excludeStr     string
-	quiet          bool
-	workers        int
-	maxFileSize    string
-	decodeBase64   bool
-	decodeHex      bool
-	decodeUnicode  bool
-	decodeURL      bool
-	decodeGzip     bool
-	jsReconstruct  bool
-	endpoints      bool
-	pipe           bool
-	failOn         string
-	downgradeFP    bool
-	urlList        []string
-	urlFile        string
-	scopeStr       string
-	crawlLimit     int
-	crawlDepth     int
-	headless       bool
-	rateLimit      int
-	userAgent      string
-	cookies        bool
-	cookieFile     string
-	concurrency    int
+	rulesFile       string
+	severityStr     string
+	formatStr       string
+	outputFile      string
+	redact          bool
+	noDedup         bool
+	excludeStr      string
+	quiet           bool
+	workers         int
+	maxFileSize     string
+	decodeBase64    bool
+	decodeHex       bool
+	decodeUnicode   bool
+	decodeURL       bool
+	decodeGzip      bool
+	jsReconstruct   bool
+	endpoints       bool
+	pipe            bool
+	failOn          string
+	downgradeFP     bool
+	urlList         []string
+	urlFile         string
+	scopeStr        string
+	crawlLimit      int
+	crawlDepth      int
+	headless        bool
+	rateLimit       int
+	userAgent       string
+	cookies         bool
+	cookieFile      string
+	concurrency     int
 	hostConcurrency int
-	ignoreRobots   bool
-	gitHistory     bool
-	validate       bool
-	ignoreFile     string
+	ignoreRobots    bool
+	gitHistory      bool
+	validate        bool
+	verify          bool
+	verifyRate      int
+	ignoreFile      string
 )
 
 func init() {
@@ -118,6 +120,8 @@ func init() {
 	scanCmd.Flags().BoolVar(&ignoreRobots, "ignore-robots", false, "ignore robots.txt Disallow rules")
 	scanCmd.Flags().BoolVar(&gitHistory, "git-history", false, "scan files in git commit history")
 	scanCmd.Flags().BoolVar(&validate, "validate", false, "validate found secrets against provider APIs (live check)")
+	scanCmd.Flags().BoolVar(&verify, "verify", false, "verify secrets against provider APIs (V1 state path)")
+	scanCmd.Flags().IntVar(&verifyRate, "verify-rate", 5, "max verification requests per second per host")
 	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
 }
 
@@ -196,26 +200,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	scanCfg := scanner.Config{
-		Workers:        workers,
-		MaxFileSize:    maxSize,
-		Exclude:        excludeRegex,
-		Rules:          rs,
-		MinSeverity:    sev,
-		NoDedup:        noDedup,
-		Debug:          debugMode,
-		DecodeBase64:   decodeBase64,
-		DecodeHex:      decodeHex,
-		DecodeUnicode:  decodeUnicode,
-		DecodeURL:      decodeURL,
-		DecodeGzip:     decodeGzip,
-		JSReconstruct:  jsReconstruct,
-		Endpoints:      endpoints,
-		DowngradeFP:    downgradeFP,
-		URLs:           allURLs,
-		URLFile:        urlFile,
-		Scope:          scopeRegex,
-		CrawlLimit:     crawlLimit,
-		CrawlDepth:     crawlDepth,
+		Workers:         workers,
+		MaxFileSize:     maxSize,
+		Exclude:         excludeRegex,
+		Rules:           rs,
+		MinSeverity:     sev,
+		NoDedup:         noDedup,
+		Debug:           debugMode,
+		DecodeBase64:    decodeBase64,
+		DecodeHex:       decodeHex,
+		DecodeUnicode:   decodeUnicode,
+		DecodeURL:       decodeURL,
+		DecodeGzip:      decodeGzip,
+		JSReconstruct:   jsReconstruct,
+		Endpoints:       endpoints,
+		DowngradeFP:     downgradeFP,
+		URLs:            allURLs,
+		URLFile:         urlFile,
+		Scope:           scopeRegex,
+		CrawlLimit:      crawlLimit,
+		CrawlDepth:      crawlDepth,
 		Headless:        headless,
 		RateLimit:       rateLimit,
 		UserAgent:       userAgent,
@@ -266,6 +270,22 @@ func runScan(cmd *cobra.Command, args []string) error {
 			if result, ok := validator.Validate(findings[i].RuleName, findings[i].Secret); ok {
 				if !result.Valid {
 					findings[i].Severity = finding.SeverityInfo
+				}
+			}
+		}
+	}
+
+	// --verify: V1 state-path verification
+	if verify {
+		validator.SetRate(float64(verifyRate))
+		for i := range findings {
+			if result, ok := validator.Validate(findings[i].RuleName, findings[i].Secret); ok {
+				if result.State == validator.StateVerified {
+					findings[i].VerificationStatus = "VERIFIED"
+				} else if result.State == validator.StateLikely || result.Valid {
+					findings[i].VerificationStatus = "LIKELY"
+				} else {
+					findings[i].VerificationStatus = "POTENTIAL"
 				}
 			}
 		}
