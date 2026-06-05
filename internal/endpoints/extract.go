@@ -70,8 +70,9 @@ func ExtractEndpoints(path string, content string) []Endpoint {
 				}
 				seen[ep] = true
 				ctx := strings.TrimSpace(line)
-				if len(ctx) > 200 {
-					ctx = ctx[:200]
+				runes := []rune(ctx)
+				if len(runes) > 200 {
+					ctx = string(runes[:200])
 				}
 				endpoints = append(endpoints, Endpoint{
 					File:     path,
@@ -82,26 +83,5 @@ func ExtractEndpoints(path string, content string) []Endpoint {
 			}
 		}
 	}
-	return dedupSubstrings(endpoints)
-}
-
-// dedupSubstrings removes endpoints that are substrings of longer endpoints on the same line.
-func dedupSubstrings(endpoints []Endpoint) []Endpoint {
-	if len(endpoints) < 2 {
-		return endpoints
-	}
-	var result []Endpoint
-	for _, ep := range endpoints {
-		isSub := false
-		for _, other := range endpoints {
-			if other.Line == ep.Line && len(other.Endpoint) > len(ep.Endpoint) && strings.Contains(other.Endpoint, ep.Endpoint) {
-				isSub = true
-				break
-			}
-		}
-		if !isSub {
-			result = append(result, ep)
-		}
-	}
-	return result
+	return endpoints
 }
