@@ -1,37 +1,43 @@
 package validator
 
-import (
-	"strings"
+import "strings"
+
+type State int
+
+const (
+	StateUnknown   State = 0
+	StatePotential State = 1
+	StateLikely    State = 2
+	StateVerified  State = 3
 )
 
-// ValidationResult holds the outcome of validating a secret against its provider API.
 type ValidationResult struct {
 	Valid  bool
-	Detail string // e.g. "login: octocat" or "HTTP 401"
+	Detail string
+	State  State
 }
 
-// Validator validates a single secret against its provider.
+type Provider interface {
+	Name() string
+	Validate(secret string) ValidationResult
+}
+
 type Validator interface {
 	Name() string
 	Validate(secret string) ValidationResult
 }
 
-// registry maps cleaned rule names to validators.
 var registry = map[string]Validator{}
 
-// Register adds a validator for the given rule name.
 func Register(ruleName string, v Validator) {
 	registry[ruleName] = v
 }
 
-// Validate looks up the validator for ruleName and runs it.
-// Returns the result and true if a validator was found, zero result and false otherwise.
 func Validate(ruleName, secret string) (ValidationResult, bool) {
 	clean := ruleName
 	if i := strings.Index(clean, "_"); i >= 0 {
 		clean = clean[i+1:]
 	}
-	// keep stripping known prefixes like base64_, hex_, etc.
 	for _, prefix := range []string{"base64_", "hex_", "url_", "unicode_"} {
 		clean = strings.TrimPrefix(clean, prefix)
 	}

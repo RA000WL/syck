@@ -42,6 +42,38 @@ func TestAWSSkips(t *testing.T) {
 	}
 }
 
+func TestStateEnumValues(t *testing.T) {
+	if StateUnknown != 0 {
+		t.Error("StateUnknown should be 0")
+	}
+	if StatePotential != 1 {
+		t.Error("StatePotential should be 1")
+	}
+	if StateLikely != 2 {
+		t.Error("StateLikely should be 2")
+	}
+	if StateVerified != 3 {
+		t.Error("StateVerified should be 3")
+	}
+}
+
+func TestValidationResultState(t *testing.T) {
+	r := ValidationResult{Valid: true, Detail: "login: test", State: StateVerified}
+	if !r.Valid {
+		t.Error("Valid should be true")
+	}
+	if r.State != StateVerified {
+		t.Error("State should be StateVerified")
+	}
+}
+
+func TestProviderInterface(t *testing.T) {
+	var p Provider = githubValidator{}
+	if p.Name() == "" {
+		t.Error("Name() should not be empty")
+	}
+}
+
 func TestAllRegistered(t *testing.T) {
 	expected := []string{
 		"github_personal_access_token",
