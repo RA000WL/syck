@@ -70,6 +70,11 @@ func (l *RuleLoader) loadFromBytes(data []byte) (*RuleSet, error) {
 	if err := yaml.Unmarshal(data, &rs); err != nil {
 		return nil, err
 	}
+	for i, r := range rs.Rules {
+		if r.Version != "" && r.Version > RuleSchemaVersion {
+			return nil, fmt.Errorf("rule %d (%s): version %q exceeds supported %q", i, r.Name, r.Version, RuleSchemaVersion)
+		}
+	}
 	if err := l.validator.Validate(rs); err != nil {
 		return nil, err
 	}
