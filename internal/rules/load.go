@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const RuleSchemaVersion = "1"
+const RuleSchemaVersion = "1" // single-digit major; revisit comparison before v10
 
 //go:embed builtin.yaml
 var embeddedRules []byte
