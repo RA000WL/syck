@@ -9,6 +9,7 @@ import (
 
 type Pipeline struct {
 	Rule        *RuleStage
+	Collector   *CollectorStage
 	Decoder     *DecoderStage
 	Entropy     *EntropyStage
 	Correlation *CorrelationStage
@@ -20,6 +21,7 @@ type Pipeline struct {
 func NewPipeline(cfg Config) *Pipeline {
 	return &Pipeline{
 		Rule:        NewRuleStage(cfg.Rules, cfg.MinSeverity),
+		Collector:   NewCollectorStage(cfg),
 		Decoder:     NewDecoderStage(cfg.Rules, cfg.MinSeverity, DecoderFlags{Base64: cfg.DecodeBase64, Hex: cfg.DecodeHex, Unicode: cfg.DecodeUnicode, URL: cfg.DecodeURL}),
 		Entropy:     NewEntropyStage(),
 		Correlation: NewCorrelationStage(correlation.NewCorrelator()),
@@ -31,6 +33,7 @@ func NewPipeline(cfg Config) *Pipeline {
 
 func (p *Pipeline) ScanString(content, path string) ([]finding.Finding, error) {
 	var all []finding.Finding
+	all = append(all, p.Collector.Process(content, path)...)
 	for lineno, line := range strings.Split(content, "\n") {
 		all = append(all, p.Rule.Process(line, path, lineno+1)...)
 		all = append(all, p.Decoder.Process(line, path, lineno+1)...)
