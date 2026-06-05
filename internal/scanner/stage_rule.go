@@ -1,0 +1,37 @@
+package scanner
+
+import (
+	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/rules"
+)
+
+type RuleStage struct {
+	rs  *rules.RuleSet
+	min finding.Severity
+}
+
+func NewRuleStage(rs *rules.RuleSet, min finding.Severity) *RuleStage {
+	return &RuleStage{rs: rs, min: min}
+}
+
+func (s *RuleStage) Process(line, path string, lineno int) []finding.Finding {
+	var out []finding.Finding
+	for _, r := range s.rs.Rules {
+		sev := finding.ParseSeverity(r.Severity)
+		if sev < s.min || r.Compiled() == nil {
+			continue
+		}
+		for _, m := range r.MatchAll(line) {
+			secret := line[m[0]:m[1]]
+			out = append(out, finding.Finding{
+				File:     path,
+				Line:     lineno,
+				RuleName: r.Name,
+				Severity: sev,
+				Secret:   secret,
+				Context:  line,
+			})
+		}
+	}
+	return out
+}

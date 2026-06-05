@@ -3,6 +3,7 @@ package entropy
 import (
 	"math"
 	"regexp"
+	"strings"
 )
 
 func Shannon(data string) float64 {
@@ -116,7 +117,23 @@ func IsEntropyTokenMatch(token string) bool {
 	if entropyExcludeRe.MatchString(token) {
 		return false
 	}
-	return LikelySecret(token, 32, 4.5)
+	if len(token) < 32 {
+		return false
+	}
+	a := DetectAlphabet(token)
+	if a == AlphabetUnknown {
+		return LikelySecret(token, 32, 4.5)
+	}
+	return EntropyByAlphabet(token, a) >= thresholdFor(a)
+}
+
+func thresholdFor(a Alphabet) float64 {
+	switch a {
+	case AlphabetLowerHex, AlphabetUpperHex:
+		return 3.0
+	default:
+		return 4.0
+	}
 }
 
 var lowEntropyPatterns = []string{
@@ -165,4 +182,52 @@ func searchSubstring(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func Base64Entropy(s string) float64 {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+	return shannonFiltered(s, alphabet)
+}
+
+func HexEntropy(s string) float64 {
+	const alphabet = "0123456789abcdefABCDEF"
+	return shannonFiltered(s, alphabet)
+}
+
+func JwtEntropy(s string) float64 {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	return shannonFiltered(s, alphabet)
+}
+
+func shannonFiltered(s, alphabet string) float64 {
+	if len(s) == 0 {
+		return 0
+	}
+	freq := map[rune]int{}
+	for _, r := range s {
+		if !strings.ContainsRune(alphabet, r) {
+			return 0
+		}
+		freq[r]++
+	}
+	var ent float64
+	n := float64(len(s))
+	for _, c := range freq {
+		p := float64(c) / n
+		ent -= p * math.Log2(p)
+	}
+	return math.Round(ent*1000) / 1000
+}
+
+func EntropyByAlphabet(s string, a Alphabet) float64 {
+	switch a {
+	case AlphabetLowerHex, AlphabetUpperHex:
+		return HexEntropy(s)
+	case AlphabetBase64URL, AlphabetJWT:
+		return JwtEntropy(s)
+	case AlphabetBase64:
+		return Base64Entropy(s)
+	default:
+		return Shannon(s)
+	}
 }
