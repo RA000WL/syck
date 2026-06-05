@@ -1,11 +1,11 @@
 package confidence
 
 type Signals struct {
-	RegexMatch       bool
-	Entropy          float64
+	RegexMatch        bool
+	Entropy           float64
 	HasContextKeyword bool
-	Verified         bool
-	InCredentialPair bool
+	Verified          bool
+	InCredentialPair  bool
 }
 
 type Scorer struct{}

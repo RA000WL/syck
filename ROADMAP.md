@@ -8,7 +8,7 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 
 | Phase | Theme | Status |
 |-------|-------|--------|
-| V1.0  | Foundation: rule schema, entropy helpers, confidence scoring, scanner pipeline | Not started |
+| V1.0  | Foundation: rule schema, entropy helpers, confidence scoring, scanner pipeline | Complete |
 | V1.1  | Decoding & credential correlation | Not started |
 | V1.2  | JS / source maps / frontend recon | Not started |
 | V1.3  | Verification, rule quality, reporting polish | Not started |
