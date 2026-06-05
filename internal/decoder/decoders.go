@@ -132,35 +132,31 @@ func hasMixedCase(s string) bool {
 }
 
 type Flags struct {
-	Base64  bool
-	Hex     bool
-	Unicode bool
-	URL     bool
+	Base64       bool
+	Hex          bool
+	Unicode      bool
+	URL          bool
+	Base64URL    bool
+	JWT          bool
+	DoubleBase64 bool
 }
 
 func (f Flags) HasAny() bool {
-	return f.Base64 || f.Hex || f.Unicode || f.URL
+	return f.Base64 || f.Hex || f.Unicode || f.URL || f.Base64URL || f.JWT || f.DoubleBase64
 }
 
-type decoderEntry struct {
-	Name   string
-	Decode func(string) []DecodeResult
-	Flag   bool
+var defaultRegistry = NewRegistry()
+
+func init() {
+	defaultRegistry.Register("base64", tryBase64)
+	defaultRegistry.Register("base64url", tryBase64URL)
+	defaultRegistry.Register("hex", tryHex)
+	defaultRegistry.Register("unicode", tryUnicodeEscapes)
+	defaultRegistry.Register("url", tryURLEncoded)
+	defaultRegistry.Register("jwt", tryJWT)
+	defaultRegistry.Register("doublebase64", tryDoubleBase64)
 }
 
-func activeDecoders(flags Flags) []decoderEntry {
-	var decoders []decoderEntry
-	if flags.Unicode {
-		decoders = append(decoders, decoderEntry{"unicode", tryUnicodeEscapes, true})
-	}
-	if flags.URL {
-		decoders = append(decoders, decoderEntry{"url", tryURLEncoded, true})
-	}
-	if flags.Base64 {
-		decoders = append(decoders, decoderEntry{"base64", tryBase64, true})
-	}
-	if flags.Hex {
-		decoders = append(decoders, decoderEntry{"hex", tryHex, true})
-	}
-	return decoders
+func activeDecoders(flags Flags) []Decoder {
+	return defaultRegistry.Active(flags)
 }
