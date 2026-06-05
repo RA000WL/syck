@@ -27,7 +27,14 @@ func Register(ruleName string, v Validator) {
 // Validate looks up the validator for ruleName and runs it.
 // Returns the result and true if a validator was found, zero result and false otherwise.
 func Validate(ruleName, secret string) (ValidationResult, bool) {
-	clean := strings.TrimLeft(ruleName, "abcdefghijklmnopqrstuvwxyz_")
+	clean := ruleName
+	if i := strings.Index(clean, "_"); i >= 0 {
+		clean = clean[i+1:]
+	}
+	// keep stripping known prefixes like base64_, hex_, etc.
+	for _, prefix := range []string{"base64_", "hex_", "url_", "unicode_"} {
+		clean = strings.TrimPrefix(clean, prefix)
+	}
 	if v, ok := registry[clean]; ok {
 		return v.Validate(strings.TrimSpace(secret)), true
 	}
