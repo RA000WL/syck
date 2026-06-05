@@ -33,3 +33,14 @@ func loadYAML(data []byte) (*RuleSet, error) {
 	}
 	return &rs, nil
 }
+
+func loadFromString(s string) (*RuleSet, error) {
+	var rs RuleSet
+	if err := yaml.Unmarshal([]byte(s), &rs); err != nil {
+		return nil, err
+	}
+	if err := rs.CompileAll(); err != nil {
+		return nil, err
+	}
+	return &rs, nil
+}

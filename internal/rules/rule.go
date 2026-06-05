@@ -5,12 +5,17 @@ import (
 )
 
 type Rule struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description,omitempty"`
-	Severity    string   `yaml:"severity"`
-	Pattern     string   `yaml:"pattern"`
-	Tags        []string `yaml:"tags,omitempty"`
-	compiled    *regexp.Regexp
+	Name             string   `yaml:"name"`
+	Description      string   `yaml:"description,omitempty"`
+	Severity         string   `yaml:"severity"`
+	Pattern          string   `yaml:"pattern"`
+	Tags             []string `yaml:"tags,omitempty"`
+	EntropyThreshold float64  `yaml:"entropy_threshold,omitempty"`
+	ContextKeywords  []string `yaml:"context_keywords,omitempty"`
+	RequiresContext  bool     `yaml:"requires_context,omitempty"`
+	Verify           bool     `yaml:"verify,omitempty"`
+	Version          string   `yaml:"version,omitempty"`
+	compiled         *regexp.Regexp
 }
 
 type RuleSet struct {
