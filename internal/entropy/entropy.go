@@ -170,17 +170,17 @@ func searchSubstring(s, sub string) bool {
 
 func Base64Entropy(s string) float64 {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-	return shannonFiltered(s, alphabet) / 6.0 * 6.0
+	return shannonFiltered(s, alphabet)
 }
 
 func HexEntropy(s string) float64 {
 	const alphabet = "0123456789abcdefABCDEF"
-	return shannonFiltered(s, alphabet) / 4.0 * 4.0
+	return shannonFiltered(s, alphabet)
 }
 
 func JwtEntropy(s string) float64 {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	return shannonFiltered(s, alphabet) / 6.0 * 6.0
+	return shannonFiltered(s, alphabet)
 }
 
 func shannonFiltered(s, alphabet string) float64 {
