@@ -9,7 +9,7 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 | Phase | Theme | Status |
 |-------|-------|--------|
 | V1.0  | Foundation: rule schema, entropy helpers, confidence scoring, scanner pipeline | Complete |
-| V1.1  | Decoding & credential correlation | Not started |
+| V1.1  | Decoding & credential correlation | Complete |
 | V1.2  | JS / source maps / frontend recon | Not started |
 | V1.3  | Verification, rule quality, reporting polish | Not started |
 
@@ -54,9 +54,9 @@ Schema, signals, and the new pipeline. Pure CPU work. No HTTP, no new external d
 
 Find secrets hidden inside other formats and combine related findings.
 
-- [ ] **M3 Decoder Engine (extend)** — cap `MaxRecursionDepth` at 3 per spec (currently 4). Add JWT payload split decoder. Add hook for `atob()` and `Buffer.from()` calls in JS-reconstructed strings. Decoder registry becomes thread-safe.
-- [ ] **M5 Credential Correlation (new)** — new `internal/correlation` package. Detectors for: AWS access key + secret, Stripe sk + pk, Twilio account SID + auth token, Cloudflare email + API key, GitHub App id + private key, OAuth client id + client secret, database URLs with embedded credentials, JWT + signing key. Emits correlated findings with type `aws_credential_pair` and confidence `VERY_HIGH`.
-- [ ] **M3 → M5 wiring** — decoder produces tokens → correlation engine groups tokens that appear close in the same file/line span.
+- [x] **M3 Decoder Engine (extend)** — cap `MaxRecursionDepth` at 3 per spec (currently 4). Add JWT payload split decoder. Add hook for `atob()` and `Buffer.from()` calls in JS-reconstructed strings. Decoder registry becomes thread-safe.
+- [x] **M5 Credential Correlation (new)** — new `internal/correlation` package. Detectors for: AWS access key + secret, Stripe sk + pk, Twilio account SID + auth token, Cloudflare email + API key, GitHub App id + private key, OAuth client id + client secret, database URLs with embedded credentials, JWT + signing key. Emits correlated findings with type `aws_credential_pair` and confidence `VERY_HIGH`.
+- [x] **M3 → M5 wiring** — decoder produces tokens → correlation engine groups tokens that appear close in the same file/line span.
 
 ### V1.2 — JS / Source Maps / Frontend Recon
 
