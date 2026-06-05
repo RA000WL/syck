@@ -62,7 +62,7 @@ func isBase64(s string) bool {
 		return false
 	}
 	hasSlash, hasPlus := strings.ContainsRune(s, '/'), strings.ContainsRune(s, '+')
-	hasPadding := strings.HasSuffix(s, "=") || strings.HasSuffix(s, "==")
+	hasPadding := strings.HasSuffix(s, "=")
 	if hasSlash || hasPlus || hasPadding {
 		return true
 	}
