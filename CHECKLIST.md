@@ -36,7 +36,7 @@
 
 ## CLI Flags
 - [x] --severity
-- [x] --format (text/json/sarif)
+- [x] --format (text/json/sarif, markdown, csv, html)
 - [x] --output (-o file)
 - [x] --redact
 - [x] --no-dedup
@@ -72,21 +72,21 @@
 - [x] --ignore-robots (skip robots.txt Disallow rules)
 - [x] --git-history
 - [ ] --progress (TUI progress bar)
-- [ ] --ignore-file (.syckignore)
+- [x] --ignore-file (.syckignore)
 
 ## Output Formatters
 - [x] Text (colorized terminal)
 - [x] JSON
 - [x] SARIF 2.1.0
-- [ ] Markdown
-- [ ] CSV
-- [ ] HTML (dark-themed)
+- [x] Markdown
+- [x] CSV
+- [x] HTML (dark-themed)
 
 ## Post-Processing Pipeline
 - [x] Deduplication
 - [x] FP downgrade (test/mock/vendor dirs, placeholder patterns)
-- [ ] .syckignore fingerprint support
-- [ ] Live secret validation (--validate)
+- [x] .syckignore fingerprint support
+- [x] Live secret validation (--validate)
 - [ ] Webhook dispatch (--webhook-url)
 - [ ] SARIF upload to GitHub Code Scanning
 

@@ -15,8 +15,10 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/formatters"
 	"github.com/RA000WL/syck/internal/gitscan"
+	"github.com/RA000WL/syck/internal/ignore"
 	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/scanner"
+	"github.com/RA000WL/syck/internal/validator"
 )
 
 var scanCmd = &cobra.Command{
@@ -74,12 +76,14 @@ var (
 	hostConcurrency int
 	ignoreRobots   bool
 	gitHistory     bool
+	validate       bool
+	ignoreFile     string
 )
 
 func init() {
 	scanCmd.Flags().StringVarP(&rulesFile, "rules", "r", "", "custom rules YAML file")
 	scanCmd.Flags().StringVarP(&severityStr, "severity", "s", "LOW", "minimum severity (INFO, LOW, MEDIUM, HIGH, CRITICAL)")
-	scanCmd.Flags().StringVarP(&formatStr, "format", "f", "text", "output format (text, json, sarif)")
+	scanCmd.Flags().StringVarP(&formatStr, "format", "f", "text", "output format (text, json, sarif, markdown, csv, html)")
 	scanCmd.Flags().StringVarP(&outputFile, "output", "o", "", "write output to file instead of stdout")
 	scanCmd.Flags().BoolVar(&redact, "redact", false, "mask secret values in output")
 	scanCmd.Flags().BoolVar(&noDedup, "no-dedup", false, "show all occurrences")
@@ -113,6 +117,8 @@ func init() {
 	scanCmd.Flags().IntVar(&hostConcurrency, "host-concurrency", 2, "max concurrent fetches per host")
 	scanCmd.Flags().BoolVar(&ignoreRobots, "ignore-robots", false, "ignore robots.txt Disallow rules")
 	scanCmd.Flags().BoolVar(&gitHistory, "git-history", false, "scan files in git commit history")
+	scanCmd.Flags().BoolVar(&validate, "validate", false, "validate found secrets against provider APIs (live check)")
+	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -242,6 +248,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 		gitFindings, gErr := gitscan.ScanHistory(repoPath, scanCfg)
 		if gErr == nil {
 			findings = append(findings, gitFindings...)
+		}
+	}
+
+	// --ignore-file: filter out known false positives by fingerprint
+	if ignoreFile != "" {
+		ignoreSet, iErr := ignore.LoadIgnoreFile(ignoreFile)
+		if iErr != nil {
+			return fmt.Errorf("load ignore file: %w", iErr)
+		}
+		findings = ignore.Filter(findings, ignoreSet)
+	}
+
+	// --validate: check if found secrets are live against provider APIs
+	if validate {
+		for i := range findings {
+			if result, ok := validator.Validate(findings[i].RuleName, findings[i].Secret); ok {
+				if !result.Valid {
+					findings[i].Severity = finding.SeverityInfo
+				}
+			}
 		}
 	}
 
