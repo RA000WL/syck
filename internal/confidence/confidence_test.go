@@ -1,4 +1,3 @@
-// internal/confidence/confidence_test.go
 package confidence
 
 import "testing"

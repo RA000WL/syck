@@ -1,4 +1,3 @@
-// internal/confidence/confidence.go
 package confidence
 
 type Signals struct {
