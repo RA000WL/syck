@@ -11,7 +11,7 @@ import (
 	"github.com/RA000WL/syck/internal/rules"
 )
 
-const MaxRecursionDepth = 4
+const MaxRecursionDepth = 3
 
 func DecodeAndRescan(
 	line string,
