@@ -44,11 +44,11 @@ Schema, signals, and the new pipeline. Pure CPU work. No HTTP, no new external d
 
 > Pipeline order: Collector → Decoder → Rule Engine → Entropy Engine → Correlation Engine → Verifier → Confidence → Reporter.
 
-- [ ] **M1 Rule Engine (extend)** — extend `Rule` struct with `entropy_threshold`, `context_keywords`, `requires_context`, `verify`, `version`. Add `RuleLoader`, `RuleValidator`, `RuleCompiler` with a regex compile cache and duplicate-rule detection. Rule schema is backward-compatible YAML.
-- [ ] **M2 Entropy Engine (extend)** — add `Base64Entropy`, `HexEntropy`, `JwtEntropy` helpers. Wire them into the existing entropy token scan so the right variant is selected based on token alphabet.
-- [ ] **M9 Confidence Scoring (new)** — new `internal/confidence` package. Composite scorer: regex match +40, entropy +20, context keyword +15, verification +50, credential pair +30. Bands: 0-30 LOW, 31-60 MEDIUM, 61-90 HIGH, 91+ CRITICAL. Confidence lives **alongside** severity on every `Finding` (both fields are independent).
-- [ ] **M11 Scanner Architecture (refactor)** — break `internal/scanner/scanner.go` (currently 631 lines) into the V1 pipeline stages: Collector → Decoder → Rule Engine → Entropy Engine → Correlation Engine → Verifier → Reporter. Public `Config` struct and CLI flag surface preserved.
-- [ ] **M9 → M11 wiring** — confidence emitted by every stage flows through the pipeline and lands on the final `Finding`.
+- [x] **M1 Rule Engine (extend)** — extend `Rule` struct with `entropy_threshold`, `context_keywords`, `requires_context`, `verify`, `version`. Add `RuleLoader`, `RuleValidator`, `RuleCompiler` with a regex compile cache and duplicate-rule detection. Rule schema is backward-compatible YAML.
+- [x] **M2 Entropy Engine (extend)** — add `Base64Entropy`, `HexEntropy`, `JwtEntropy` helpers. Wire them into the existing entropy token scan so the right variant is selected based on token alphabet.
+- [x] **M9 Confidence Scoring (new)** — new `internal/confidence` package. Composite scorer: regex match +40, entropy +20, context keyword +15, verification +50, credential pair +30. Bands: 0-30 LOW, 31-60 MEDIUM, 61-90 HIGH, 91+ CRITICAL. Confidence lives **alongside** severity on every `Finding` (both fields are independent).
+- [x] **M11 Scanner Architecture (refactor)** — break `internal/scanner/scanner.go` (currently 631 lines) into the V1 pipeline stages: Collector → Decoder → Rule Engine → Entropy Engine → Correlation Engine → Verifier → Reporter. Public `Config` struct and CLI flag surface preserved.
+- [x] **M9 → M11 wiring** — confidence emitted by every stage flows through the pipeline and lands on the final `Finding`.
 
 ### V1.1 — Decoding & Correlation
 
