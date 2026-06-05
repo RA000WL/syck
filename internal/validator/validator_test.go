@@ -37,8 +37,18 @@ func TestAWSSkips(t *testing.T) {
 	if !ok {
 		t.Fatal("expected aws validator to be registered")
 	}
-	if result.Valid {
-		t.Error("expected AWS to return skipped/invalid")
+	if result.State != StateLikely {
+		t.Errorf("expected AWS to return StateLikely, got State %d", result.State)
+	}
+}
+
+func TestAWSSTSReturnsPotentialForFake(t *testing.T) {
+	result, ok := Validate("aws_access_key_id", "AKIA")
+	if !ok {
+		t.Fatal("expected aws validator to be registered")
+	}
+	if result.State != StatePotential {
+		t.Errorf("expected fake/too-short AWS key to return StatePotential, got State %d", result.State)
 	}
 }
 
@@ -71,6 +81,23 @@ func TestProviderInterface(t *testing.T) {
 	var p Provider = githubValidator{}
 	if p.Name() == "" {
 		t.Error("Name() should not be empty")
+	}
+}
+
+func TestRateLimiterAllowsRequest(t *testing.T) {
+	rl := NewRateLimiter(100)
+	ok := rl.Allow("test-host")
+	if !ok {
+		t.Error("expected rate limiter to allow first request")
+	}
+}
+
+func TestRateLimiterBlocksExcess(t *testing.T) {
+	rl := NewRateLimiter(0.01)
+	_ = rl.Allow("test-host")
+	ok := rl.Allow("test-host")
+	if ok {
+		t.Error("expected rate limiter to block second request at 0.01 RPS")
 	}
 }
 

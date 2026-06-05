@@ -1,7 +1,9 @@
 package validator
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -21,6 +23,17 @@ func (openaiValidator) Validate(secret string) ValidationResult {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 200 {
+		body, _ := io.ReadAll(resp.Body)
+		var modelResp struct {
+			Data []struct{} `json:"data"`
+		}
+		if json.Unmarshal(body, &modelResp) == nil {
+			return ValidationResult{
+				Valid:  true,
+				Detail: fmt.Sprintf("%d models accessible", len(modelResp.Data)),
+				State:  StateVerified,
+			}
+		}
 		return ValidationResult{Valid: true, Detail: "HTTP 200", State: StateLikely}
 	}
 	return ValidationResult{Detail: fmt.Sprintf("HTTP %d", resp.StatusCode), State: StatePotential}
