@@ -23,6 +23,8 @@ func (e *LoadError) Error() string {
 	return fmt.Sprintf("%s: %v", e.Path, e.Err)
 }
 
+func (e *LoadError) Unwrap() error { return e.Err }
+
 type RuleLoader struct {
 	validator *RuleValidator
 	compiler  *RuleCompiler
