@@ -11,6 +11,7 @@ type DecoderFlags struct {
 	Hex     bool
 	Unicode bool
 	URL     bool
+	Gzip    bool
 }
 
 type DecoderStage struct {
