@@ -11,7 +11,7 @@ import (
 	"github.com/RA000WL/syck/internal/rules"
 )
 
-const MaxRecursionDepth = 4
+const MaxRecursionDepth = 3
 
 func DecodeAndRescan(
 	line string,
@@ -36,14 +36,14 @@ func recursiveDecode(
 	findings *[]finding.Finding,
 	depth int,
 	maxDepth int,
-	decoders []decoderEntry,
+	decoders []Decoder,
 ) {
 	if depth >= maxDepth {
 		return
 	}
 
 	for _, dec := range decoders {
-		results := dec.Decode(text)
+		results := dec(text)
 		for _, res := range results {
 			scanDecoded(res.Text, path, lineno, res.SourceTag, rs, minSev, findings)
 			recursiveDecode(res.Text, path, lineno, rs, minSev, findings, depth+1, maxDepth, decoders)

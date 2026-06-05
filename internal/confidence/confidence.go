@@ -49,7 +49,9 @@ func Band(score int) string {
 		return "MEDIUM"
 	case score <= 90:
 		return "HIGH"
-	default:
+	case score <= 120:
 		return "CRITICAL"
+	default:
+		return "VERY_HIGH"
 	}
 }
