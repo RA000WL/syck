@@ -20,8 +20,8 @@
 - [x] Recursive multi-layer decode (depth 4)
 - [x] JSON-aware scan (walk parsed tree, check under known keys)
 - [x] JS string reconstruction (concat/join/templates)
-- [ ] Endpoint extraction (API/GraphQL/WebSocket URLs)
-- [ ] Git history scanning
+- [x] Endpoint extraction (API/GraphQL/WebSocket URLs)
+- [x] Git history scanning
 
 ## Rules
 - [x] 130 embedded YAML rules (precision-hardened, zero false-positive patterns)
@@ -54,7 +54,7 @@
 - [x] --decode-url / --no-decode-url
 - [x] --decode-gzip
 - [x] --js-reconstruct
-- [x] --endpoints (flag wired, feature not implemented)
+- [x] --endpoints (extract API/graphql/websocket URLs)
 - [x] --pipe (scan from stdin)
 - [x] --fail-on (CI gate: exit 1 if findings meet severity threshold)
 - [x] --downgrade-fp (auto-downgrade test/mock/vendor findings)
@@ -70,7 +70,7 @@
 - [x] --concurrency (max concurrent fetches, default 10)
 - [x] --host-concurrency (max concurrent fetches per host, default 2)
 - [x] --ignore-robots (skip robots.txt Disallow rules)
-- [ ] --git-history
+- [x] --git-history
 - [ ] --progress (TUI progress bar)
 - [ ] --ignore-file (.syckignore)
 
