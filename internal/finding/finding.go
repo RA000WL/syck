@@ -2,6 +2,8 @@ package finding
 
 import "sort"
 
+const MaxContextLen = 500
+
 type Severity int
 
 const (
@@ -75,6 +77,13 @@ func SeverityOrder(sevs []Severity) {
 	sort.Slice(sevs, func(i, j int) bool {
 		return sevs[i] > sevs[j]
 	})
+}
+
+func Truncate(s string) string {
+	if len(s) > MaxContextLen {
+		return s[:MaxContextLen]
+	}
+	return s
 }
 
 func Deduplicate(findings []Finding) []Finding {

@@ -25,7 +25,7 @@ func (s *EntropyStage) Process(line, path string, lineno int) []finding.Finding 
 			RuleName: "entropy_token",
 			Severity: finding.ParseSeverity("LOW"),
 			Secret:   token,
-			Context:  line,
+			Context:  finding.Truncate(line),
 			Entropy:  entropy.Shannon(token),
 		})
 	}

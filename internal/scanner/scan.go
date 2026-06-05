@@ -299,8 +299,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					RuleName:      rule.Name,
 					Severity:      sev,
 					Secret:        secret,
-					Context:       strings.TrimSpace(line),
-					ContextBefore: ctxBefore,
+					Context:       finding.Truncate(strings.TrimSpace(line)),
+					ContextBefore: finding.Truncate(ctxBefore),
 					Entropy:       e,
 				})
 			}
@@ -323,8 +323,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					RuleName:      "high_entropy_token",
 					Severity:      finding.SeverityMedium,
 					Secret:        tok,
-					Context:       strings.TrimSpace(line),
-					ContextBefore: ctxBefore,
+					Context:       finding.Truncate(strings.TrimSpace(line)),
+					ContextBefore: finding.Truncate(ctxBefore),
 					Entropy:       entropy.Shannon(tok),
 				})
 			}
@@ -359,10 +359,10 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		// ContextBefore/After
 		var ctxBefore, ctxAfter string
 		if lineNum > 1 {
-			ctxBefore = strings.TrimSpace(lines[lineNum-2])
+			ctxBefore = finding.Truncate(strings.TrimSpace(lines[lineNum-2]))
 		}
 		if lineNum < len(lines) {
-			ctxAfter = strings.TrimSpace(lines[lineNum])
+			ctxAfter = finding.Truncate(strings.TrimSpace(lines[lineNum]))
 		}
 
 		for _, rule := range cfg.Rules.Rules {
@@ -401,6 +401,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 					ruleName = tagPrefix + ruleName
 					ctx = "gzip decoded: " + ctx
 				}
+				ctx = finding.Truncate(ctx)
 
 				findings = append(findings, finding.Finding{
 					File:          path,
@@ -440,6 +441,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				if tagPrefix != "" {
 					ctx = "gzip decoded: " + ctx
 				}
+				ctx = finding.Truncate(ctx)
 				findings = append(findings, finding.Finding{
 					File:          path,
 					Line:          lineNum,
@@ -535,6 +537,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		Concurrency:     cfg.Concurrency,
 		HostConcurrency: cfg.HostConcurrency,
 		RespectRobots:   cfg.RespectRobots,
+		SameDomainOnly:  true,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)

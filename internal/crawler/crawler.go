@@ -19,12 +19,13 @@ type CrawlConfig struct {
 	HTTPClient      *http.Client
 	Headless        bool
 	RateLimit       int
-	UserAgent       string // empty = random rotation, set = fixed UA
-	Cookies         bool   // enable cookie jar (default true for URL mode)
-	CookieFile      string // path to persist cookies between runs (empty = in-memory)
-	Concurrency     int    // max concurrent fetches (default 10)
-	HostConcurrency int    // max concurrent fetches per host (default 2)
-	RespectRobots   bool   // respect robots.txt Disallow rules (default true)
+	UserAgent       string
+	Cookies         bool
+	CookieFile      string
+	Concurrency     int
+	HostConcurrency int
+	RespectRobots   bool
+	SameDomainOnly  bool
 }
 
 type hostRateLimiter struct {
@@ -67,17 +68,18 @@ type CrawledURL struct {
 
 // crawler holds state for a crawl session.
 type crawler struct {
-	config     CrawlConfig
-	client     *http.Client
-	rateLim    *hostRateLimiter
-	hostSema   *HostSemaphores
-	robots     *RobotsCache
-	mu         sync.Mutex // protects results and visited
-	results    []CrawledURL
-	visited    map[string]bool
-	queue      []queueEntry
-	queueMu    sync.Mutex
-	debug      bool
+	config      CrawlConfig
+	client      *http.Client
+	rateLim     *hostRateLimiter
+	hostSema    *HostSemaphores
+	robots      *RobotsCache
+	mu          sync.Mutex // protects results and visited
+	results     []CrawledURL
+	visited     map[string]bool
+	queue       []queueEntry
+	queueMu     sync.Mutex
+	debug       bool
+	initialHost string
 }
 
 type queueEntry struct {
@@ -130,12 +132,12 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	}
 
 	c := &crawler{
-		config:  cfg,
-		client:  client,
-		rateLim: newHostRateLimiter(cfg.RateLimit),
+		config:   cfg,
+		client:   client,
+		rateLim:  newHostRateLimiter(cfg.RateLimit),
 		hostSema: NewHostSemaphores(cfg.Concurrency, cfg.HostConcurrency),
-		visited: make(map[string]bool),
-		debug:   cfg.Debug,
+		visited:  make(map[string]bool),
+		debug:    cfg.Debug,
 	}
 
 	// Initialize robots.txt cache if enabled
@@ -146,6 +148,11 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	// Seed the queue
 	for _, u := range initialURLs {
 		c.queue = append(c.queue, queueEntry{url: u, depth: 0})
+		if c.initialHost == "" {
+			if parsed, err := url.Parse(u); err == nil {
+				c.initialHost = parsed.Hostname()
+			}
+		}
 	}
 
 	// Headless browser setup
@@ -180,6 +187,11 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		}
 		if cfg.Scope != nil && !cfg.Scope.MatchString(entry.url) {
 			continue
+		}
+		if cfg.SameDomainOnly && c.initialHost != "" {
+			if parsed, err := url.Parse(entry.url); err != nil || parsed.Hostname() != c.initialHost {
+				continue
+			}
 		}
 
 		c.markVisited(entry.url)

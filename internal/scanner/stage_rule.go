@@ -29,7 +29,7 @@ func (s *RuleStage) Process(line, path string, lineno int) []finding.Finding {
 				RuleName: r.Name,
 				Severity: sev,
 				Secret:   secret,
-				Context:  line,
+				Context:  finding.Truncate(line),
 			})
 		}
 	}
