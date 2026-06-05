@@ -10,7 +10,7 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 |-------|-------|--------|
 | V1.0  | Foundation: rule schema, entropy helpers, confidence scoring, scanner pipeline | Complete |
 | V1.1  | Decoding & credential correlation | Complete |
-| V1.2  | JS / source maps / frontend recon | Not started |
+| V1.2  | JS / source maps / frontend recon | Complete |
 | V1.3  | Verification, rule quality, reporting polish | Not started |
 
 > Move a task from `[ ]` to `[WIP]` in your PR to claim it. Mark it `[x]` when the module's exit criteria are met.
@@ -62,10 +62,10 @@ Find secrets hidden inside other formats and combine related findings.
 
 Attack surface on the frontend: bundles, sourcemaps, and exposed admin/dev endpoints.
 
-- [ ] **M6 JS Analyzer (extend)** — extend `internal/jsrecon/reconstruct.go` to extract structured records: `endpoint`, `method`, `headers` (with `Authorization` parsed), `domains`, `api_keys`. Detect `fetch()`, `axios()`, `XMLHttpRequest`, Apollo, GraphQL patterns.
-- [ ] **M7 Source Map Analyzer (new)** — new `internal/sourcemap` package. Support `.js.map`, `.map.gz`, and inline `//# sourceMappingURL=...` maps. Workflow: download → reconstruct source → scan reconstructed source → link findings to the original `.js` file. Extract `.env` references, comments, TODOs, dead code, and debug endpoints.
-- [ ] **M8 Frontend Recon (new)** — new `internal/recon` package. Detect frontend surface endpoints by category: `graphql`, `swagger`, `openapi`, `admin`, `debug`, `metrics`, `internal`, `staging`, `uat`. Detect cloud storage URLs: `s3.amazonaws.com`, `blob.core.windows.net`, `storage.googleapis.com`. Emits findings of type `attack_surface`.
-- [ ] **M6 → M7 wiring** — JS analyzer output feeds the source map analyzer; recon findings surface as `LOW`/`MEDIUM` severity `attack_surface` findings, not secret findings.
+- [x] **M6 JS Analyzer (extend)** — extend `internal/jsrecon/reconstruct.go` to extract structured records: `endpoint`, `method`, `headers` (with `Authorization` parsed), `domains`, `api_keys`. Detect `fetch()`, `axios()`, `XMLHttpRequest`, Apollo, GraphQL patterns.
+- [x] **M7 Source Map Analyzer (new)** — new `internal/sourcemap` package. Support `.js.map`, `.map.gz`, and inline `//# sourceMappingURL=...` maps. Workflow: download → reconstruct source → scan reconstructed source → link findings to the original `.js` file. Extract `.env` references, comments, TODOs, dead code, and debug endpoints.
+- [x] **M8 Frontend Recon (new)** — new `internal/recon` package. Detect frontend surface endpoints by category: `graphql`, `swagger`, `openapi`, `admin`, `debug`, `metrics`, `internal`, `staging`, `uat`. Detect cloud storage URLs: `s3.amazonaws.com`, `blob.core.windows.net`, `storage.googleapis.com`. Emits findings of type `attack_surface`.
+- [x] **M6 → M7 wiring** — JS analyzer output feeds the source map analyzer; recon findings surface as `LOW`/`MEDIUM` severity `attack_surface` findings, not secret findings.
 
 ### V1.3 — Verification & Quality
 
@@ -88,6 +88,7 @@ credential_correlation: complete
 js_analyzer: complete
 sourcemap_analyzer: complete
 frontend_recon: complete
+collector_wiring: complete
 confidence_scoring: complete
 sarif_reporting: complete
 rule_testing_framework: complete
