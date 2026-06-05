@@ -133,6 +133,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		return nil, err
 	}
 
+	// Streaming mode for files >1MB to avoid loading entire content
 	if info.Size() > 1024*1024 {
 		return scanFileStreaming(path, cfg)
 	}
@@ -163,6 +164,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	content := string(raw)
 	findings = append(findings, scanContent(content, path, cfg, "", gzipScanned, hasDecoders)...)
 
+	// JSON-aware scan for .json files
 	jsonFindings := json_scanner.ScanJSONFile(path, content, cfg.Rules, cfg.MinSeverity)
 	if skipSecrets := gzipScanned; skipSecrets != nil && len(jsonFindings) > 0 {
 		var filtered []finding.Finding
@@ -184,6 +186,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		findings = append(findings, jsFindings...)
 	}
 
+	// Endpoint extraction
 	if cfg.Endpoints && content != "" {
 		eps := endpoints.ExtractEndpoints(path, content)
 		for _, ep := range eps {
@@ -302,7 +305,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				})
 			}
 		}
-
+		// Entropy token scan
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
 				if !entropy.IsEntropyTokenMatch(tok) {
@@ -352,6 +355,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	for lineNum, line := range lines {
 		lineNum++
 
+		// ContextBefore/After
 		var ctxBefore, ctxAfter string
 		if lineNum > 1 {
 			ctxBefore = strings.TrimSpace(lines[lineNum-2])
@@ -411,7 +415,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				})
 			}
 		}
-
+		// Entropy token scan — only on lines with secret-context keywords
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
 				if !entropy.IsEntropyTokenMatch(tok) {
@@ -490,6 +494,7 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 
 	findings := scanContent(content, "stdin", cfg, "", nil, false)
 
+	// Endpoint extraction for stdin
 	if cfg.Endpoints && content != "" {
 		eps := endpoints.ExtractEndpoints("stdin", content)
 		for _, ep := range eps {
@@ -538,6 +543,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
 		allFindings = append(allFindings, findings...)
 
+		// Endpoint extraction for crawled URLs
 		if cfg.Endpoints && c.Content != "" {
 			eps := endpoints.ExtractEndpoints(c.URL, c.Content)
 			for _, ep := range eps {
