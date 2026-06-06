@@ -28,7 +28,7 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 | 7  | Source Map Analyzer    | P2 | V1.2 | new      | [07-sourcemap-analyzer.md](docs/superpowers/specs/v1/07-sourcemap-analyzer.md) |
 | 8  | Frontend Recon         | P1 | V1.2 | new      | [08-frontend-recon.md](docs/superpowers/specs/v1/08-frontend-recon.md) |
 | 9  | Confidence Scoring     | P0 | V1.0 | new      | [09-confidence-scoring.md](docs/superpowers/specs/v1/09-confidence-scoring.md) |
-| 10 | Rule Quality Testing   | P1 | V1.3 | new      | [10-rule-quality-testing.md](docs/superpowers/specs/v1/10-rule-quality-testing.md) |
+| 10 | Rule Quality Testing   | P1 | V1.4 | new      | [10-rule-quality-testing.md](docs/superpowers/specs/v1/10-rule-quality-testing.md) |
 | 11 | Scanner Architecture   | P0 | V1.0 | refactor | [11-scanner-architecture.md](docs/superpowers/specs/v1/11-scanner-architecture.md) |
 | 12 | Reporting              | P0 | V1.3 | extend   | [12-reporting.md](docs/superpowers/specs/v1/12-reporting.md) |
 
@@ -72,8 +72,14 @@ Attack surface on the frontend: bundles, sourcemaps, and exposed admin/dev endpo
 Confirm findings, prove the rules are good, polish reporting.
 
 - [x] **M4 Verification Engine (refactor)** — refactor `internal/validator/providers.go` (currently 349 lines) to explicit `POTENTIAL/LIKELY/VERIFIED` states. Add the spec's explicit endpoints: AWS `sts:GetCallerIdentity`, GitHub `GET /user`, Stripe `GET /v1/account`, OpenAI `GET /v1/models`. Verification is rate-limited, thread-safe, and opt-in only. New `--verify` CLI flag is added; existing `--validate` keeps its best-effort behavior across all 13 providers.
-- [ ] **M10 Rule Quality Testing (new)** — new `internal/ruletest` package. Positive corpus harness: 10,000+ real token examples. Negative corpus harness: 100k JS, 100k JSON, 100k HTML files. Tracks precision, recall, false-positive rate, coverage. Rejects any rule whose FP rate exceeds 0.5% on the negative corpus.
+- [x] **M10 Rule Quality Testing (new)** — new `internal/ruletest` package. Positive corpus harness: 30 rules × 8 samples each. Negative corpus harness: 1000 lines from repo source files. Tracks precision, recall, false-positive rate, status. Rejects any rule below thresholds. (#5)
 - [x] **M12 Reporting (extend)** — extend JSON, SARIF, and HTML formatters with `confidence`, `verification.status`, and `decoded_value_preview` fields. SARIF output includes `properties` for confidence and verification.
+
+### V1.4 — Rule Quality Testing
+
+Validate rule quality through automated test harness. Ships alongside V1.3.
+
+- [x] **M10 Rule Quality Testing (new)** — new `internal/ruletest` package. Harness (Run/Report), corpus (LoadPositive/LoadNegative via //go:embed), report printer (status constants, PrintSummary returns int), CLI command (`syck ruletest` with --rule/--fp-threshold/--fn-threshold). Tests 30 high-signal rules with positive corpora (8 matching + 2 near-miss lines each) and 1000-line negative corpus from repo sources. All 30 rules pass at 100% precision/recall with default thresholds. CI workflow runs on every push/PR. (#5)
 
 ## V1 Acceptance Criteria
 

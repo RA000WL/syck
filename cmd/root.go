@@ -20,14 +20,15 @@ and other secrets before they end up in the wrong hands.`,
 }
 
 var (
-	cfgFile    string
-	noColor    bool
-	debugMode  bool
+	cfgFile   string
+	noColor   bool
+	debugMode bool
 )
 
 func Execute() {
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(listRulesCmd)
+	rootCmd.AddCommand(ruletestCmd)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable ANSI colors")
