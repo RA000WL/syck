@@ -29,6 +29,7 @@ jobs:
         run: go build -v ./...
 
       - name: gofmt
+        shell: bash
         run: |
           if [ "$(gofmt -l . | wc -l)" -ne 0 ]; then
             echo "gofmt issues:"
