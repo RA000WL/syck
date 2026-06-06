@@ -3,12 +3,14 @@ package scanner
 import (
 	"bufio"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
@@ -293,9 +295,20 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		URL:     cfg.DecodeURL,
 	}
 
+	// Accumulate content for endpoint extraction
+	var contentBuf strings.Builder
+	needsEndpoint := cfg.Endpoints
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNum++
+
+		if needsEndpoint {
+			if contentBuf.Len() > 0 {
+				contentBuf.WriteString("\n")
+			}
+			contentBuf.WriteString(line)
+		}
 
 		var ctxBefore string
 		if lineNum > 1 {
@@ -366,6 +379,28 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		}
 
 		prevLine = line
+	}
+
+	if needsEndpoint && contentBuf.Len() > 0 {
+		fullContent := contentBuf.String()
+		eps := endpoints.ExtractEndpoints(path, fullContent)
+		for _, ep := range eps {
+			score := endpoints.ComputeRiskScore(ep.Endpoint)
+			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+				continue
+			}
+			findings = append(findings, finding.Finding{
+				File:      ep.File,
+				Line:      ep.Line,
+				Column:    0,
+				RuleName:  "endpoint",
+				Severity:  finding.SeverityInfo,
+				RiskScore: score,
+				Secret:    ep.Endpoint,
+				Context:   ep.Context,
+				Entropy:   0.0,
+			})
+		}
 	}
 
 	return findings, nil
@@ -578,6 +613,16 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 }
 
 func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
 	crawlCfg := crawler.CrawlConfig{
 		Scope:           cfg.Scope,
 		Limit:           cfg.CrawlLimit,
@@ -593,6 +638,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		HostConcurrency: cfg.HostConcurrency,
 		RespectRobots:   cfg.RespectRobots,
 		SameDomainOnly:  true,
+		HTTPClient:      httpClient,
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)
@@ -609,7 +655,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		baseURL := baseOf(firstURL)
 		if baseURL != "" {
 			juicyCfg := crawler.JuicyConfig{
-				Client:    crawlCfg.HTTPClient,
+				Client:    httpClient,
 				BaseURL:   baseURL,
 				UserAgent: cfg.UserAgent,
 			}

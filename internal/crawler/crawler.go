@@ -262,7 +262,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			})
 
 			// V1.1: harvest source maps for JS files
-			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") {
+			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") && c.visitedCount() < cfg.Limit {
 				mapURL := e.url + ".map"
 				c.mu.Lock()
 				alreadyQueued := c.visited[mapURL]
