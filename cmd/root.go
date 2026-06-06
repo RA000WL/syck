@@ -10,7 +10,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "syck",
 	Short: "Secret scanner for bug bounty hunting",
-	Long: `Syck is a modular secret scanner with 250+ detection rules,
+	Long: `Syck is a modular secret scanner with 150+ detection rules,
 entropy analysis, and multiple output formats.
 
 Scan files and directories for API keys, tokens, passwords, 

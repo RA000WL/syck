@@ -5,13 +5,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner written in Go. 130+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
+A fast, modular secret scanner written in Go. 150+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
 
 **Why syck?** Most secret scanners either miss too much (regex-only) or drown you in false positives (entropy-only). syck combines both with rule-specific context keywords, decoder layers, and a precision-hardened rule set that scores 100% precision on the curated test corpus (vs. 11.9% for the Python reference).
 
 ## Features
 
-- **130+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, and 50+ providers
+- **150+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring catches high-entropy tokens that regex alone misses
 - **6 output formats** — text, JSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
 - **URL crawling** — BFS crawler with goquery HTML extraction, per-host rate limiting, scope filtering
@@ -365,7 +365,7 @@ syck scan [paths...]
     ├── Git history (git log → git show → scan per-commit)
     └── Stdin pipe
          │
-         ├── Regex rules (130+ patterns)
+         ├── Regex rules (150+ patterns)
          ├── Entropy token scan
          ├── Multi-layer decoders (base64/hex/unicode/url/gzip)
          ├── JSON-aware tree walker
