@@ -20,6 +20,7 @@ type jsonFinding struct {
 	Column        int     `json:"column"`
 	Rule          string  `json:"rule"`
 	Severity      string  `json:"severity"`
+	RiskScore     int     `json:"risk_score,omitempty"`
 	Secret        string  `json:"secret"`
 	Context       string  `json:"context"`
 	ContextBefore string  `json:"context_before,omitempty"`
@@ -60,6 +61,7 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			Column:        f.Column,
 			Rule:          f.RuleName,
 			Severity:      finding.SeverityNames[f.Severity],
+			RiskScore:     f.RiskScore,
 			Secret:        secret,
 			Context:       ctx,
 			ContextBefore: ctxBefore,
