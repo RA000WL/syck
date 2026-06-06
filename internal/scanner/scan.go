@@ -433,6 +433,9 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 						continue
 					}
 				}
+				if entropy.IsMediaToken(tok) {
+					continue
+				}
 				col := strings.Index(line, tok)
 				if col < 0 {
 					col = 0
