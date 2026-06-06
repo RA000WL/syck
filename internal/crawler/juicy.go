@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RA000WL/syck/internal/finding"
 )
@@ -44,7 +45,7 @@ type JuicyFinding struct {
 
 func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 	if cfg.Client == nil {
-		cfg.Client = &http.Client{Timeout: 10 * 1e9}
+		cfg.Client = &http.Client{Timeout: 10 * time.Second}
 	}
 	base, err := url.Parse(cfg.BaseURL)
 	if err != nil {
@@ -78,7 +79,10 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 				ua = "syck/1.1"
 			}
 
-			req, _ := http.NewRequest("HEAD", rawURL, nil)
+			req, err := http.NewRequest("HEAD", rawURL, nil)
+			if err != nil {
+				return
+			}
 			req.Header.Set("User-Agent", ua)
 			resp, err := cfg.Client.Do(req)
 			if err != nil {
@@ -90,7 +94,10 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 			}
 			contentType := resp.Header.Get("Content-Type")
 
-			req2, _ := http.NewRequest("GET", rawURL, nil)
+			req2, err := http.NewRequest("GET", rawURL, nil)
+			if err != nil {
+				return
+			}
 			req2.Header.Set("User-Agent", ua)
 			resp2, err := cfg.Client.Do(req2)
 			if err != nil {
@@ -121,14 +128,15 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 
 func (j JuicyFinding) ToFinding() finding.Finding {
 	return finding.Finding{
-		File:     j.URL,
-		Line:     1,
-		Column:   0,
-		RuleName: "juicy_file",
-		Severity: finding.SeverityMedium,
-		Secret:   fmt.Sprintf("%s [%s]", j.Path, j.ContentType),
-		Context:  truncate(j.Body, 200),
-		Entropy:  0.0,
+		File:      j.URL,
+		Line:      1,
+		Column:    0,
+		RuleName:  "juicy_file",
+		Severity:  finding.SeverityMedium,
+		RiskScore: 0,
+		Secret:    fmt.Sprintf("%s [%s]", j.Path, j.ContentType),
+		Context:   truncate(j.Body, 200),
+		Entropy:   0.0,
 	}
 }
 

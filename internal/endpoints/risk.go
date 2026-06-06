@@ -25,7 +25,6 @@ var riskScoringRules = []riskRule{
 	{regexp.MustCompile(`(?i)/(?:actuator|metrics|prometheus)(?:/|$|\?)`), 6, false, "actuator"},
 	{regexp.MustCompile(`(?i)/actuator/env`), 8, false, "actuator"},
 	{regexp.MustCompile(`(?i)/actuator/configprops`), 8, false, "actuator"},
-	{regexp.MustCompile(`(?i)/health`), 0, false, "health"},
 
 	// Auth / tokens
 	{regexp.MustCompile(`(?i)/(?:auth|oauth|token|api-?key|secret)s?(?:/|$|\?)`), 4, true, "auth"},

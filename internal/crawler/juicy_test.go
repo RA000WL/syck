@@ -3,17 +3,11 @@ package crawler
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 )
 
 func TestJuicyProbe(t *testing.T) {
-	mu := sync.Mutex{}
-	calls := map[string]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		calls[r.Method+" "+r.URL.Path]++
-		mu.Unlock()
 		switch r.URL.Path {
 		case "/.env", "/admin":
 			w.Header().Set("Content-Type", "text/plain")
