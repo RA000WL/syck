@@ -7,19 +7,7 @@ import (
 	"net/url"
 	"os"
 	"sync"
-	"time"
 )
-
-// cookieEntry is a single cookie for JSON serialization.
-type cookieEntry struct {
-	Name     string    `json:"name"`
-	Value    string    `json:"value"`
-	Domain   string    `json:"domain"`
-	Path     string    `json:"path"`
-	Expires  time.Time `json:"expires"`
-	HTTPOnly bool      `json:"http_only"`
-	Secure   bool      `json:"secure"`
-}
 
 // cookieStore is the JSON-serializable cookie jar.
 type cookieStore struct {
@@ -77,16 +65,6 @@ func (s *cookieStore) load() {
 		return
 	}
 	s.cookies = entries
-
-	// Load cookies into the underlying jar
-	for _, cookies := range s.cookies {
-		for _, c := range cookies {
-			if c.Expires.After(time.Now()) {
-				// Skip expired cookies
-				continue
-			}
-		}
-	}
 }
 
 // save writes the current cookies to the JSON file.
@@ -95,5 +73,5 @@ func (s *cookieStore) save() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(s.file, data, 0600)
+	_ = os.WriteFile(s.file, data, 0600)
 }

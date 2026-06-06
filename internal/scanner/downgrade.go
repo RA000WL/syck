@@ -45,17 +45,3 @@ func DowngradeFP(findings []finding.Finding) []finding.Finding {
 	}
 	return out
 }
-
-func isNonProdDir(name string) bool {
-	if nonProdPaths[name] {
-		return true
-	}
-	for _, sep := range []string{"_", "."} {
-		for _, part := range strings.Split(name, sep) {
-			if nonProdPaths[part] {
-				return true
-			}
-		}
-	}
-	return false
-}

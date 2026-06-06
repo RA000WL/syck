@@ -25,7 +25,7 @@ func (githubValidator) Validate(secret string) ValidationResult {
 		var body struct {
 			Login string `json:"login"`
 		}
-		json.NewDecoder(resp.Body).Decode(&body)
+		_ = json.NewDecoder(resp.Body).Decode(&body)
 		if body.Login != "" {
 			return ValidationResult{Valid: true, Detail: "login: " + body.Login, State: StateVerified}
 		}

@@ -25,7 +25,7 @@ func (huggingfaceValidator) Validate(secret string) ValidationResult {
 		var body struct {
 			Name string `json:"name"`
 		}
-		json.NewDecoder(resp.Body).Decode(&body)
+		_ = json.NewDecoder(resp.Body).Decode(&body)
 		if body.Name != "" {
 			return ValidationResult{Valid: true, Detail: "user: " + body.Name, State: StateVerified}
 		}

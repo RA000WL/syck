@@ -54,7 +54,7 @@ func (h *HeadlessBrowser) FetchPage(rawURL string, timeout time.Duration) (strin
 
 	// Wait for the page to be stable (no network activity for 1s or timeout)
 	_ = page.WaitLoad()
-	time.Sleep(2 * time.Second)
+	time.Sleep(timeout)
 
 	content, err := page.Eval(`() => document.documentElement.outerHTML`)
 	if err != nil {

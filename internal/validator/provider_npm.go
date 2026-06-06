@@ -25,7 +25,7 @@ func (npmValidator) Validate(secret string) ValidationResult {
 		var body struct {
 			Username string `json:"username"`
 		}
-		json.NewDecoder(resp.Body).Decode(&body)
+		_ = json.NewDecoder(resp.Body).Decode(&body)
 		if body.Username != "" {
 			return ValidationResult{Valid: true, Detail: "user: " + body.Username, State: StateVerified}
 		}

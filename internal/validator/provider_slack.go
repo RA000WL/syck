@@ -27,7 +27,7 @@ func (slackValidator) Validate(secret string) ValidationResult {
 		OK   bool   `json:"ok"`
 		User string `json:"user"`
 	}
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if body.OK {
 		if body.User != "" {
 			return ValidationResult{Valid: true, Detail: "user: " + body.User, State: StateVerified}

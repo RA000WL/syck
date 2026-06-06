@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func init() { rand.Seed(42) }
+var rng = rand.New(rand.NewSource(42))
 
 func GeneratePositive(ruleName string) []string {
 	gen, ok := positiveGenerators[ruleName]
@@ -31,7 +31,7 @@ var alphaUnderscore = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234
 func randStr(length int, charset string) string {
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+		b[i] = charset[rng.Intn(len(charset))]
 	}
 	return string(b)
 }
@@ -240,7 +240,7 @@ func generateNegativeCorpus() []string {
 		substCount := strings.Count(tpl, "%s") + strings.Count(tpl, "%d")
 		args := make([]interface{}, substCount)
 		for j := range args {
-			args[j] = words[rand.Intn(len(words))]
+			args[j] = words[rng.Intn(len(words))]
 		}
 		lines = append(lines, fmt.Sprintf(tpl, args...))
 	}

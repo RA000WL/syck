@@ -74,8 +74,6 @@ func tryHex(line string) []DecodeResult {
 	return results
 }
 
-var urlEncodedSingleRE = regexp.MustCompile(`%[0-9a-fA-F]{2}`)
-
 func tryUnicodeEscapes(line string) []DecodeResult {
 	if !strings.Contains(line, "\\u") {
 		return nil
@@ -83,7 +81,9 @@ func tryUnicodeEscapes(line string) []DecodeResult {
 	decoded := unicodeEscapeRE.ReplaceAllStringFunc(line, func(m string) string {
 		hexStr := m[2:]
 		var r rune
-		fmt.Sscanf(hexStr, "%x", &r)
+		if _, err := fmt.Sscanf(hexStr, "%x", &r); err != nil {
+			return m
+		}
 		return string(r)
 	})
 	if decoded == line {
@@ -98,7 +98,9 @@ func tryURLEncoded(line string) []DecodeResult {
 	}
 	decoded := urlEncodedRE.ReplaceAllStringFunc(line, func(m string) string {
 		var b byte
-		fmt.Sscanf(m[1:], "%02x", &b)
+		if _, err := fmt.Sscanf(m[1:], "%02x", &b); err != nil {
+			return m
+		}
 		return string(b)
 	})
 	if decoded == line {

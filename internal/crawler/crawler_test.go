@@ -10,7 +10,7 @@ import (
 func TestCrawlSingleJS(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
-		w.Write([]byte(`var key = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef12";`))
+		_, _ = w.Write([]byte(`var key = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef12";`))
 	}))
 	defer ts.Close()
 
@@ -29,7 +29,7 @@ func TestCrawlSingleJS(t *testing.T) {
 func TestCrawlScopeFilter(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<script src="https://cdn.example.com/lib.js"></script>
+		_, _ = w.Write([]byte(`<script src="https://cdn.example.com/lib.js"></script>
 <script src="/local.js"></script>`))
 	}))
 	defer ts.Close()
@@ -47,7 +47,7 @@ func TestCrawlScopeFilter(t *testing.T) {
 func TestCrawlLimit(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<script src="/next.js"></script>`))
+		_, _ = w.Write([]byte(`<script src="/next.js"></script>`))
 	}))
 	defer ts.Close()
 
