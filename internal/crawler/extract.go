@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/RA000WL/syck/internal/endpoints"
 )
 
 var jsImportRe = regexp.MustCompile(
@@ -263,6 +264,8 @@ func extractHTML(content string, base *url.URL) []string {
 func extractJS(content string, base *url.URL) []string {
 	var urls []string
 	seen := make(map[string]bool)
+
+	// Existing: extract import URLs
 	matches := jsImportRe.FindAllStringSubmatch(content, -1)
 	for _, m := range matches {
 		if len(m) < 2 {
@@ -274,6 +277,23 @@ func extractJS(content string, base *url.URL) []string {
 			urls = append(urls, resolved)
 		}
 	}
+
+	// V1.1: also extract API/endpoint URLs from JS content
+	for _, ep := range endpoints.ExtractEndpoints(base.String(), content) {
+		if strings.HasPrefix(ep.Endpoint, "http://") || strings.HasPrefix(ep.Endpoint, "https://") {
+			if !seen[ep.Endpoint] {
+				seen[ep.Endpoint] = true
+				urls = append(urls, ep.Endpoint)
+			}
+		} else {
+			resolved := resolveURL(ep.Endpoint, base)
+			if resolved != "" && !seen[resolved] {
+				seen[resolved] = true
+				urls = append(urls, resolved)
+			}
+		}
+	}
+
 	return urls
 }
 
