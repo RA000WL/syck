@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +17,7 @@ type CrawlConfig struct {
 	Limit           int
 	MaxDepth        int
 	Debug           bool
+	Endpoints       bool
 	HTTPClient      *http.Client
 	Headless        bool
 	RateLimit       int
@@ -258,6 +260,18 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 				ContentType: contentType,
 				Depth:       e.depth,
 			})
+
+			// V1.1: harvest source maps for JS files
+			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") {
+				mapURL := e.url + ".map"
+				c.queueMu.Lock()
+				alreadyQueued := c.visited[mapURL]
+				if !alreadyQueued {
+					c.queue = append(c.queue, queueEntry{url: mapURL, depth: e.depth + 1})
+					c.visited[mapURL] = true
+				}
+				c.queueMu.Unlock()
+			}
 
 			// Enqueue discovered URLs
 			if e.depth < cfg.MaxDepth && len(c.visited) < cfg.Limit {

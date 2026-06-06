@@ -567,6 +567,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		Limit:           cfg.CrawlLimit,
 		MaxDepth:        cfg.CrawlDepth,
 		Debug:           cfg.Debug,
+		Endpoints:       cfg.Endpoints,
 		Headless:        cfg.Headless,
 		RateLimit:       cfg.RateLimit,
 		UserAgent:       cfg.UserAgent,
