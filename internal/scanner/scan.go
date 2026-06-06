@@ -209,15 +209,20 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	if cfg.Endpoints && content != "" {
 		eps := endpoints.ExtractEndpoints(path, content)
 		for _, ep := range eps {
+			score := endpoints.ComputeRiskScore(ep.Endpoint)
+			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+				continue
+			}
 			findings = append(findings, finding.Finding{
-				File:     ep.File,
-				Line:     ep.Line,
-				Column:   0,
-				RuleName: "endpoint",
-				Severity: finding.SeverityInfo,
-				Secret:   ep.Endpoint,
-				Context:  ep.Context,
-				Entropy:  0.0,
+				File:      ep.File,
+				Line:      ep.Line,
+				Column:    0,
+				RuleName:  "endpoint",
+				Severity:  finding.SeverityInfo,
+				RiskScore: score,
+				Secret:    ep.Endpoint,
+				Context:   ep.Context,
+				Entropy:   0.0,
 			})
 		}
 	}
@@ -245,15 +250,20 @@ func ScanContent(content string, path string, cfg Config) []finding.Finding {
 	if cfg.Endpoints && content != "" {
 		eps := endpoints.ExtractEndpoints(path, content)
 		for _, ep := range eps {
+			score := endpoints.ComputeRiskScore(ep.Endpoint)
+			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+				continue
+			}
 			findings = append(findings, finding.Finding{
-				File:     ep.File,
-				Line:     ep.Line,
-				Column:   0,
-				RuleName: "endpoint",
-				Severity: finding.SeverityInfo,
-				Secret:   ep.Endpoint,
-				Context:  ep.Context,
-				Entropy:  0.0,
+				File:      ep.File,
+				Line:      ep.Line,
+				Column:    0,
+				RuleName:  "endpoint",
+				Severity:  finding.SeverityInfo,
+				RiskScore: score,
+				Secret:    ep.Endpoint,
+				Context:   ep.Context,
+				Entropy:   0.0,
 			})
 		}
 	}
@@ -536,15 +546,20 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	if cfg.Endpoints && content != "" {
 		eps := endpoints.ExtractEndpoints("stdin", content)
 		for _, ep := range eps {
+			score := endpoints.ComputeRiskScore(ep.Endpoint)
+			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+				continue
+			}
 			findings = append(findings, finding.Finding{
-				File:     ep.File,
-				Line:     ep.Line,
-				Column:   0,
-				RuleName: "endpoint",
-				Severity: finding.SeverityInfo,
-				Secret:   ep.Endpoint,
-				Context:  ep.Context,
-				Entropy:  0.0,
+				File:      ep.File,
+				Line:      ep.Line,
+				Column:    0,
+				RuleName:  "endpoint",
+				Severity:  finding.SeverityInfo,
+				RiskScore: score,
+				Secret:    ep.Endpoint,
+				Context:   ep.Context,
+				Entropy:   0.0,
 			})
 		}
 	}
@@ -597,15 +612,20 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		if cfg.Endpoints && c.Content != "" {
 			eps := endpoints.ExtractEndpoints(c.URL, c.Content)
 			for _, ep := range eps {
+				score := endpoints.ComputeRiskScore(ep.Endpoint)
+				if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+					continue
+				}
 				allFindings = append(allFindings, finding.Finding{
-					File:     ep.File,
-					Line:     ep.Line,
-					Column:   0,
-					RuleName: "endpoint",
-					Severity: finding.SeverityInfo,
-					Secret:   ep.Endpoint,
-					Context:  ep.Context,
-					Entropy:  0.0,
+					File:      ep.File,
+					Line:      ep.Line,
+					Column:    0,
+					RuleName:  "endpoint",
+					Severity:  finding.SeverityInfo,
+					RiskScore: score,
+					Secret:    ep.Endpoint,
+					Context:   ep.Context,
+					Entropy:   0.0,
 				})
 			}
 		}
