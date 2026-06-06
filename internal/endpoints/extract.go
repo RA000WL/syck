@@ -14,7 +14,7 @@ type Endpoint struct {
 
 var endpointPatterns = []*regexp.Regexp{
 	// API/admin/dashboard route paths (relative)
-	regexp.MustCompile(`['"]((?:/api|/v\d+|/internal|/admin|/dashboard|/graphql|/rest)(?:/[a-zA-Z0-9_\-{}:]+){1,6})['"]`),
+	regexp.MustCompile(`['"]((?:/api|/v\d+|/internal|/admin|/dashboard|/rest)(?:/[a-zA-Z0-9_\-{}:]+){1,6})['"]`),
 	// Auth/secret-related routes (case-insensitive, allow method prefix like "POST /login")
 	regexp.MustCompile(`(?i)['"][^'"]*(/[a-z0-9_\-]+/(?:user|account|admin|auth|login|token|password|key|secret|config|setting)[a-z0-9_/\-]*)['"]`),
 	// fetch/axios calls (absolute HTTP URLs)
@@ -23,8 +23,29 @@ var endpointPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:url|endpoint|baseURL|apiURL)\s*[:=]\s*['"](https?://[^'"]{10,})['"]`),
 	// WebSocket URLs (no quote requirement)
 	regexp.MustCompile(`(wss?://[a-zA-Z0-9\-._]+(?:/[a-zA-Z0-9_/\-]*)?)`),
-	// GraphQL endpoints
-	regexp.MustCompile(`(?i)['"]((?:https?://[^'"]+)?/graphql(?:/[a-zA-Z0-9_\-]*)?)['"]`),
+	// OpenAPI / Swagger spec URLs
+	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/(?:openapi|swagger)(?:\.json|\.yaml|/))['"]`),
+	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/v[23]/api-docs)['"]`),
+
+	// Frontend router patterns (V1.1)
+	// path: "/..." or path="/..." (React Router, Vue Router object-form)
+	regexp.MustCompile(`(?i)['"]?path['"]?\s*[:=]\s*['"]([/][a-zA-Z0-9_\-{}/:]+)['"]`),
+	// <Route path="/..." /> (JSX component)
+	regexp.MustCompile(`<Route\s+[^>]*path=['"]([/][^'"]+)['"]`),
+	// router.push("/...") or navigate("/...") or history.push("/...")
+	regexp.MustCompile(`(?i)(?:router|navigate|history)\.push\(\s*['"]([/][^'"]+)['"]`),
+	// navigate("/...") (React Router v6 hook)
+	regexp.MustCompile(`(?i)navigate\(\s*['"]([/][^'"]+)['"]`),
+	// to="/..." (React Router Link)
+	regexp.MustCompile(`(?i)to=['"]([/][^'"]+)['"]`),
+	// href="/..." (anchor with relative path)
+	regexp.MustCompile(`(?i)href=['"]?(?:[a-z]+:)?([/][a-zA-Z0-9_\-{}]+)['"]?`),
+
+	// GraphQL endpoints (expanded)
+	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/(?:api/)?graphql(?:/v\d+)?)['"]`),
+	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/query)['"]`),
+	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/gql(?:/v\d+)?)['"]`),
+	regexp.MustCompile(`(?i)['"]?(?:gql|graphql)(?:Client|Endpoint|API)\s*[:=]\s*['"]([^'"]+)['"]`),
 }
 
 var staticAssetExts = map[string]bool{

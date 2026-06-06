@@ -121,3 +121,64 @@ func TestExtractFetchAxios(t *testing.T) {
 		t.Errorf("expected axios URL, got %v", endpoints)
 	}
 }
+
+func TestExtractRouterPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want string
+	}{
+		{"path_kv", `{ path: "/admin/users", component: X }`, "/admin/users"},
+		{"RouteComponent", `<Route path="/billing" />`, "/billing"},
+		{"RouterPush", `router.push("/profile")`, "/profile"},
+		{"Navigate", `navigate("/settings")`, "/settings"},
+		{"LinkTo", `<Link to="/dashboard">`, "/dashboard"},
+		{"AnchorHref", `<a href="/profile">u</a>`, "/profile"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eps := ExtractEndpoints("test.js", tc.line)
+			found := false
+			for _, ep := range eps {
+				if ep.Endpoint == tc.want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected %q in %q, got %v", tc.want, tc.line, eps)
+			}
+		})
+	}
+}
+
+func TestExtractGraphQLVariants(t *testing.T) {
+	cases := []string{
+		`"https://example.com/graphql"`,
+		`"https://example.com/api/graphql"`,
+		`"https://example.com/graphql/v1"`,
+		`"https://example.com/query"`,
+		`"https://example.com/gql"`,
+		`graphqlClient: "/api/graphql"`,
+	}
+	for _, content := range cases {
+		eps := ExtractEndpoints("test.js", content)
+		if len(eps) == 0 {
+			t.Errorf("expected endpoint in %q, got none", content)
+		}
+	}
+}
+
+func TestExtractOpenAPI(t *testing.T) {
+	cases := []string{
+		`"https://example.com/openapi.json"`,
+		`"https://example.com/swagger.json"`,
+		`"https://example.com/v3/api-docs"`,
+	}
+	for _, content := range cases {
+		eps := ExtractEndpoints("test.js", content)
+		if len(eps) == 0 {
+			t.Errorf("expected OpenAPI endpoint in %q, got none", content)
+		}
+	}
+}
