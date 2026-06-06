@@ -12,6 +12,8 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 | V1.1  | Decoding & credential correlation | Complete |
 | V1.2  | JS / source maps / frontend recon | Complete |
 | V1.3  | Verification, rule quality, reporting polish | Complete |
+| V1.4  | Rule quality testing harness | Complete |
+| V1.5  | FP reduction (media token filter) & performance (line length gate) | Complete |
 
 > Move a task from `[ ]` to `[WIP]` in your PR to claim it. Mark it `[x]` when the module's exit criteria are met.
 
@@ -80,6 +82,13 @@ Confirm findings, prove the rules are good, polish reporting.
 Validate rule quality through automated test harness. Ships alongside V1.3.
 
 - [x] **M10 Rule Quality Testing (new)** — new `internal/ruletest` package. Harness (Run/Report), corpus (LoadPositive/LoadNegative via //go:embed), report printer (status constants, PrintSummary returns int), CLI command (`syck ruletest` with --rule/--fp-threshold/--fn-threshold). Tests 30 high-signal rules with positive corpora (8 matching + 2 near-miss lines each) and 1000-line negative corpus from repo sources. All 30 rules pass at 100% precision/recall with default thresholds. CI workflow runs on every push/PR. (#5)
+
+### V1.5 — FP Reduction & Performance
+
+Cut false positives from base64-encoded media and prevent performance degradation on oversized lines.
+
+- [x] **IsMediaToken filter** — new `entropy.IsMediaToken()` function detects 15 base64-encoded media formats (PNG, JPEG, GIF, SVG, WebP, WOFF, WOFF2, TTF, OTF, XML, ICO, TIFF LE/BE, BMP) via magic byte inspection of the first 20 base64 chars. Wired into the entropy token path in `scanContent` to filter false positives. 18 tests (15 positive + 3 negative + WebP regression). WebP special case verifies `WEBP` at byte offset 8 to avoid WAV/AVI false positives.
+- [x] **MaxScanLineLen gate** — new `scanner.Config.MaxScanLineLen` field (0 = unlimited, default 100000) skips per-line scanning on lines exceeding the threshold. Debug log reports skipped lines (rate-limited to 10 per file). `--max-scan-line-len` CLI flag with default 100000. Three-layer performance gate: `--max-file-size` (file) → `--js-beautify` (structural) → `--max-scan-line-len` (safety net).
 
 ## V1 Acceptance Criteria
 

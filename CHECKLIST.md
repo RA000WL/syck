@@ -22,6 +22,8 @@
 - [x] JS string reconstruction (concat/join/templates)
 - [x] Endpoint extraction (API/GraphQL/WebSocket URLs)
 - [x] Git history scanning
+- [x] IsMediaToken filter (15 base64 media formats) — V1.5
+- [x] MaxScanLineLen gate (--max-scan-line-len) — V1.5
 
 ## Rules
 - [x] 130 embedded YAML rules (precision-hardened, zero false-positive patterns)
@@ -73,6 +75,7 @@
 - [x] --git-history
 - [ ] --progress (TUI progress bar)
 - [x] --ignore-file (.syckignore)
+- [x] --max-scan-line-len (skip oversized lines, default 100000) — V1.5
 
 ## Output Formatters
 - [x] Text (colorized terminal)
