@@ -30,11 +30,11 @@ func (f *MarkdownFormatter) Format(findings []finding.Finding, opts FormatOption
 	for _, file := range sortedFiles(byFile) {
 		ff := byFile[file]
 		b.WriteString(fmt.Sprintf("## `%s`\n\n", file))
-		b.WriteString("| Line | Severity | Confidence | Verification | Rule | Entropy | Secret |\n")
-		b.WriteString("|------|----------|------------|--------------|------|---------|--------|\n")
+		b.WriteString("| Line | Severity | Risk | Confidence | Verification | Rule | Entropy | Secret |\n")
+		b.WriteString("|------|----------|------|------------|--------------|------|---------|--------|\n")
 		for _, f := range ff {
-			b.WriteString(fmt.Sprintf("| %d | %s | %s | %s | `%s` | %.3f | `%s` |\n",
-				f.Line, finding.SeverityNames[f.Severity], f.Confidence, f.VerificationStatus, f.RuleName, f.Entropy, f.Secret))
+			b.WriteString(fmt.Sprintf("| %d | %s | %d | %s | %s | `%s` | %.3f | `%s` |\n",
+				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.Confidence, f.VerificationStatus, f.RuleName, f.Entropy, f.Secret))
 		}
 		b.WriteString("\n")
 	}

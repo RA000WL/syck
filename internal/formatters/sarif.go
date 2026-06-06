@@ -57,6 +57,7 @@ type sarifTextBlock struct {
 type sarifProperties struct {
 	Confidence         string `json:"confidence"`
 	VerificationStatus string `json:"verificationStatus"`
+	RiskScore          int    `json:"riskScore,omitempty"`
 }
 
 type sarifResult struct {
@@ -157,6 +158,7 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 			Properties: sarifProperties{
 				Confidence:         f.Confidence,
 				VerificationStatus: f.VerificationStatus,
+				RiskScore:          f.RiskScore,
 			},
 		})
 	}
