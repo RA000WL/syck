@@ -128,6 +128,8 @@ func init() {
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
+	bindEnvToFlags(cmd)
+
 	// Collect URLs from -u flags and -l file
 	var allURLs []string
 	allURLs = append(allURLs, urlList...)

@@ -15,6 +15,7 @@ entropy analysis, and multiple output formats.
 Scan files and directories for API keys, tokens, passwords, 
 and other secrets before they end up in the wrong hands.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		bindEnvToFlags(cmd.Root())
 		return nil
 	},
 }
