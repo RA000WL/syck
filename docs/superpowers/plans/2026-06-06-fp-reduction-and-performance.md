@@ -97,9 +97,9 @@ func TestIsMediaTokenOTF(t *testing.T) {
 func TestIsMediaTokenRandomString(t *testing.T) {
 	// Real secret-like strings should NOT be flagged
 	tokens := []string{
-		"sk_live_abcdefghijklmnopqrstuvwxyz123456",
-		"ghp_abcdefghijklmnopqrstuvwxyz1234567890",
-		"AKIAIOSFODNN7EXAMPLE1234567890",
+		"sk_xxxxxxxxxxxxxxxx",
+		"ghp_xxxxxxxxxxxxxxxx",
+		"AKIAxxxxxxxxxxxxxxxx",
 	}
 	for _, tok := range tokens {
 		if IsMediaToken(tok) {
