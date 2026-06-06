@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	joinExprRE  = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*['"]\s*['"]\s*\)`)
-	templateRE  = regexp.MustCompile("`([^`$]*)`")
+	joinExprRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*['"]\s*['"]\s*\)`)
+	templateRE = regexp.MustCompile("`([^`$]*)`")
 )
 
 const minReconstructLen = 20

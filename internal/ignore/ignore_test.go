@@ -88,4 +88,3 @@ func TestFilterEmpty(t *testing.T) {
 		t.Fatalf("Expected 0, got %d", len(result))
 	}
 }
-

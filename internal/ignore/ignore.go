@@ -46,4 +46,3 @@ func Filter(findings []finding.Finding, ignoreSet map[string]bool) []finding.Fin
 	}
 	return result
 }
-

@@ -26,10 +26,10 @@ func (s *Semaphore) Release() {
 
 // HostSemaphores manages per-host semaphores with a global limit.
 type HostSemaphores struct {
-	mu            sync.Mutex
-	hostSema      map[string]*Semaphore
-	globalSema    *Semaphore
-	hostLimit     int
+	mu         sync.Mutex
+	hostSema   map[string]*Semaphore
+	globalSema *Semaphore
+	hostLimit  int
 }
 
 // NewHostSemaphores creates a semaphore manager with per-host and global limits.
