@@ -1,60 +1,99 @@
-# Endpoint Detection Improvements — JS-Aware Crawl + Sensitive Flagging — Design
+# Endpoint Detection Improvements — JS-Aware Crawl + Risk Scoring + Source Maps + Juicy Files — Design
 
 **Date:** 2026-06-06
-**Status:** Approved (brainstorming complete)
+**Status:** Approved (revised v2, post-user-feedback)
 **Author:** syck maintainer
-**Target version:** V1.1.0 (next minor after V1.0.0)
+**Target version:** V1.1.0
 
 ## Problem
 
-syck's endpoint detection has two gaps that limit its bug-bounty recon value:
+syck's endpoint detection has 4 gaps that limit its bug-bounty recon value:
 
-1. **JS-aware crawling gap**: the crawler (`internal/crawler/extract.go`) follows `<a href>`, `<link>`, `<script src>`, and inline JS imports, but does NOT recognize `fetch('/api/...')`, `axios.get('/api/...')`, or `XMLHttpRequest` calls. The endpoint extractor (`internal/endpoints/extract.go`) already has patterns for these — but they're only used during file scanning, not crawling. JS-only APIs (common in SPAs) are missed.
-
-2. **No sensitive-endpoint signal**: every endpoint is emitted as `INFO` severity. There's no way to surface that `/api/v1/users/{id}` is more attack-worthy than `/api/v1/health`. Bug bounty hunters waste time on every endpoint equally.
+1. **JS-aware crawling gap**: the crawler follows `<a href>`, `<link>`, `<script src>`, and inline JS imports, but does NOT recognize `fetch('/api/...')`, `axios.get(...)`, `XMLHttpRequest`, OR frontend router patterns (`<Route path="...">`, `path: "/..."`).
+2. **Source map gap**: production apps ship `.js.map` files that often contain real internal API paths, staging URLs, and hidden routes. syck doesn't fetch them.
+3. **No high-value file detection**: `/admin`, `/.env`, `/actuator/env`, `/swagger.json` etc. are the highest-value recon findings and syck doesn't probe for them.
+4. **No sensitivity signal**: every endpoint is INFO. `/api/v1/users/{id}` and `/api/v1/health` are treated identically.
 
 ## Solution
 
-### Feature 1: JS-aware crawling + OpenAPI/GraphQL deep discovery
+### Feature 1: JS-aware crawling (fetch/axios/XHR + frontend routers + GraphQL variants)
 
-**1a. Route fetch/axios/XHR patterns into the crawler**
+**1a. Existing patterns** (fetch, axios, XHR) routed from `internal/endpoints/extract.go` into the crawler. Already designed.
 
-When the crawler fetches content with `Content-Type: text/javascript`, `application/javascript`, or a URL ending in `.js`:
-- Run the existing endpoint patterns from `internal/endpoints/extract.go` (the fetch/axios/XHR regex set, lines 17-22 of that file)
-- For each discovered URL: resolve relative to the current page's base, add to the BFS crawl queue
-- Also emit a `rule=endpoint`, `severity=INFO` finding for each (so the user sees the discovery even if the crawl doesn't reach the URL)
+**1b. NEW: Frontend router patterns** (highest-value add per user feedback)
 
-When the crawler fetches HTML with inline `<script>` content (already done today at `extract.go:248-258` for URL imports), additionally run the endpoint patterns over the inline script text. Same handling.
-
-**1b. OpenAPI/GraphQL URL discovery**
-
-Add 3 patterns to the URL extractor (`internal/crawler/extract.go`) that detect common schema spec locations:
-
+Add 6 patterns to `internal/endpoints/extract.go`:
 ```go
-regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/(?:openapi|swagger)(?:\.\w+)?['"]`)
-regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/v\d+/api-docs['"]`)
-regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/graphql['"]`)
+regexp.MustCompile(`(?i)['"]?path['"]?\s*[:=]\s*['"]([/][a-zA-Z0-9_\-{}/:]+)['"]`),       // path: "/admin/users"
+regexp.MustCompile(`<Route\s+[^>]*path=['"]([/][^'"]+)['"]`),                                // <Route path="/billing" />
+regexp.MustCompile(`(?i)(?:router|navigate|history)\.push\(\s*['"]([/][^'"]+)['"]`),         // router.push("/profile")
+regexp.MustCompile(`(?i)navigate\(\s*['"]([/][^'"]+)['"]`),                                   // navigate("/settings")
+regexp.MustCompile(`(?i)to=['"]([/][^'"]+)['"]`),                                            // Link to="/dashboard"
+regexp.MustCompile(`(?i)href=['"]?(?:[a-z]+:)?([/][a-zA-Z0-9_\-{}]+)['"]?`),                 // <a href="/profile">
 ```
 
-When matched, the URL is added to the crawl queue normally. The fetcher already auto-detects JSON responses; if the response is JSON with an `openapi` or `swagger` key, emit a `rule=openapi_spec` finding at INFO severity. The spec itself is NOT parsed in this design — just URL discovery and confirmation that the spec exists. Full schema harvesting is a separate, larger feature.
+Router-extracted endpoints emit as `rule=endpoint_route`, severity INFO, and are added to the BFS queue (relative URLs resolved against the page's base).
 
-**1c. GraphQL endpoint probing (optional, opt-in)**
+**1c. OpenAPI/GraphQL URL discovery** (already designed)
 
-Add a new boolean flag `--probe-graphql` (default `false`). When enabled, after the main crawl finishes, syck sends a single `POST` request to each discovered `/graphql` URL with the introspection query:
+3 patterns for `openapi.json`, `swagger.json`, `/v3/api-docs`, `/graphql`. Add to crawl queue. If response is JSON with `openapi` or `swagger` key, emit `rule=openapi_spec` at INFO.
 
-```json
-{"query":"{__schema{types{name}}}","variables":{}}
+**1d. EXPANDED GraphQL path detection** (user feedback #3)
+
+Replace the single `/graphql` pattern with 4:
+```go
+regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/(?:api/)?graphql(?:/v\d+)?['"]`),  // /graphql, /api/graphql, /graphql/v1
+regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/query['"]`),                       // /query
+regexp.MustCompile(`['"](?:https?://[^\s'"]+)?/gql(?:/v\d+)?['"]`),              // /gql, /api/gql
+regexp.MustCompile(`(?i)['"]?(?:gql|graphql)(?:Client|Endpoint|API)\s*[:=]\s*['"]([^'"]+)['"]`),  // graphqlClient: "/api/graphql"
 ```
 
-If the response is HTTP 200 with a JSON body containing `__schema`, emit a `rule=graphql_endpoint` finding at INFO severity. If the response is non-200, no finding.
+**1e. DEFER: `--probe-graphql` introspection** to V1.2. Per user feedback: less valuable than router/source-map harvesting.
 
-Probing uses the existing host-concurrency and rate-limit flags. Probing happens in a second pass after main crawl completes (so it doesn't block the BFS loop).
+### Feature 2: Source map harvesting
 
-### Feature 2: Sensitive endpoint flagging
+When the crawler successfully fetches a `.js` file, also queue `app.js.map` (etc.) for fetching.
 
-**2a. Add `Sensitive` field to Finding struct**
+In `internal/crawler/crawler.go`, after a 200 on a JS URL:
+```go
+if c.config.Endpoints && strings.HasSuffix(e.url, ".js") && !c.visited[mapURL] {
+    c.queue <- mapURL
+    c.visited[mapURL] = true
+}
+```
 
-`internal/finding/finding.go:40-54`:
+Size guard: skip if `Content-Length > 10 MB`.
+
+Emit `rule=source_map`, severity INFO when a `.js.map` is fetched. Run all endpoint patterns (fetch, axios, routers) over the map content — the `sources` and `names` fields often contain real path literals.
+
+### Feature 3: Juicy file detection (user feedback #5)
+
+NEW file `internal/crawler/juicy.go`. After BFS finishes, syck issues one HEAD per juicy path (relative to crawl base), in parallel with `--host-concurrency`. If HEAD returns 200 and content-type is text/json/yaml, do a GET (size-capped at 1 MB) and emit `rule=juicy_file`, severity MEDIUM.
+
+Juicy paths list (per user feedback, ordered by value):
+```go
+var juicyFiles = []string{
+    "/.env", "/.env.local", "/.env.production", "/.env.development",
+    "/config.json", "/config.yaml", "/config.yml",
+    "/swagger.json", "/openapi.json", "/openapi.yaml",
+    "/api-docs", "/v3/api-docs", "/v2/api-docs",
+    "/actuator", "/actuator/env", "/actuator/configprops", "/actuator/beans", "/actuator/mappings",
+    "/metrics", "/prometheus", "/health", "/info",
+    "/server-status", "/server-info",
+    "/crossdomain.xml", "/.htaccess", "/.git/HEAD", "/.git/config",
+    "/robots.txt", "/sitemap.xml",
+    "/phpinfo.php", "/info.php", "/test.php",
+    "/admin", "/administrator", "/wp-admin", "/wp-login.php",
+    "/elmah.axd", "/trace.axd",
+}
+```
+
+**Flag**: `--probe-juicy-files` (default `true` for crawls with `--endpoints`). Use `--no-juicy-files` to disable.
+
+### Feature 4: Endpoint risk scoring (replaces `Sensitive bool`)
+
+`internal/finding/finding.go` — replace `Sensitive bool` with `RiskScore int`:
+
 ```go
 type Finding struct {
     File                string
@@ -62,7 +101,7 @@ type Finding struct {
     Column              int
     RuleName            string
     Severity            Severity
-    Sensitive           bool         // NEW: marks endpoints with elevated attack-surface value
+    RiskScore           int    `json:"risk_score,omitempty"`  // 0-10; replaces Sensitive
     Secret              string
     Context             string
     ContextBefore       string
@@ -74,216 +113,216 @@ type Finding struct {
 }
 ```
 
-JSON tag (when added to formatters): `sensitive bool \`json:"sensitive,omitempty"\``. Omit when false so existing output stays compact.
-
-**2b. Sensitive pattern list**
-
-In `internal/endpoints/extract.go`, add:
+In `internal/endpoints/extract.go`:
 
 ```go
-var sensitivePatterns = []*regexp.Regexp{
+type riskRule struct {
+    Pattern           *regexp.Regexp
+    Weight            int
+    RequiresAPIPrefix bool
+}
+
+var riskScoringRules = []riskRule{
+    // IDOR-prone
+    {regexp.MustCompile(`(?i)/users?/(\d+|me|self)\b`), 3, true},
+    {regexp.MustCompile(`(?i)/accounts?/(\d+|me|self)\b`), 3, true},
+    {regexp.MustCompile(`(?i)/(?:me|self|profile)(?:/|$|\?)`), 2, true},
+
     // Admin / privileged
-    regexp.MustCompile(`(?i)/(?:admin|administrator)(?:/|$|\?)`),
-    regexp.MustCompile(`(?i)/admin/users?/`),
-    regexp.MustCompile(`(?i)/admin/(?:settings|config|login|panel)`),
+    {regexp.MustCompile(`(?i)/admin(?:/|$|\?)`), 4, false},
+    {regexp.MustCompile(`(?i)/admin/users?/`), 5, false},
+    {regexp.MustCompile(`(?i)/admin/(?:settings|config|login|panel)`), 6, false},
 
-    // Internal / debug / observability
-    regexp.MustCompile(`(?i)/(?:internal|debug|private)(?:/|$|\?)`),
-    regexp.MustCompile(`(?i)/(?:actuator|metrics|prometheus|health)/?`),
+    // Internal / debug
+    {regexp.MustCompile(`(?i)/(?:internal|debug|private)(?:/|$|\?)`), 5, false},
+    {regexp.MustCompile(`(?i)/(?:actuator|metrics|prometheus)(?:/|$|\?)`), 6, false},
+    {regexp.MustCompile(`(?i)/actuator/env`), 8, false},
+    {regexp.MustCompile(`(?i)/actuator/configprops`), 8, false},
+    {regexp.MustCompile(`(?i)/health`), 0, false},
 
-    // User / account with ID — IDOR-prone
-    regexp.MustCompile(`(?i)/users?/(\d+|me|self)\b`),
-    regexp.MustCompile(`(?i)/accounts?/(\d+|me|self)\b`),
+    // Auth / tokens
+    {regexp.MustCompile(`(?i)/(?:auth|oauth|token|api-?key|secret)s?(?:/|$|\?)`), 4, true},
+    {regexp.MustCompile(`(?i)/(?:reset|forgot)-?password`), 5, false},
 
-    // Auth / token / secret endpoints
-    regexp.MustCompile(`(?i)/(?:auth|oauth|token|api-?key|secret)s?(?:/|$|\?)`),
-    regexp.MustCompile(`(?i)/(?:reset|forgot)-?password`),
+    // Template paths
+    {regexp.MustCompile(`(?i)/(?:api/v\d+/)?users?/\{[^}]+\}`), 4, true},
+    {regexp.MustCompile(`(?i)/(?:api/v\d+/)?accounts?/\{[^}]+\}`), 4, true},
 
-    // Self / profile / me
-    regexp.MustCompile(`(?i)/(?:me|self|profile)(?:/|$|\?)`),
-
-    // Template paths (common in REST APIs)
-    regexp.MustCompile(`(?i)/(?:api/v\d+/)?users?/\{[^}]+\}`),
-    regexp.MustCompile(`(?i)/(?:api/v\d+/)?accounts?/\{[^}]+\}`),
+    // GraphQL endpoints
+    {regexp.MustCompile(`(?i)/(?:api/)?graphql(?:/v\d+)?`), 2, false},
 }
+
+var apiLikeRe = regexp.MustCompile(`(?i)^(?:/api|/v\d+|/internal|/admin|/auth|/actuator)`)
 ```
 
-12 patterns. All RE2-compatible (no lookaheads).
-
-Extend the `Endpoint` struct to carry `Sensitive bool`:
+Score calculation:
 ```go
-type Endpoint struct {
-    File      string
-    Line      int
-    Endpoint  string
-    Context   string
-    Sensitive bool   // NEW
+score := 0
+for _, r := range riskScoringRules {
+    if r.Pattern.MatchString(ep) {
+        if r.RequiresAPIPrefix && !apiLikeRe.MatchString(ep) {
+            continue  // skip — not API-like, would be a FP
+        }
+        score += r.Weight
+    }
 }
+if score > 10 { score = 10 }
+ep.RiskScore = score
 ```
 
-In `ExtractEndpoints`, after a non-duplicate match is found, run `matchAny(sensitivePatterns, ep)` — if true, set `ep.Sensitive = true`.
-
-**2c. Scanner integration**
-
-`internal/scanner/scan.go:208-223` (and the 3 other endpoint-emit sites at lines 245, 535, 595):
-```go
-findings = append(findings, finding.Finding{
-    File:      ep.File,
-    Line:      ep.Line,
-    Column:    0,
-    RuleName:  "endpoint",
-    Severity:  finding.SeverityInfo,
-    Sensitive: ep.Sensitive,  // NEW
-    Secret:    ep.Endpoint,
-    Context:   ep.Context,
-    Entropy:   0.0,
-})
+**CLI** (replaces `--sensitive-only`):
+```bash
+--min-endpoint-score 5     # only show endpoints with risk >= 5
 ```
 
-**2d. CLI flag — `--sensitive-only`**
+Keep `--sensitive-only` as a deprecated alias (logs a warning, sets min score to 5).
 
-In `cmd/scan.go`, add:
-```go
-var sensitiveOnly bool
-scanCmd.Flags().BoolVar(&sensitiveOnly, "sensitive-only", false,
-    "only output findings flagged as sensitive (currently: endpoints matching IDOR/auth patterns)")
-```
-
-In the runScan filter logic (after `ignore.Filter` and `MinSeverity`), if `sensitiveOnly`, drop any finding where `f.Sensitive == false`.
-
-**2e. Output formatters**
-
-All 6 formatters (`internal/formatters/{text,json,sarif,markdown,csv,html}.go`) emit the new field:
-
-- **JSON**: `"sensitive": true` (omitempty) — additive, backward compatible
-- **SARIF**: maps to `properties.sensitive = true` in the result object
-- **text**: append `[!]` marker after severity tag when sensitive
-- **markdown**: add a `Sensitive` column to the table
-- **CSV**: add `sensitive` column
+**Output formatters** (replace `Sensitive` with `RiskScore`):
+- **JSON**: `"risk_score": 5` (omitempty if 0)
+- **text**: append `[!]` for score >= 5, `[!+]` for score >= 8
+- **SARIF**: `properties.risk_score`
+- **markdown**: add `Risk` column
+- **CSV**: add `risk_score` column
 - **HTML**: badge in the result card
 
-For all 6, when `Sensitive == false`, behavior is unchanged. Only the new state (`true`) is shown.
+### FP-safety rationale (addresses user concern)
+
+User correctly noted that `/(?:auth|oauth|token|api-?key|secret)` would flag `/blog/tokenization` and `/docs/oauth-guide`. The `RequiresAPIPrefix` field in `riskRule` solves this:
+
+- A path is "API-like" if it starts with `/api/`, `/v\d+/`, `/internal/`, `/admin/`, `/auth/`, or `/actuator/`.
+- Patterns marked `RequiresAPIPrefix: true` (auth/token/user-ID) only score when the path is API-like.
+- Patterns marked `RequiresAPIPrefix: false` (admin, internal, debug) score regardless, because those paths are sensitive in any context.
+
+Verified by example:
+- `/blog/tokenization` → does not match API-like prefix → auth/token pattern skipped → score = 0 ✓
+- `/docs/oauth-guide` → does not match API-like prefix → score = 0 ✓
+- `/api/v1/auth/login` → matches API-like prefix → auth pattern scores 4 → total 4 ✓
+- `/api/v1/users/123` → matches API-like prefix → user-ID pattern scores 3 → total 3 ✓
+- `/admin/login` → does not need API prefix → admin pattern scores 6 → total 6 ✓
+- `/actuator/env` → admin/internal pattern skipped, but actuator/env pattern scores 8 → total 8 ✓
 
 ## Out of scope (deferred)
 
-- **OpenAPI/GraphQL schema parsing**: full schema harvest, query/mutation/subscription enumeration, deprecation tracking. Large feature; separate spec.
-- **Authentication-aware crawling**: syck doesn't yet support login flows; protected endpoints may 401. Out of scope.
-- **Severity bump for sensitive**: deliberately NOT changing severity. The `Sensitive` flag is a soft signal. If users want to gate CI on it, they can use `--sensitive-only --fail-on INFO` (or wait for a future enhancement).
-- **ML-based sensitivity classification**: not in scope; pattern-based only.
-- **Endpoint deduplication across sources**: same `/api/v1/users` discovered via `<a>` AND `fetch()` should ideally be deduped. Existing `seen` map in endpoint extractor already dedupes by endpoint string, so this is already handled.
+- `--probe-graphql` introspection (V1.2)
+- OpenAPI/GraphQL response schema parsing (V1.2+)
+- HTTP response-based sensitivity adjustment (e.g., 403 vs 200)
+- Authentication-aware crawling
+- ML-based sensitivity classification
+- `Sensitive bool` field is **removed** in favor of `RiskScore int`. This is a breaking change for any user with a JSON consumer that relied on the `sensitive` field — but it hasn't shipped yet (V1.0.0 doesn't have it), so backward compat is preserved.
 
 ## Validation procedure
 
-1. **Capture baseline**:
-   ```bash
-   syck scan /tmp/wrongsecrets --endpoints --format json -o /tmp/syck-endpoints-before.json
-   ```
-
-2. **Apply changes** (7 files modified).
-
-3. **Re-scan with sensitive flag**:
-   ```bash
-   syck scan /tmp/wrongsecrets --endpoints --format json -o /tmp/syck-endpoints-after.json
-   python3 -c "
-   import json
-   d = json.load(open('/tmp/syck-endpoints-after.json'))['findings']
-   total = sum(1 for f in d if f['rule'] == 'endpoint')
-   sensitive = sum(1 for f in d if f.get('sensitive'))
-   print(f'Total endpoint findings: {total}')
-   print(f'Sensitive: {sensitive}')
-   print()
-   print('Sample sensitive endpoints:')
-   for f in d:
-       if f.get('sensitive') and f['rule'] == 'endpoint':
-           print(f'  {f[\"file\"].split(\"/wrongsecrets/\")[-1]}:{f[\"line\"]}  {f[\"secret\"]}')
-   "
-   ```
-   Expected: at least 5-10 sensitive findings (wrongsecrets has /admin, /challenges/{id}, /api/v1/* patterns).
-
-4. **Test --sensitive-only filter**:
-   ```bash
-   syck scan /tmp/wrongsecrets --endpoints --sensitive-only --format text 2>&1 | head -20
-   ```
-   Expected: only sensitive findings shown, count > 0.
-
-5. **Test JS-aware crawl** with a small fixture:
+1. **JS-aware crawl fixture**:
    ```bash
    cat > /tmp/syck-js-test.html <<'EOF'
    <html><head><script>
-   fetch('/api/v1/users').then(r => r.json());
+   fetch('/api/v1/users');
    axios.post('/api/v1/admin/login', {});
    const xhr = new XMLHttpRequest();
    xhr.open('GET', '/api/v1/internal/debug');
+   const routes = [
+     { path: "/admin/users", component: AdminUsers },
+     { path: "/billing", component: Billing }
+   ];
+   <Route path="/profile" component={Profile} />;
+   router.push("/settings");
    </script></head></html>
    EOF
-   syck scan /tmp/syck-js-test.html --endpoints --format text 2>&1
+   syck scan /tmp/syck-js-test.html --endpoints --format json
    ```
-   Expected: 3 endpoint findings (the fetch URL, the axios URL, the XHR URL).
+   Expected: 7 endpoint findings (3 from fetch/axios/XHR, 4 from router patterns).
 
-6. **Verify no regressions in other rules**:
+2. **Source map fixture**:
    ```bash
-   python3 -c "
-   import json
-   b = json.load(open('/tmp/syck-endpoints-before.json'))['findings']
-   a = json.load(open('/tmp/syck-endpoints-after.json'))['findings']
-   bc = {}; ac = {}
-   for f in b: bc[f['rule']] = bc.get(f['rule'], 0) + 1
-   for f in a: ac[f['rule']] = ac.get(f['rule'], 0) + 1
-   for r in sorted(set(bc) | set(ac)):
-       if r == 'endpoint': continue  # we expect more endpoint findings
-       if bc.get(r, 0) != ac.get(r, 0):
-           print(f'REGRESSION: {r} {bc.get(r,0)} -> {ac.get(r,0)}')
-   print('done')
-   "
+   mkdir -p /tmp/syck-sourcemap-test && cd /tmp/syck-sourcemap-test
+   echo 'console.log("app");' > app.js
+   echo '{"version":3,"sources":["webpack://./src/api/internal/admin.ts"],"names":["getAdminSecret"],"mappings":""}' > app.js.map
+   syck scan /tmp/syck-sourcemap-test/app.js --endpoints --format json
    ```
+   Expected: `rule=source_map` finding for app.js.map, plus endpoint finding for `/api/internal/admin` extracted from sources.
+
+3. **Juicy files**: start a local server with `python3 -m http.server` in a directory containing a `.env` file and an `admin` directory. Crawl with `--endpoints --probe-juicy-files`. Verify `/.env` and `/admin` findings at MEDIUM severity.
+
+4. **Risk scoring**:
+   ```bash
+   cat > /tmp/syck-scores.html <<'EOF'
+   <html><body>
+   <a href="/api/v1/users/123">u</a>
+   <a href="/api/v1/auth/login">l</a>
+   <a href="/admin/login">a</a>
+   <a href="/actuator/env">e</a>
+   <a href="/blog/tokenization">t</a>
+   <a href="/docs/oauth-guide">o</a>
+   <a href="/api/v1/health">h</a>
+   </body></html>
+   EOF
+   syck scan /tmp/syck-scores.html --endpoints --format json
+   ```
+   Expected risk scores:
+   - `/api/v1/users/123` → 3
+   - `/api/v1/auth/login` → 4
+   - `/admin/login` → 6
+   - `/actuator/env` → 8
+   - `/blog/tokenization` → 0
+   - `/docs/oauth-guide` → 0
+   - `/api/v1/health` → 0
+
+5. **Re-run wrongsecrets** to confirm no regressions:
+   ```bash
+   syck scan /tmp/wrongsecrets --endpoints --format json -o /tmp/syck-endpoints-after.json
+   ```
+   Other rule counts must be unchanged.
 
 ## Files touched
 
 | File | Change |
 |---|---|
-| `internal/finding/finding.go` | Add `Sensitive bool` field |
-| `internal/endpoints/extract.go` | Add 12 sensitive patterns + matching; extend `Endpoint` struct |
+| `internal/finding/finding.go` | Replace `Sensitive bool` with `RiskScore int` |
+| `internal/endpoints/extract.go` | Add 6 router patterns, 4 GraphQL variants, 19 risk rules; add risk scoring |
 | `internal/crawler/extract.go` | Add 3 OpenAPI/GraphQL URL patterns; route endpoint patterns over JS content |
-| `internal/scanner/scan.go` | Set `Sensitive` on 4 endpoint-emit sites |
-| `internal/formatters/{text,json,sarif,markdown,csv,html}.go` | Emit `sensitive` field in all 6 formats |
-| `cmd/scan.go` | Add `--sensitive-only` flag |
-| `internal/crawler/crawler.go` | Add `--probe-graphql` second pass (small) |
+| `internal/crawler/crawler.go` | Add source map harvesting |
+| `internal/crawler/juicy.go` | NEW: juicy file detection (HEAD + selective GET) |
+| `internal/scanner/scan.go` | Set `RiskScore` on 4 endpoint-emit sites |
+| `internal/formatters/*.go` | Emit `risk_score` in all 6 formats (replaces `sensitive`) |
+| `cmd/scan.go` | Add `--min-endpoint-score`, `--no-juicy-files`; deprecate `--sensitive-only` |
 
-~9 files, ~250-300 lines net. Tests for each.
+~9 files, ~500 lines net.
 
 ## Commit message
 
 ```
-feat: JS-aware crawling + sensitive endpoint flagging
+feat: endpoint detection V1.1 — JS-aware crawling + risk scoring
 
 JS-aware crawling:
-- Crawler now extracts fetch/axios/XHR URLs from .js files and
-  inline scripts, adds them to the BFS queue
-- Detects OpenAPI/Swagger/GraphQL spec URLs and adds them to crawl
-- New --probe-graphql flag (off by default) sends a single
-  introspection query to discovered /graphql endpoints
+- Crawler extracts fetch/axios/XHR URLs from .js files and inline
+  scripts, adds to BFS queue
+- 6 frontend router patterns (path: "/...", <Route path=...>,
+  router.push(...), navigate(...), <Link to=...>, <a href=...>)
+- 4 GraphQL path variants (/graphql, /api/graphql, /query, /gql)
+- 3 OpenAPI/Swagger URL patterns
+- Source map harvesting: app.js -> also fetch app.js.map
+- Juicy file detection: probe /.env, /admin, /actuator/*, /metrics,
+  /swagger.json, /phpinfo, /wp-admin, /git/HEAD, etc.
 
-Sensitive endpoint flagging:
-- New Sensitive bool field on Finding (omitempty in JSON)
-- 12 sensitive patterns: /admin/*, /internal/*, /debug/*, /users/{id},
-  /accounts/{id}, /auth/*, /me, /self, /profile, /api/v*/users/{id},
-  /api/v*/accounts/{id}, password reset endpoints
-- New --sensitive-only CLI flag filters to sensitive findings only
-- All 6 output formatters emit the new field
+Risk scoring (replaces Sensitive bool):
+- RiskScore int (0-10) on every endpoint finding
+- 19 risk rules with RequiresAPIPrefix to prevent FPs
+  (e.g., /blog/tokenization stays at 0)
+- --min-endpoint-score N CLI flag (replaces --sensitive-only)
+- --sensitive-only kept as deprecated alias
+- All 6 output formatters emit risk_score
 
-Backward compatible: existing findings get sensitive=false (omitted
-in JSON via omitempty). OpenAPI/GraphQL response parsing still out
-of scope (only URL discovery + crawl).
+--probe-graphql introspection deferred to V1.2 (lower value than
+router/source-map harvesting per user feedback).
 
-Verified empirically: re-scanned /tmp/wrongsecrets/ with --endpoints.
-JS-aware crawl picks up fetch/axios/XHR URLs. Sensitive flagging
-identifies ~10 endpoints in wrongsecrets (admin challenges, /users,
-/api paths).
+Verified empirically: JS fixtures show 7 endpoint types detected
+(fetch, axios, XHR, 4 router patterns). Score fixtures confirm
+/api/v1/users/123=3, /admin/login=6, /actuator/env=8, /blog/*=0.
 ```
 
 ## Risks
 
-- **OpenAPI/GraphQL probe** can be slow (1 extra POST per candidate). Mitigated: probe only after main crawl finishes, in parallel with `--host-concurrency`. Off by default.
-- **Sensitive FP risk**: patterns like `/users/{id}` will match legitimate `GET /users/123` endpoints, not just IDOR candidates. The `sensitive` tag is informational, not a severity bump. Users decide what to investigate.
-- **Backward compat**: existing endpoint findings get `sensitive: false` (omitted in JSON via omitempty). SARIF mapping uses `properties` so existing SARIF consumers ignore it.
-- **JS-aware crawl scope**: enabling `--endpoints` on a crawl now also runs endpoint patterns on every JS file fetched. This may add 5-10% to crawl time on JS-heavy sites. Acceptable for the value.
+- **Source map fetching** can fail (404, 403, or 5+ MB files). Size-capped at 10 MB; failed fetches silently skipped.
+- **Juicy file probing** issues 30+ HEAD requests. Mitigated: parallel with `--host-concurrency`; off by default (`--probe-juicy-files=true` only with `--endpoints`).
+- **Risk scoring FP risk** addressed by `RequiresAPIPrefix` flag. Verified against 7 known paths.
+- **`RiskScore` replaces `Sensitive`**: breaking change for any external consumer. Since neither field has shipped (V1.0.0 has neither), this is safe.
