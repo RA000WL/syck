@@ -14,6 +14,8 @@ This is the contributor-facing roadmap for the V1 spec of `syck-go`. V1 subsumes
 | V1.3  | Verification, rule quality, reporting polish | Complete |
 | V1.4  | Rule quality testing harness | Complete |
 | V1.5  | FP reduction (media token filter) & performance (line length gate) | Complete |
+| V1.6  | Public release: README, release pipeline, version subcommand | Complete |
+| V1.7  | Operational polish: env config, TUI progress, SARIF upload | Complete |
 
 > Move a task from `[ ]` to `[WIP]` in your PR to claim it. Mark it `[x]` when the module's exit criteria are met.
 
@@ -89,6 +91,22 @@ Cut false positives from base64-encoded media and prevent performance degradatio
 
 - [x] **IsMediaToken filter** — new `entropy.IsMediaToken()` function detects 15 base64-encoded media formats (PNG, JPEG, GIF, SVG, WebP, WOFF, WOFF2, TTF, OTF, XML, ICO, TIFF LE/BE, BMP) via magic byte inspection of the first 20 base64 chars. Wired into the entropy token path in `scanContent` to filter false positives. 18 tests (15 positive + 3 negative + WebP regression). WebP special case verifies `WEBP` at byte offset 8 to avoid WAV/AVI false positives.
 - [x] **MaxScanLineLen gate** — new `scanner.Config.MaxScanLineLen` field (0 = unlimited, default 100000) skips per-line scanning on lines exceeding the threshold. Debug log reports skipped lines (rate-limited to 10 per file). `--max-scan-line-len` CLI flag with default 100000. Three-layer performance gate: `--max-file-size` (file) → `--js-beautify` (structural) → `--max-scan-line-len` (safety net).
+
+### V1.6 — Public Release
+
+Polish the project for outside contributors and downstream users.
+
+- [x] **README restructure** — badges (CI / Release / License / Go version / pre-1.0), "Why syck?" comparison table vs gitleaks / trufflehog / detect-secrets, real sample output (redacted), common workflows (pre-commit hook, GitHub Action, `.syckignore` generator, live validation), contributing guide. Pre-1.0 disclaimer badge + warning callout.
+- [x] **CI hardening** — gofmt check in `ci.yml` (with `shell: bash` to handle Windows), Go module cache: true, `release.yml` workflow on `v*` tag.
+- [x] **Release pipeline** — `.goreleaser.yaml` (linux/darwin/windows × amd64/arm64, CGO_ENABLED=0, archives, checksums, changelog filters), ldflags inject `main.version` / `main.commit` / `main.date` from `cmd.SetVersionInfo()`. `cmd/version.go` exposes the `syck version` subcommand.
+
+### V1.7 — Operational Polish
+
+Make `syck-go` easier to integrate into CI/CD pipelines, container environments, and long-running scans.
+
+- [x] **Env var config (`SYCK_*`)** — every flag on the `scan` subcommand can be set via env var. Pattern: `SYCK_<CMD>_<FLAG>` (uppercase, dashes→underscores). Example: `SYCK_SCAN_SEVERITY=HIGH syck scan .`. Implementation: `cmd/env.go` walks flag set at run time, calls `cmd.Flags().Set()` for any matching env var. 5 unit tests cover: basic binding, empty env ignored, dash→underscore conversion, nil cmd safety, nil env safety.
+- [x] **TUI progress bar (`--progress`)** — new `internal/progress` package wraps `schollz/progressbar/v3`. New `scanner.Config.Progress` callback field invoked per scanned file. `ScanPaths` uses atomic counters; `ScanReader` reports 1 file. Auto-disabled by `--quiet` or `--pipe`. Bar output goes to stderr so it doesn't pollute stdout for piping into other tools. 3 unit tests cover: tick counter, no-progress no-op, manual `Add()`.
+- [x] **SARIF upload (`syck upload-sarif`)** — new subcommand posts SARIF JSON to GitHub Code Scanning API (`POST /repos/{owner}/{repo}/code-scanning/sarifs`). Flags: `--file`, `--repo`, `--commit`, `--base` (optional). Validates: `GITHUB_TOKEN` env present, `--repo` is `OWNER/REPO` format, file is JSON. 30-second timeout, sets `X-GitHub-Api-Version: 2022-11-28`. 4 unit tests cover: missing token, invalid repo format, non-JSON file, success path. Companion `docs/examples/github-actions.yml` shows full workflow.
 
 ## V1 Acceptance Criteria
 

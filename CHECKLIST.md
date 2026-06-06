@@ -73,7 +73,7 @@
 - [x] --host-concurrency (max concurrent fetches per host, default 2)
 - [x] --ignore-robots (skip robots.txt Disallow rules)
 - [x] --git-history
-- [ ] --progress (TUI progress bar)
+- [x] --progress (TUI progress bar) — V1.7
 - [x] --ignore-file (.syckignore)
 - [x] --max-scan-line-len (skip oversized lines, default 100000) — V1.5
 
@@ -90,8 +90,8 @@
 - [x] FP downgrade (test/mock/vendor dirs, placeholder patterns)
 - [x] .syckignore fingerprint support
 - [x] Live secret validation (--validate)
-- [ ] Webhook dispatch (--webhook-url)
-- [ ] SARIF upload to GitHub Code Scanning
+- [ ] Webhook dispatch (--webhook-url) — deferred (not needed)
+- [x] SARIF upload to GitHub Code Scanning — V1.7
 
 ## Finding Struct
 - [x] File, Line, Column, RuleName, Severity, Secret, Context, Entropy
@@ -121,7 +121,7 @@
 - [x] Robots.txt support (Phase 2)
 - [x] Encoding detection + auto-conversion (Phase 2)
 - [ ] SQLite URL cache across runs (Phase 3)
-- [ ] Env var config (SYCK_*) (Phase 3)
+- [x] Env var config (SYCK_*) (Phase 3) — V1.7
 
 ## Documentation / Infra
 - [x] Module path: github.com/RA000WL/syck

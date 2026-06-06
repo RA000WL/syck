@@ -112,6 +112,32 @@ syck scan . --severity CRITICAL --fail-on CRITICAL --quiet --no-color
 chmod +x .git/hooks/pre-commit
 ```
 
+### Container / CI env config
+
+Every flag on the `scan` subcommand can be set via env var. Pattern:
+`SYCK_<CMD>_<FLAG>` (uppercase, dashes → underscores).
+
+```bash
+# Equivalent to: syck scan . --severity HIGH --format sarif -o results.sarif
+export SYCK_SCAN_SEVERITY=HIGH
+export SYCK_SCAN_FORMAT=sarif
+export SYCK_SCAN_OUTPUT=results.sarif
+syck scan . --no-color
+```
+
+Useful in Dockerfile / GitHub Actions / Kubernetes containers where CLI
+flag escaping is awkward.
+
+### Long-running scans with progress
+
+```bash
+# Show a live TUI bar on stderr (auto-disabled by --quiet or --pipe)
+syck scan ./very-large-repo --progress
+```
+
+The bar reports files scanned, rate, and ETA. Final line shows total
+files, elapsed time, and findings count.
+
 ### GitHub Action
 
 ```yaml
@@ -124,6 +150,16 @@ chmod +x .git/hooks/pre-commit
   if: always()
   with:
     sarif_file: results.sarif
+```
+
+Or use the built-in `syck upload-sarif` (no `codeql-action` dependency):
+
+```yaml
+- name: Upload SARIF
+  if: always()
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: syck upload-sarif --file results.sarif --repo ${{ github.repository }} --commit ${{ github.sha }}
 ```
 
 ### Generate `.syckignore` from existing findings
