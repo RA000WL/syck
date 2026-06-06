@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	base64CandidateRE = regexp.MustCompile(`\b[A-Za-z0-9+/]{32,}={0,2}\b`)
+	base64CandidateRE = regexp.MustCompile(`\b[A-Za-z0-9+/]{32,}\b`)
 	hexCandidateRE    = regexp.MustCompile(`\b(?:[0-9a-fA-F]{2}){10,}\b`)
 	unicodeEscapeRE   = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
 	urlEncodedRE      = regexp.MustCompile(`%([0-9a-fA-F]{2})`)
