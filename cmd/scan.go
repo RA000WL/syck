@@ -80,6 +80,7 @@ var (
 	verify          bool
 	verifyRate      int
 	ignoreFile      string
+	maxScanLineLen  int
 )
 
 func init() {
@@ -123,6 +124,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&verify, "verify", false, "verify secrets against provider APIs (V1 state path)")
 	scanCmd.Flags().IntVar(&verifyRate, "verify-rate", 5, "max verification requests per second per host")
 	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
+	scanCmd.Flags().IntVar(&maxScanLineLen, "max-scan-line-len", 100000, "skip per-line scanning on lines exceeding this length (0=unlimited)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -229,6 +231,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		HostConcurrency: hostConcurrency,
 		RespectRobots:   !ignoreRobots,
 		GitHistory:      gitHistory,
+		MaxScanLineLen:  maxScanLineLen,
 	}
 
 	var findings []finding.Finding

@@ -42,5 +42,5 @@ type Config struct {
 	HostConcurrency int
 	RespectRobots   bool
 	GitHistory      bool
-	MaxScanLineLen  int     // skip per-line scanning on lines exceeding this length (0=unlimited)
+	MaxScanLineLen  int // skip per-line scanning on lines exceeding this length (0=unlimited)
 }
