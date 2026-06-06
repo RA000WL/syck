@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,6 +345,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 func scanContent(content string, path string, cfg Config, tagPrefix string,
 	skipSecrets map[string]bool, hasDecoders bool) []finding.Finding {
 	var findings []finding.Finding
+	var longLineCount int
 	lines := strings.Split(content, "\n")
 
 	df := decoder.Flags{
@@ -355,6 +357,17 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 	for lineNum, line := range lines {
 		lineNum++
+
+		if cfg.MaxScanLineLen > 0 && len(line) > cfg.MaxScanLineLen {
+			if cfg.Debug {
+				longLineCount++
+				if longLineCount <= 10 {
+					fmt.Fprintf(os.Stderr, "[debug] skipping long line (%d bytes) in %s:%d\n",
+						len(line), path, lineNum)
+				}
+			}
+			continue
+		}
 
 		// ContextBefore/After
 		var ctxBefore, ctxAfter string
