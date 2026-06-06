@@ -580,11 +580,17 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 
 	crawled := crawler.Crawl(urls, crawlCfg)
 
-	var allFindings []finding.Finding
+	var (
+		allFindings   []finding.Finding
+		urlsScanned   atomic.Int64
+		totalFindings atomic.Int64
+	)
 	for _, c := range crawled {
 		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
 		allFindings = append(allFindings, findings...)
+		urlsScanned.Add(1)
+		totalFindings.Add(int64(len(findings)))
 
 		// Endpoint extraction for crawled URLs
 		if cfg.Endpoints && c.Content != "" {
@@ -601,6 +607,10 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 					Entropy:  0.0,
 				})
 			}
+		}
+
+		if cfg.Progress != nil {
+			cfg.Progress(int(urlsScanned.Load()), int(totalFindings.Load()))
 		}
 	}
 

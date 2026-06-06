@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,8 @@ and other secrets before they end up in the wrong hands.`,
 		bindEnvToFlags(cmd.Root())
 		return nil
 	},
+	SilenceErrors: true, // errExitCode is a normal signal (exit 1 due to findings), not an error
+	SilenceUsage:  true, // don't dump usage on errExitCode
 }
 
 var (
@@ -45,6 +48,9 @@ func Execute() {
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "debug logging")
 
 	if err := rootCmd.Execute(); err != nil {
+		if errors.Is(err, errExitCode) {
+			os.Exit(1)
+		}
 		os.Exit(1)
 	}
 }

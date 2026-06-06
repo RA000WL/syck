@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -21,6 +22,11 @@ import (
 	"github.com/RA000WL/syck/internal/scanner"
 	"github.com/RA000WL/syck/internal/validator"
 )
+
+// errExitCode is a sentinel returned by runScan when findings should cause
+// the process to exit with code 1. Using a returned error (instead of
+// os.Exit(1) inline) lets deferred cleanup (e.g. progress bar Finish) run.
+var errExitCode = errors.New("syck: findings present")
 
 var scanCmd = &cobra.Command{
 	Use:   "scan [paths...]",
@@ -330,7 +336,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		threshold := finding.ParseSeverity(failOn)
 		for _, f := range findings {
 			if f.Severity >= threshold {
-				os.Exit(1)
+				return errExitCode
 			}
 		}
 		return nil
@@ -338,7 +344,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// default: exit 1 if any findings
 	if len(findings) > 0 {
-		os.Exit(1)
+		return errExitCode
 	}
 	return nil
 }
