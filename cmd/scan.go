@@ -49,46 +49,49 @@ Examples:
 }
 
 var (
-	rulesFile       string
-	severityStr     string
-	formatStr       string
-	outputFile      string
-	redact          bool
-	noDedup         bool
-	excludeStr      string
-	quiet           bool
-	workers         int
-	maxFileSize     string
-	decodeBase64    bool
-	decodeHex       bool
-	decodeUnicode   bool
-	decodeURL       bool
-	decodeGzip      bool
-	jsReconstruct   bool
-	endpoints       bool
-	pipe            bool
-	failOn          string
-	downgradeFP     bool
-	urlList         []string
-	urlFile         string
-	scopeStr        string
-	crawlLimit      int
-	crawlDepth      int
-	headless        bool
-	rateLimit       int
-	userAgent       string
-	cookies         bool
-	cookieFile      string
-	concurrency     int
-	hostConcurrency int
-	ignoreRobots    bool
-	gitHistory      bool
-	validate        bool
-	verify          bool
-	verifyRate      int
-	ignoreFile      string
-	maxScanLineLen  int
-	progressFlag    bool
+	rulesFile        string
+	severityStr      string
+	formatStr        string
+	outputFile       string
+	redact           bool
+	noDedup          bool
+	excludeStr       string
+	quiet            bool
+	workers          int
+	maxFileSize      string
+	decodeBase64     bool
+	decodeHex        bool
+	decodeUnicode    bool
+	decodeURL        bool
+	decodeGzip       bool
+	jsReconstruct    bool
+	endpoints        bool
+	pipe             bool
+	failOn           string
+	downgradeFP      bool
+	urlList          []string
+	urlFile          string
+	scopeStr         string
+	crawlLimit       int
+	crawlDepth       int
+	headless         bool
+	rateLimit        int
+	userAgent        string
+	cookies          bool
+	cookieFile       string
+	concurrency      int
+	hostConcurrency  int
+	ignoreRobots     bool
+	gitHistory       bool
+	validate         bool
+	verify           bool
+	verifyRate       int
+	ignoreFile       string
+	maxScanLineLen   int
+	progressFlag     bool
+	minEndpointScore int
+	noJuicyFiles     bool
+	sensitiveOnly    bool
 )
 
 func init() {
@@ -134,10 +137,20 @@ func init() {
 	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
 	scanCmd.Flags().IntVar(&maxScanLineLen, "max-scan-line-len", 100000, "skip per-line scanning on lines exceeding this length (0=unlimited)")
 	scanCmd.Flags().BoolVar(&progressFlag, "progress", false, "show TUI progress bar on stderr (auto-disabled by --quiet or --pipe)")
+	scanCmd.Flags().IntVar(&minEndpointScore, "min-endpoint-score", 0, "minimum endpoint risk score (0-10); endpoints below are omitted")
+	scanCmd.Flags().BoolVar(&noJuicyFiles, "no-juicy-files", false, "disable juicy file probing (default: enabled with --endpoints)")
+	scanCmd.Flags().BoolVar(&sensitiveOnly, "sensitive-only", false, "deprecated: use --min-endpoint-score 5 (kept for backward compat)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
 	bindEnvToFlags(cmd)
+
+	if sensitiveOnly {
+		fmt.Fprintln(os.Stderr, "WARNING: --sensitive-only is deprecated, use --min-endpoint-score 5 instead")
+		if minEndpointScore == 0 {
+			minEndpointScore = 5
+		}
+	}
 
 	// Collect URLs from -u flags and -l file
 	var allURLs []string
@@ -213,36 +226,38 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	scanCfg := scanner.Config{
-		Workers:         workers,
-		MaxFileSize:     maxSize,
-		Exclude:         excludeRegex,
-		Rules:           rs,
-		MinSeverity:     sev,
-		NoDedup:         noDedup,
-		Debug:           debugMode,
-		DecodeBase64:    decodeBase64,
-		DecodeHex:       decodeHex,
-		DecodeUnicode:   decodeUnicode,
-		DecodeURL:       decodeURL,
-		DecodeGzip:      decodeGzip,
-		JSReconstruct:   jsReconstruct,
-		Endpoints:       endpoints,
-		DowngradeFP:     downgradeFP,
-		URLs:            allURLs,
-		URLFile:         urlFile,
-		Scope:           scopeRegex,
-		CrawlLimit:      crawlLimit,
-		CrawlDepth:      crawlDepth,
-		Headless:        headless,
-		RateLimit:       rateLimit,
-		UserAgent:       userAgent,
-		Cookies:         cookies,
-		CookieFile:      cookieFile,
-		Concurrency:     concurrency,
-		HostConcurrency: hostConcurrency,
-		RespectRobots:   !ignoreRobots,
-		GitHistory:      gitHistory,
-		MaxScanLineLen:  maxScanLineLen,
+		Workers:          workers,
+		MaxFileSize:      maxSize,
+		Exclude:          excludeRegex,
+		Rules:            rs,
+		MinSeverity:      sev,
+		NoDedup:          noDedup,
+		Debug:            debugMode,
+		DecodeBase64:     decodeBase64,
+		DecodeHex:        decodeHex,
+		DecodeUnicode:    decodeUnicode,
+		DecodeURL:        decodeURL,
+		DecodeGzip:       decodeGzip,
+		JSReconstruct:    jsReconstruct,
+		Endpoints:        endpoints,
+		DowngradeFP:      downgradeFP,
+		URLs:             allURLs,
+		URLFile:          urlFile,
+		Scope:            scopeRegex,
+		CrawlLimit:       crawlLimit,
+		CrawlDepth:       crawlDepth,
+		Headless:         headless,
+		RateLimit:        rateLimit,
+		UserAgent:        userAgent,
+		Cookies:          cookies,
+		CookieFile:       cookieFile,
+		Concurrency:      concurrency,
+		HostConcurrency:  hostConcurrency,
+		RespectRobots:    !ignoreRobots,
+		GitHistory:       gitHistory,
+		MaxScanLineLen:   maxScanLineLen,
+		MinEndpointScore: minEndpointScore,
+		ProbeJuicyFiles:  endpoints && !noJuicyFiles,
 	}
 
 	if progressFlag && !quiet && !pipe {
