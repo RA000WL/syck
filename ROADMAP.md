@@ -108,6 +108,17 @@ Make `syck-go` easier to integrate into CI/CD pipelines, container environments,
 - [x] **TUI progress bar (`--progress`)** — new `internal/progress` package wraps `schollz/progressbar/v3`. New `scanner.Config.Progress` callback field invoked per scanned file. `ScanPaths` uses atomic counters; `ScanReader` reports 1 file. Auto-disabled by `--quiet` or `--pipe`. Bar output goes to stderr so it doesn't pollute stdout for piping into other tools. 3 unit tests cover: tick counter, no-progress no-op, manual `Add()`.
 - [x] **SARIF upload (`syck upload-sarif`)** — new subcommand posts SARIF JSON to GitHub Code Scanning API (`POST /repos/{owner}/{repo}/code-scanning/sarifs`). Flags: `--file`, `--repo`, `--commit`, `--base` (optional). Validates: `GITHUB_TOKEN` env present, `--repo` is `OWNER/REPO` format, file is JSON. 30-second timeout, sets `X-GitHub-Api-Version: 2022-11-28`. 4 unit tests cover: missing token, invalid repo format, non-JSON file, success path. Companion `docs/examples/github-actions.yml` shows full workflow.
 
+### V1.8 — Endpoint Detection (JS-Aware Crawl + Risk Scoring)
+
+Attack surface from frontend bundles: route extraction, source map harvesting, and juicy file probing.
+
+- [ ] **Endpoint extraction** — `ExtractEndpoints` captures 21 endpoint patterns: 6 frontend router patterns (path:/, `<Route>`, `router.push`, `<Link>`, `<a>`), 4 GraphQL variants (`/graphql`, `/api/graphql`, `/query`, `/gql`), 3 OpenAPI patterns (`/openapi.json`, `/swagger.json`, `/v3/api-docs`), and 8 fetch/axios/XHR/WebSocket patterns.
+- [ ] **Risk scoring** — `ComputeRiskScore` assigns 0-10 score using 19 group-weighted rules with `RequiresAPIPrefix` FP protection. Per-group max (not flat sum) prevents one category from dominating.
+- [ ] **Source map harvesting** — crawler fetches `.js.map` alongside `.js` files, runs endpoint extraction over map content.
+- [ ] **Juicy file detection** — probes 35 high-value paths (`/.env`, `/admin`, `/actuator/*`, `/metrics`, `/swagger.json`, etc.) via HEAD+GET with 1MB cap.
+- [ ] **CLI** — `--min-endpoint-score N` (replaces deprecated `--sensitive-only`), `--no-juicy-files`, `--endpoints`.
+- [ ] **Output** — risk_score field in all 6 formatters (JSON, text, SARIF, markdown, CSV, HTML).
+
 ## V1 Acceptance Criteria
 
 V1 is not complete until every box is checked:

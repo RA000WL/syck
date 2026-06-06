@@ -24,6 +24,10 @@ A fast, modular secret scanner written in Go. 150+ detection rules, multi-layer 
 - **JSON-aware scanning** — walks parsed JSON tree under known secret-key names
 - **CI gate mode** — `--fail-on` exits non-zero when findings meet severity threshold
 - **Zero runtime dependencies** — single static binary, no pip/npm required
+- **Endpoint detection** — JS-aware crawl extracts API endpoints from fetch/axios/XHR, 6 frontend router patterns (React/Vue/Angular), 4 GraphQL variants, 3 OpenAPI/Swagger patterns
+- **Risk scoring** — 19-rule risk engine assigns 0-10 score per endpoint with FP-safe prefix checking
+- **Source map harvesting** — crawler fetches `.js.map` alongside `.js` files, extracts endpoints from map content
+- **Juicy file probing** — detects 35 high-value paths: `/.env`, `/admin`, `/actuator/*`, `/metrics`, `/swagger.json`, `/phpinfo.php`, `/wp-admin`, `/.git/config`
 
 ## Install
 
@@ -231,6 +235,8 @@ Validation downgrades unconfirmed secrets to `INFO`.
 | Flag | Description |
 |------|-------------|
 | `--endpoints` | Extract API, GraphQL, and WebSocket URLs |
+| `--min-endpoint-score` | Only show endpoints with risk score >= N (default: 0) |
+| `--no-juicy-files` | Disable juicy file probing during endpoint scan |
 | `--git-history` | Scan files in git commit history |
 | `--validate` | Validate found secrets against provider APIs (live check) |
 | `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs |
@@ -364,14 +370,15 @@ syck scan [paths...]
     ├── URL scanning (goquery → BFS crawl → fetch → scan)
     ├── Git history (git log → git show → scan per-commit)
     └── Stdin pipe
-         │
-         ├── Regex rules (150+ patterns)
-         ├── Entropy token scan
-         ├── Multi-layer decoders (base64/hex/unicode/url/gzip)
-         ├── JSON-aware tree walker
-         └── JS string reconstruction
-              │
-              ├── Deduplication
+          │
+          ├── Regex rules (150+ patterns)
+          ├── Entropy token scan
+          ├── Multi-layer decoders (base64/hex/unicode/url/gzip)
+          ├── JSON-aware tree walker
+          ├── JS string reconstruction
+          └── Endpoint extraction (21 patterns + risk scoring)
+               │
+               ├── Deduplication
               ├── FP downgrade
               ├── .syckignore filter
               ├── Live validation (--validate)
@@ -395,6 +402,7 @@ syck scan [paths...]
 | `validator` | Live secret validation against 13 providers |
 | `json_scanner` | JSON tree walking for secret-key values |
 | `jsrecon` | JS concat/join/template string reconstruction |
+| `risk` | Endpoint risk scoring (19 rules, FP-safe prefix check) |
 
 
 syck eliminates false positives from overly broad patterns while catching all true positives.
