@@ -38,6 +38,7 @@ func Execute() {
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(listRulesCmd)
 	rootCmd.AddCommand(ruletestCmd)
+	rootCmd.AddCommand(uploadSarifCmd)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable ANSI colors")

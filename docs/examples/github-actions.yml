@@ -1,0 +1,66 @@
+name: Secrets Scan
+
+Scans the repo with syck-go and uploads findings to GitHub Code Scanning.
+
+**Trigger:** push, pull_request
+
+**Permissions required:** `contents: read`, `security-events: write`
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install syck
+        run: go install github.com/RA000WL/syck/cmd/syck@latest
+
+      - name: Scan
+        run: syck scan . --format sarif -o results.sarif --no-color --progress || true
+        env:
+          SYCK_SCAN_SEVERITY: MEDIUM
+
+      - name: Upload SARIF
+        if: always()
+        run: |
+          syck upload-sarif \
+            --file results.sarif \
+            --repo "${{ github.repository }}" \
+            --commit "${{ github.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Inline copy
+
+Use the YAML above as-is. Required env / secrets:
+
+| Name | Source | Purpose |
+|------|--------|---------|
+| `GITHUB_TOKEN` | `${{ secrets.GITHUB_TOKEN }}` | Auto-injected by GitHub Actions; passed to `syck upload-sarif` |
+| `SYCK_SCAN_SEVERITY` | (optional) | Set severity threshold; `MEDIUM` catches real secrets without false-positive noise |
+
+## Why this workflow?
+
+- **Pre-1.0** syck is installed via `go install` rather than a release tarball
+- **`|| true`** prevents the workflow from failing on findings — fail handling is delegated to GitHub Code Scanning alerts
+- **`security-events: write`** permission is required for SARIF upload (not the default `GITHUB_TOKEN` scope)
+- **`fetch-depth: 0`** is recommended so future `syck scan --git-history` runs have full history (not required for basic SARIF)
