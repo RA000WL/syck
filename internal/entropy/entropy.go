@@ -237,20 +237,20 @@ var mediaPrefixes = []struct {
 	prefix []byte
 }{
 	{[]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}}, // PNG
-	{[]byte{0xFF, 0xD8, 0xFF}},                                   // JPEG
-	{[]byte{0x47, 0x49, 0x46, 0x38, 0x37, 0x61}},               // GIF87a
-	{[]byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61}},               // GIF89a
-	{[]byte{0x52, 0x49, 0x46, 0x46}},                             // WebP (RIFF...WEBP at byte 8)
-	{[]byte{0x3C, 0x3F, 0x78, 0x6D, 0x6C}},                       // <?xml
-	{[]byte{0x3C, 0x73, 0x76, 0x67}},                              // <svg
-	{[]byte{0x00, 0x00, 0x01, 0x00}},                              // ICO
-	{[]byte{0x49, 0x49, 0x2A, 0x00}},                              // TIFF LE
-	{[]byte{0x4D, 0x4D, 0x00, 0x2A}},                              // TIFF BE
-	{[]byte{0x42, 0x4D}},                                           // BMP
-	{[]byte{0x77, 0x4F, 0x46, 0x46}},                              // WOFF
-	{[]byte{0x77, 0x4F, 0x46, 0x32}},                              // WOFF2
-	{[]byte{0x00, 0x01, 0x00, 0x00}},                              // TTF
-	{[]byte{0x4F, 0x54, 0x54, 0x4F}},                              // OTF
+	{[]byte{0xFF, 0xD8, 0xFF}},                               // JPEG
+	{[]byte{0x47, 0x49, 0x46, 0x38, 0x37, 0x61}},             // GIF87a
+	{[]byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61}},             // GIF89a
+	{[]byte{0x52, 0x49, 0x46, 0x46}},                         // WebP (RIFF...WEBP at byte 8)
+	{[]byte{0x3C, 0x3F, 0x78, 0x6D, 0x6C}},                   // <?xml
+	{[]byte{0x3C, 0x73, 0x76, 0x67}},                         // <svg
+	{[]byte{0x00, 0x00, 0x01, 0x00}},                         // ICO
+	{[]byte{0x49, 0x49, 0x2A, 0x00}},                         // TIFF LE
+	{[]byte{0x4D, 0x4D, 0x00, 0x2A}},                         // TIFF BE
+	{[]byte{0x42, 0x4D}},                                     // BMP
+	{[]byte{0x77, 0x4F, 0x46, 0x46}},                         // WOFF
+	{[]byte{0x77, 0x4F, 0x46, 0x32}},                         // WOFF2
+	{[]byte{0x00, 0x01, 0x00, 0x00}},                         // TTF
+	{[]byte{0x4F, 0x54, 0x54, 0x4F}},                         // OTF
 }
 
 var webpSuffix = []byte("WEBP")
@@ -290,17 +290,18 @@ func IsMediaToken(tok string) bool {
 			}
 			if match {
 				if mp.prefix[0] == 0x52 && mp.prefix[1] == 0x49 {
-					if len(decoded) >= 12 {
-						webpMatch := true
-						for i, b := range webpSuffix {
-							if decoded[8+i] != b {
-								webpMatch = false
-								break
-							}
+					if len(decoded) < 12 {
+						continue
+					}
+					webpMatch := true
+					for i, b := range webpSuffix {
+						if decoded[8+i] != b {
+							webpMatch = false
+							break
 						}
-						if !webpMatch {
-							continue
-						}
+					}
+					if !webpMatch {
+						continue
 					}
 				}
 				return true
