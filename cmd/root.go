@@ -23,7 +23,15 @@ var (
 	cfgFile   string
 	noColor   bool
 	debugMode bool
+
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
 )
+
+func SetVersionInfo(v, c, d string) {
+	Version, Commit, Date = v, c, d
+}
 
 func Execute() {
 	rootCmd.AddCommand(scanCmd)
