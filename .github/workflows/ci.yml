@@ -23,9 +23,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
+          cache: true
 
       - name: Build
         run: go build -v ./...
+
+      - name: gofmt
+        run: |
+          if [ "$(gofmt -l . | wc -l)" -ne 0 ]; then
+            echo "gofmt issues:"
+            gofmt -l .
+            exit 1
+          fi
 
       - name: Vet
         run: go vet ./...
@@ -41,6 +50,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
+          cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6

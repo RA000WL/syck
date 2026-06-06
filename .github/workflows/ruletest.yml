@@ -18,6 +18,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
+          cache: true
+
+      - name: Build syck
+        run: go build -o syck .
 
       - name: Rule quality tests
-        run: go run . ruletest
+        run: ./syck ruletest
