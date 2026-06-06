@@ -3,6 +3,7 @@ package scanner
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -601,6 +602,23 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		urlsScanned   atomic.Int64
 		totalFindings atomic.Int64
 	)
+
+	// V1.1: juicy file probing after BFS
+	if cfg.ProbeJuicyFiles && len(crawled) > 0 {
+		firstURL := crawled[0].URL
+		baseURL := baseOf(firstURL)
+		if baseURL != "" {
+			juicyCfg := crawler.JuicyConfig{
+				Client:    crawlCfg.HTTPClient,
+				BaseURL:   baseURL,
+				UserAgent: cfg.UserAgent,
+			}
+			for _, jf := range crawler.ProbeJuicy(juicyCfg) {
+				allFindings = append(allFindings, jf.ToFinding())
+			}
+		}
+	}
+
 	for _, c := range crawled {
 		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
@@ -666,4 +684,16 @@ func isTextFile(path string) bool {
 		}
 	}
 	return true
+}
+
+// baseOf returns the scheme+host portion of a URL.
+func baseOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
