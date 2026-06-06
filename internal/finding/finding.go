@@ -43,6 +43,7 @@ type Finding struct {
 	Column              int
 	RuleName            string
 	Severity            Severity
+	RiskScore           int    `json:"risk_score,omitempty"`
 	Secret              string
 	Context             string
 	ContextBefore       string
