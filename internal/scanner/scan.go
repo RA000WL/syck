@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
@@ -46,12 +47,23 @@ var skipDirs = map[string]bool{
 	"obj": true, ".terraform": true, ".serverless": true,
 }
 
+// reportProgress fires the progress callback (if set) with the current file
+// and findings counts. Safe to call concurrently.
+func reportProgress(cfg Config, files *atomic.Int64, findings *atomic.Int64) {
+	if cfg.Progress == nil {
+		return
+	}
+	cfg.Progress(int(files.Load()), int(findings.Load()))
+}
+
 func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 	var (
-		allFindings []finding.Finding
-		mu          sync.Mutex
-		wg          sync.WaitGroup
-		sem         = make(chan struct{}, cfg.Workers)
+		allFindings   []finding.Finding
+		mu            sync.Mutex
+		wg            sync.WaitGroup
+		sem           = make(chan struct{}, cfg.Workers)
+		filesScanned  atomic.Int64
+		totalFindings atomic.Int64
 	)
 
 	for _, root := range paths {
@@ -66,11 +78,14 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				findings, err := ScanFile(path, cfg)
+				filesScanned.Add(1)
 				if err == nil && len(findings) > 0 {
 					mu.Lock()
 					allFindings = append(allFindings, findings...)
+					totalFindings.Add(int64(len(findings)))
 					mu.Unlock()
 				}
+				reportProgress(cfg, &filesScanned, &totalFindings)
 			}(root)
 			continue
 		}
@@ -102,11 +117,14 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				findings, err := ScanFile(fp, cfg)
+				filesScanned.Add(1)
 				if err == nil && len(findings) > 0 {
 					mu.Lock()
 					allFindings = append(allFindings, findings...)
+					totalFindings.Add(int64(len(findings)))
 					mu.Unlock()
 				}
+				reportProgress(cfg, &filesScanned, &totalFindings)
 			}(path)
 			return nil
 		})
@@ -534,6 +552,10 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	if cfg.JSReconstruct && content != "" {
 		jsFindings := jsrecon.ReconstructAndScan(content, "stdin", cfg.Rules, cfg.MinSeverity)
 		findings = append(findings, jsFindings...)
+	}
+
+	if cfg.Progress != nil {
+		cfg.Progress(1, len(findings))
 	}
 
 	return findings, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/RA000WL/syck/internal/formatters"
 	"github.com/RA000WL/syck/internal/gitscan"
 	"github.com/RA000WL/syck/internal/ignore"
+	"github.com/RA000WL/syck/internal/progress"
 	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/scanner"
 	"github.com/RA000WL/syck/internal/validator"
@@ -81,6 +82,7 @@ var (
 	verifyRate      int
 	ignoreFile      string
 	maxScanLineLen  int
+	progressFlag    bool
 )
 
 func init() {
@@ -125,6 +127,7 @@ func init() {
 	scanCmd.Flags().IntVar(&verifyRate, "verify-rate", 5, "max verification requests per second per host")
 	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
 	scanCmd.Flags().IntVar(&maxScanLineLen, "max-scan-line-len", 100000, "skip per-line scanning on lines exceeding this length (0=unlimited)")
+	scanCmd.Flags().BoolVar(&progressFlag, "progress", false, "show TUI progress bar on stderr (auto-disabled by --quiet or --pipe)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -234,6 +237,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 		RespectRobots:   !ignoreRobots,
 		GitHistory:      gitHistory,
 		MaxScanLineLen:  maxScanLineLen,
+	}
+
+	if progressFlag && !quiet && !pipe {
+		bar := progress.New(os.Stderr)
+		defer bar.Finish()
+		scanCfg.Progress = bar.Tick
 	}
 
 	var findings []finding.Finding
