@@ -4,11 +4,8 @@
 [![Release](https://img.shields.io/github/v/release/RA000WL/syck)](https://github.com/RA000WL/syck/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
-[![Status: Pre-1.0](https://img.shields.io/badge/status-pre--1.0-yellow)](https://github.com/RA000WL/syck/milestones)
 
 A fast, modular secret scanner written in Go. 130+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
-
-> **⚠️ Pre-1.0 software** — APIs, flags, and output formats may change between minor versions. Pin a release tag in production. See [ROADMAP.md](ROADMAP.md) for the current status and [CHECKLIST.md](CHECKLIST.md) for what's left.
 
 **Why syck?** Most secret scanners either miss too much (regex-only) or drown you in false positives (entropy-only). syck combines both with rule-specific context keywords, decoder layers, and a precision-hardened rule set that scores 100% precision on the curated test corpus (vs. 11.9% for the Python reference).
 
