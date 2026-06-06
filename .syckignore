@@ -1,0 +1,16 @@
+# Syck ignore file — suppresses findings from output
+#
+# Two formats supported:
+#   1. Fingerprint (sha256 of "rule:secret:file")
+#      abc123def456...
+#   2. Regex pattern (prefix with "re:") — matches against secret OR file
+#      re:googleapis\.com
+#      re:^vendor/
+#      re:\.example\.(com|org)
+
+# Google Fonts CDN — public, no secret value
+re:fonts\.googleapis\.com
+
+# Documentation/example domains frequently scanned as URLs
+re:swagger\.io
+re:petstore\.swagger\.io

@@ -21,7 +21,7 @@ A fast, modular secret scanner written in Go. 130+ detection rules, multi-layer 
 - **Headless Chrome** — SPA/JS-rendered page support via go-rod
 - **Git history scanning** — walk all commits, scan deleted/modified files
 - **Live validation** — confirm found secrets are active against 13 provider APIs
-- **.syckignore** — fingerprint-based suppression of known false positives
+- **.syckignore** — fingerprint + regex pattern suppression of known false positives
 - **Multi-layer decoding** — base64, hex, Unicode escape, URL-encoded, gzip, recursive up to depth 4
 - **JS string reconstruction** — concat chains, array joins, template literals
 - **JSON-aware scanning** — walks parsed JSON tree under known secret-key names
@@ -237,7 +237,7 @@ Validation downgrades unconfirmed secrets to `INFO`.
 | `--git-history` | Scan files in git commit history |
 | `--validate` | Validate found secrets against provider APIs (live check) |
 | `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs |
-| `--ignore-file` | Path to `.syckignore` file for fingerprint-based suppression |
+| `--ignore-file` | Path to `.syckignore` file for fingerprint or regex pattern suppression |
 | `--rules`, `-r` | Custom rules YAML file |
 | `--pipe` | Scan from stdin |
 | `--fail-on` | CI gate: exit 1 if findings meet severity threshold |
@@ -281,10 +281,24 @@ rules:
 
 ## .syckignore
 
-Suppress known false positives using fingerprints:
+Suppress known false positives via two formats: sha256 **fingerprints**
+(precise) and `re:`-prefixed **regex patterns** (broad). Patterns match
+against the finding's `secret` or `file` field.
+
+```text
+# syck .syckignore — one rule per line, # comments ignored
+
+# Fingerprint: sha256("rule:secret:file") — exact-match suppression
+a3c12406e369cd1e60910d005904fa526797d2997b523e0b40e8f5347eaf8739
+
+# Pattern: regex matched against secret OR file
+re:fonts\.googleapis\.com        # public CDN, no secret value
+re:^vendor/                       # all third-party vendor paths
+re:\.example\.(com|org)$         # documentation domains
+```
 
 ```bash
-# Generate an ignore file from current findings
+# Generate an ignore file from current findings (fingerprint mode)
 ./syck scan . --format json | python3 -c "
 import sys, json, hashlib
 data = json.load(sys.stdin)
@@ -296,6 +310,10 @@ for f in data['findings']:
 # Re-scan with ignore file — suppressed findings are filtered out
 ./syck scan . --ignore-file .syckignore
 ```
+
+**When to use which:**
+- **Fingerprint** — known single false positive, never want to see it
+- **Pattern** — entire class of FPs (CDN, vendor, mock data, test domains)
 
 ## Live Validation
 
