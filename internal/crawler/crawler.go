@@ -173,7 +173,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 
 	// BFS loop with parallel fetching
 	var wg sync.WaitGroup
-	for len(c.visited) < cfg.Limit {
+	for c.visitedCount() < cfg.Limit {
 		entry := c.nextURL()
 		if entry == nil {
 			// Wait for in-flight requests to finish before checking again
@@ -264,17 +264,18 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			// V1.1: harvest source maps for JS files
 			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") {
 				mapURL := e.url + ".map"
-				c.queueMu.Lock()
+				c.mu.Lock()
 				alreadyQueued := c.visited[mapURL]
+				c.mu.Unlock()
 				if !alreadyQueued {
+					c.queueMu.Lock()
 					c.queue = append(c.queue, queueEntry{url: mapURL, depth: e.depth + 1})
-					c.visited[mapURL] = true
+					c.queueMu.Unlock()
 				}
-				c.queueMu.Unlock()
 			}
 
 			// Enqueue discovered URLs
-			if e.depth < cfg.MaxDepth && len(c.visited) < cfg.Limit {
+			if e.depth < cfg.MaxDepth && c.visitedCount() < cfg.Limit {
 				base, _ := url.Parse(e.url)
 				newURLs := ExtractURLs(content, base, contentType)
 				c.enqueueURLs(newURLs, e.depth+1)
@@ -304,6 +305,13 @@ func (c *crawler) nextURL() *queueEntry {
 		}
 	}
 	return nil
+}
+
+// visitedCount returns the number of visited URLs (thread-safe).
+func (c *crawler) visitedCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.visited)
 }
 
 // markVisited marks a URL as visited.
