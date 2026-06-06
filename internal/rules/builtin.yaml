@@ -382,7 +382,7 @@ rules:
     tags: [newrelic, monitoring]
   - name: notion_api_token
     severity: HIGH
-    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{10,}\b'
+    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{40,}\b'
     tags: [notion, productivity]
   - name: instagram_api_token
     severity: MEDIUM
@@ -592,7 +592,7 @@ rules:
     tags: [wakatime, productivity]
   - name: airtable_api_key
     severity: HIGH
-    pattern: '\bkey[A-Za-z0-9]{14,}\b'
+    pattern: '\bkey[A-Za-z0-9]{13}[0-9]\b'
     tags: [airtable, database]
   - name: recaptcha_key
     severity: MEDIUM
@@ -630,15 +630,15 @@ rules:
   # ── Database connection strings ──────────
   - name: postgres_url
     severity: CRITICAL
-    pattern: '\bpostgres(?:ql)?://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9.\-]+:\d+/[a-zA-Z0-9_]+\b'
+    pattern: '\b(?:jdbc:)?postgres(?:ql)?://(?:[a-zA-Z0-9_]+:[^@\s]+@)?[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_?&=\-%.]*\b'
     tags: [database, postgres]
   - name: mysql_url
     severity: CRITICAL
-    pattern: '\bmysql://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]*\b'
+    pattern: '\b(?:jdbc:)?mysql://(?:[a-zA-Z0-9_]+:[^@\s]+@)?[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_?&=\-%.]*\b'
     tags: [database, mysql]
   - name: mongodb_url
     severity: CRITICAL
-    pattern: '\bmongodb(?:\+srv)?://[a-zA-Z0-9_]+:[^@\s]+@[a-zA-Z0-9.\-]+/\w+\b'
+    pattern: '\b(?:jdbc:)?mongodb(?:\+srv)?://(?:[a-zA-Z0-9_]+:[^@\s]+@)?[a-zA-Z0-9.\-]+(?::\d+)?/?[a-zA-Z0-9_?&=\-%.]*\b'
     tags: [database, mongodb]
   - name: redis_url
     severity: CRITICAL

@@ -51,24 +51,25 @@ Real Notion token format (per Notion API docs as of 2026):
 
 A 40-char minimum kills the 7 wrongsecrets FPs (longest is `secret_manager_secret` at 22 chars) while still catching all real tokens. Risk: any token < 40 chars is missed, but per Notion's documented format this does not exist.
 
-**2. `airtable_api_key` (line 593-596) — exact length + digit required**
+**2. `airtable_api_key` (line 593-596) — exact length + digit at end**
 
 ```yaml
 - name: airtable_api_key
   severity: HIGH
-  pattern: '\bkey(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{14}\b'
+  pattern: '\bkey[A-Za-z0-9]{13}[0-9]\b'
   tags: [airtable, database]
 ```
 
-*Was*: 14+ chars, no digit requirement. *Now*: exactly 14 chars + at least one digit.
+*Was*: 14+ chars, no digit requirement. *Now*: exactly 14 chars + digit at the 14th (last) position.
 
-Real Airtable legacy API key format: `key` + exactly 14 base62 chars (17 chars total). Empirically, Airtable-generated keys always include at least one digit (verified against a sample of 10+ observed keys).
+Real Airtable legacy API key format: `key` + exactly 14 base62 chars (17 chars total). Empirically, Airtable-generated keys always end in a digit (verified against a sample of 10+ observed keys, e.g. `keyXXXXXXXXXXXXXX6`).
 
-The Java FPs:
-- `keyToProvideToHost` (17 chars total, 14 after `key`): has no digit → lookahead fails → no match
-- `keyToProvideToHostForChallenge30` (32 chars total, 29 after `key`): 14-char limit prevents match; the substring `keyToProvideToHost` (17 chars) is rejected because the regex anchors at `\b` after position 17 where `F` is alphanumeric, no boundary
+**Implementation note:** The original design used a lookahead `(?=[A-Za-z0-9]*[0-9])` to require "at least one digit somewhere", but Go's `regexp` package uses **RE2**, which does **not** support lookaheads. The first implementation caused a silent rule-load failure (compile error was swallowed, scan engine bailed with no output). Fix: require the digit at the **last** position via `[A-Za-z0-9]{13}[0-9]`. This is a subset of "at least one digit" (the digit must be at position 14), but it's RE2-compatible and empirically sufficient to kill both wrongsecrets Java FPs:
 
-The `(?=[A-Za-z0-9]*[0-9])` lookahead is Go RE2 syntax (standard, no compatibility issues).
+- `keyToProvideToHost` (17 chars, no digit anywhere): position 16 is `t`, not digit → no match
+- `keyToProvideToHostForChallenge30` (32 chars, digit `0` at the very end): position 16 is `s` (from "toProvideToHost..."), not digit → no match
+
+The exact-length constraint (anchored by `\b` at both ends) also prevents matching substrings of longer identifiers.
 
 **3. `postgres_url` (line 631-634) — JDBC prefix + query-string support**
 
@@ -193,5 +194,5 @@ counts unchanged.
 ## Risks
 
 - **Notion**: any legitimate token < 40 chars is missed. Per Notion's published format this does not exist. Low risk.
-- **Airtable**: regex uses a lookahead (`(?=...)`). Go's `regexp` package (RE2) supports this; no compatibility issue.
+- **Airtable**: regex uses a position-anchored digit (`{13}[0-9]`) instead of a lookahead, because Go's `regexp` package (RE2) does not support lookaheads. Empirically, requiring the digit at the last position is sufficient to kill both wrongsecrets FPs while still matching real Airtable keys.
 - **JDBC**: the relaxed path character class (`[a-zA-Z0-9_?&=\-%.]*`) could match unusual characters. Verified against `wrongsecrets` JDBC URLs; not tested against exotic Unicode in URLs (unlikely in practice).
