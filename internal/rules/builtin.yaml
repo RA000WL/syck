@@ -684,3 +684,49 @@ rules:
     severity: HIGH
     pattern: '\bssh-(?:rsa|dss|ed25519)\s+[A-Za-z0-9+/=]{100,}\b'
     tags: [crypto, ssh]
+
+  # ── Generic / DB / Cloud Services ────────
+  - name: mongodb_connection_string
+    severity: CRITICAL
+    pattern: 'mongodb(?:\+srv)?://[^:]+:[^@]+@[a-zA-Z0-9.\-]+'
+    tags: [database, connection-string]
+  - name: redis_url_with_password
+    severity: HIGH
+    pattern: 'redis://[^:]+:[^@]+@[a-zA-Z0-9.\-]+'
+    tags: [database, connection-string]
+  - name: amqp_connection_url
+    severity: HIGH
+    pattern: 'amqps?://[^:]+:[^@]+@[a-zA-Z0-9.\-]+'
+    tags: [messaging, connection-string]
+  - name: jwt_in_source
+    severity: MEDIUM
+    pattern: '[''"](eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)[''"]'
+    tags: [auth, jwt]
+  - name: netrc_credentials
+    severity: HIGH
+    pattern: '(?m)^machine\s+\S+\s+login\s+\S+\s+password\s+\S+'
+    tags: [credential, netrc]
+  - name: heroku_api_key
+    severity: HIGH
+    pattern: '\b[A-Za-z0-9\-]{20,}\b.*heroku'
+    tags: [cloud, heroku]
+  - name: digitalocean_token
+    severity: CRITICAL
+    pattern: '\bdop_[0-9a-zA-Z\-_]{24,}\b'
+    tags: [cloud, digitalocean]
+  - name: telegram_bot_token
+    severity: HIGH
+    pattern: '\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b'
+    tags: [messaging, telegram]
+  - name: discord_webhook
+    severity: HIGH
+    pattern: 'https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
+    tags: [webhook, discord]
+  - name: postgres_connection_url
+    severity: CRITICAL
+    pattern: 'postgres(?:ql)?://[^:]+:[^@]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]+'
+    tags: [database, connection-string]
+  - name: mysql_connection_url
+    severity: CRITICAL
+    pattern: 'mysql://[^:]+:[^@]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]+'
+    tags: [database, connection-string]
