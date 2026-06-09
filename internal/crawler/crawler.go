@@ -287,7 +287,9 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	return c.results
 }
 
-// nextURL pops the next unvisited URL from the queue.
+// nextURL pops the next unvisited URL from the queue and marks it visited.
+// This eliminates the race between nextURL() and markVisited() where the
+// same URL could be dequeued twice by concurrent goroutines.
 func (c *crawler) nextURL() *queueEntry {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
@@ -296,13 +298,11 @@ func (c *crawler) nextURL() *queueEntry {
 		entry := c.queue[0]
 		c.queue = c.queue[1:]
 
-		c.mu.Lock()
-		visited := c.visited[entry.url]
-		c.mu.Unlock()
-
-		if !visited {
-			return &entry
+		if c.visited[entry.url] {
+			continue
 		}
+		c.visited[entry.url] = true
+		return &entry
 	}
 	return nil
 }
@@ -372,6 +372,8 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 		if err == nil {
 			defer gz.Close()
 			reader = gz
+		} else {
+			return "", "", fmt.Errorf("gzip decode: %w", err)
 		}
 	}
 

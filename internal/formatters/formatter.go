@@ -10,6 +10,7 @@ type FormatOptions struct {
 	NoColor bool
 	Redact  bool
 	Quiet   bool
+	Version string
 }
 
 type Formatter interface {

@@ -231,15 +231,19 @@ func extractHTML(content string, base *url.URL) []string {
 		}
 	})
 
-	// svg image/script href
-	doc.Find("svg").Each(func(i int, s *goquery.Selection) {
-		s.Find("image").Each(func(i int, s *goquery.Selection) {
-			if href, ok := s.Attr("href"); ok {
+	// svg image/script href (including legacy xlink:href)
+	doc.Find("svg").Each(func(i int, sel *goquery.Selection) {
+		sel.Find("image").Each(func(i int, imgSel *goquery.Selection) {
+			if href, ok := imgSel.Attr("href"); ok {
+				addURL(href)
+			} else if href, ok := imgSel.Attr("xlink:href"); ok {
 				addURL(href)
 			}
 		})
-		s.Find("script").Each(func(i int, s *goquery.Selection) {
-			if href, ok := s.Attr("href"); ok {
+		sel.Find("script").Each(func(i int, scriptSel *goquery.Selection) {
+			if href, ok := scriptSel.Attr("href"); ok {
+				addURL(href)
+			} else if href, ok := scriptSel.Attr("xlink:href"); ok {
 				addURL(href)
 			}
 		})

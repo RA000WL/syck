@@ -21,6 +21,8 @@ import (
 	"github.com/RA000WL/syck/internal/jsrecon"
 )
 
+const maxEndpointBuf = 10 << 20
+
 var textExtensions = map[string]bool{
 	".txt": true, ".go": true, ".py": true, ".js": true, ".ts": true,
 	".jsx": true, ".tsx": true, ".json": true, ".yaml": true, ".yml": true,
@@ -295,7 +297,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		URL:     cfg.DecodeURL,
 	}
 
-	// Accumulate content for endpoint extraction
+	// Accumulate content for endpoint extraction (up to 10MB to avoid OOM)
 	var contentBuf strings.Builder
 	needsEndpoint := cfg.Endpoints
 
@@ -303,11 +305,15 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		line := scanner.Text()
 		lineNum++
 
-		if needsEndpoint {
+		if needsEndpoint && contentBuf.Len() < maxEndpointBuf {
 			if contentBuf.Len() > 0 {
 				contentBuf.WriteString("\n")
 			}
-			contentBuf.WriteString(line)
+			if contentBuf.Len()+len(line) > maxEndpointBuf {
+				contentBuf.WriteString(line[:maxEndpointBuf-contentBuf.Len()])
+			} else {
+				contentBuf.WriteString(line)
+			}
 		}
 
 		var ctxBefore string
@@ -379,6 +385,10 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		}
 
 		prevLine = line
+	}
+
+	if err := scanner.Err(); err != nil {
+		return findings, fmt.Errorf("%s: scanner error: %w", path, err)
 	}
 
 	if needsEndpoint && contentBuf.Len() > 0 {
@@ -570,12 +580,23 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	buf := make([]byte, 1024*1024)
 	scanner.Buffer(buf, len(buf))
 
-	var lines []string
+	var linesBuf strings.Builder
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		text := scanner.Text()
+		if linesBuf.Len() > 0 {
+			linesBuf.WriteString("\n")
+		}
+		if linesBuf.Len()+len(text) > maxEndpointBuf {
+			linesBuf.WriteString(text[:maxEndpointBuf-linesBuf.Len()])
+			break
+		}
+		linesBuf.WriteString(text)
 	}
-	content := strings.Join(lines, "\n")
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("stdin: scanner error: %w", err)
+	}
 
+	content := linesBuf.String()
 	findings := scanContent(content, "stdin", cfg, "", nil, false)
 
 	// Endpoint extraction for stdin
@@ -692,6 +713,20 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 					Entropy:   0.0,
 				})
 			}
+		}
+
+		// V1.1: emit source_map finding for harvested .js.map files
+		if cfg.Endpoints && strings.HasSuffix(c.URL, ".js.map") {
+			allFindings = append(allFindings, finding.Finding{
+				File:     c.URL,
+				Line:     1,
+				Column:   0,
+				RuleName: "source_map",
+				Severity: finding.SeverityInfo,
+				Secret:   c.URL,
+				Context:  "source map harvested from " + strings.TrimSuffix(c.URL, ".map"),
+				Entropy:  0.0,
+			})
 		}
 
 		if cfg.Progress != nil {

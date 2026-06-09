@@ -92,8 +92,6 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 			if resp.StatusCode != 200 {
 				return
 			}
-			contentType := resp.Header.Get("Content-Type")
-
 			req2, err := http.NewRequest("GET", rawURL, nil)
 			if err != nil {
 				return
@@ -109,14 +107,20 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp2.Body, maxJuicyBodyBytes+1))
 			if len(body) > maxJuicyBodyBytes {
+				io.Copy(io.Discard, resp2.Body)
 				return
+			}
+
+			getContentType := resp2.Header.Get("Content-Type")
+			if getContentType == "" {
+				getContentType = "application/octet-stream"
 			}
 
 			mu.Lock()
 			results = append(results, JuicyFinding{
 				URL:         rawURL,
 				Path:        p,
-				ContentType: contentType,
+				ContentType: getContentType,
 				Body:        string(body),
 			})
 			mu.Unlock()

@@ -2,6 +2,7 @@ package formatters
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -168,12 +169,6 @@ func sortedFiles(m map[string][]finding.Finding) []string {
 	for f := range m {
 		files = append(files, f)
 	}
-	for i := 0; i < len(files); i++ {
-		for j := i + 1; j < len(files); j++ {
-			if files[i] > files[j] {
-				files[i], files[j] = files[j], files[i]
-			}
-		}
-	}
+	sort.Strings(files)
 	return files
 }

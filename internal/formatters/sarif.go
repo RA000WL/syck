@@ -93,6 +93,13 @@ type sarifSnippet struct {
 	Text string `json:"text"`
 }
 
+func versionOrDefault(v string) string {
+	if v == "" {
+		return "dev"
+	}
+	return v
+}
+
 func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
 	rulesIndex := make(map[string]int)
 	var rulesList []sarifRule
@@ -164,13 +171,13 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 	}
 
 	sarif := sarifOutput{
-		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Schema:  "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/Documents/2.1.0/sarif-2-1.json",
 		Version: "2.1.0",
 		Runs: []sarifRun{{
 			Tool: sarifTool{
 				Driver: sarifDriver{
 					Name:           "syck",
-					Version:        "2.0.0",
+					Version:        versionOrDefault(opts.Version),
 					InformationURI: "https://github.com/RA000WL/syck",
 					Rules:          rulesList,
 				},

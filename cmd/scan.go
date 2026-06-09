@@ -187,6 +187,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
+	if _, ok := finding.SeverityFromName[severityStr]; !ok {
+		return fmt.Errorf("invalid --severity %q: must be one of INFO, LOW, MEDIUM, HIGH, CRITICAL", severityStr)
+	}
 	sev := finding.ParseSeverity(severityStr)
 
 	var excludeRegex *regexp.Regexp
@@ -287,6 +290,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		gitFindings, gErr := gitscan.ScanHistory(repoPath, scanCfg)
 		if gErr == nil {
 			findings = append(findings, gitFindings...)
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: git history scan failed: %v\n", gErr)
 		}
 	}
 
@@ -331,6 +336,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		NoColor: noColor,
 		Redact:  redact,
 		Quiet:   quiet,
+		Version: Version,
 	}
 
 	output, err := fmtter.Format(findings, opts)
@@ -348,6 +354,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// --fail-on: CI gate — exit 1 only if findings meet severity threshold
 	if failOn != "" {
+		if _, ok := finding.SeverityFromName[failOn]; !ok {
+			return fmt.Errorf("invalid --fail-on %q: must be one of INFO, LOW, MEDIUM, HIGH, CRITICAL", failOn)
+		}
 		threshold := finding.ParseSeverity(failOn)
 		for _, f := range findings {
 			if f.Severity >= threshold {

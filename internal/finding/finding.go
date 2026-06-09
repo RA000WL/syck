@@ -87,6 +87,13 @@ func Truncate(s string) string {
 	return s
 }
 
+func TruncateContext(s string) string {
+	if len(s) <= 200 {
+		return s
+	}
+	return s[:200]
+}
+
 func Deduplicate(findings []Finding) []Finding {
 	seen := make(map[string]bool)
 	var result []Finding

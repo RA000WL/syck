@@ -3,6 +3,8 @@ package endpoints
 import (
 	"regexp"
 	"strings"
+
+	"github.com/RA000WL/syck/internal/finding"
 )
 
 type Endpoint struct {
@@ -90,11 +92,7 @@ func ExtractEndpoints(path string, content string) []Endpoint {
 					continue
 				}
 				seen[ep] = true
-				ctx := strings.TrimSpace(line)
-				runes := []rune(ctx)
-				if len(runes) > 200 {
-					ctx = string(runes[:200])
-				}
+				ctx := finding.TruncateContext(strings.TrimSpace(line))
 				endpoints = append(endpoints, Endpoint{
 					File:     path,
 					Line:     lineNum + 1,
