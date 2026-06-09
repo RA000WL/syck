@@ -38,10 +38,11 @@ func (s *MultiLineScanner) ScanMultiLine(lines []string, path string, startLine 
 		}
 		matches := rule.MatchAll(content)
 		for _, m := range matches {
-			secret := content[m[0]:m[1]]
-			if m[1] > len(content) {
-				secret = content[m[0]:]
+			end := m[1]
+			if end > len(content) {
+				end = len(content)
 			}
+			secret := content[m[0]:end]
 			findings = append(findings, finding.Finding{
 				File: path, Line: startLine, Column: m[0],
 				RuleName: rule.Name + "_multiline", Severity: sev,

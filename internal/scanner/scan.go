@@ -119,6 +119,7 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 						wg.Add(1)
 						go func(fp string) {
 							defer wg.Done()
+							filesScanned.Add(1)
 							f, e := ScanBinaryFile(fp, cfg)
 							if e == nil && len(f) > 0 {
 								mu.Lock()
@@ -780,7 +781,6 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		MaxDepth:        cfg.CrawlDepth,
 		Debug:           cfg.Debug,
 		Endpoints:       cfg.Endpoints,
-		ProbeGraphQL:    cfg.ProbeGraphQL,
 		Headless:        cfg.Headless,
 		RateLimit:       cfg.RateLimit,
 		UserAgent:       cfg.UserAgent,

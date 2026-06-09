@@ -18,7 +18,6 @@ type CrawlConfig struct {
 	MaxDepth        int
 	Debug           bool
 	Endpoints       bool
-	ProbeGraphQL    bool
 	HTTPClient      *http.Client
 	Headless        bool
 	RateLimit       int

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"unicode/utf8"
@@ -20,8 +21,11 @@ func (s binaryString) Line() int {
 
 func ExtractBinaryStrings(path string) ([]binaryString, error) {
 	info, err := os.Stat(path)
-	if err != nil || info.Size() > int64(maxBinaryMB*1024*1024) {
+	if err != nil {
 		return nil, err
+	}
+	if info.Size() > int64(maxBinaryMB*1024*1024) {
+		return nil, fmt.Errorf("binary file too large (%d MB, max %d MB)", info.Size()/(1024*1024), maxBinaryMB)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -37,7 +37,6 @@ func ScanPackageFile(path, content string) []PackageEntry {
 }
 
 func scanNpmPackage(path, content string, isLock bool) []PackageEntry {
-	base := filepath.Base(path)
 	if !isLock {
 		if m := npmTokenRe.FindStringSubmatch(content); len(m) >= 2 {
 			return []PackageEntry{{Name: ".npmrc", Source: "package.json", Line: 1, Secret: m[1]}}
@@ -47,7 +46,7 @@ func scanNpmPackage(path, content string, isLock bool) []PackageEntry {
 	for i, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.Contains(trimmed, "\"*\"") || strings.Contains(trimmed, "latest") {
-			deps = append(deps, PackageEntry{Name: trimmed, Source: base, Line: i + 1, Mutable: true})
+			deps = append(deps, PackageEntry{Name: trimmed, Source: path, Line: i + 1, Mutable: true})
 		}
 	}
 	return deps

@@ -128,28 +128,6 @@ func IsEntropyTokenMatch(token string) bool {
 	return EntropyByAlphabet(token, a) >= thresholdFor(a)
 }
 
-var DefaultThresholds = map[Alphabet]float64{
-	AlphabetLowerHex:  3.0,
-	AlphabetUpperHex:  3.0,
-	AlphabetBase64:    4.0,
-	AlphabetBase64URL: 4.0,
-	AlphabetJWT:       4.0,
-	AlphabetUnknown:   4.5,
-}
-
-type ThresholdOverrides map[Alphabet]float64
-
-func (o ThresholdOverrides) ThresholdFor(s string) float64 {
-	a := DetectAlphabet(s)
-	if override, ok := o[a]; ok {
-		return override
-	}
-	if def, ok := DefaultThresholds[a]; ok {
-		return def
-	}
-	return 4.5
-}
-
 func thresholdFor(a Alphabet) float64 {
 	switch a {
 	case AlphabetLowerHex, AlphabetUpperHex:

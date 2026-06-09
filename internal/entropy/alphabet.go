@@ -74,21 +74,6 @@ func (a Alphabet) String() string {
 	}
 }
 
-func ParseAlphabet(s string) Alphabet {
-	switch s {
-	case "hex":
-		return AlphabetLowerHex
-	case "base64":
-		return AlphabetBase64
-	case "base64url":
-		return AlphabetBase64URL
-	case "jwt":
-		return AlphabetJWT
-	default:
-		return AlphabetUnknown
-	}
-}
-
 func isBase64(s string) bool {
 	if !isAlphanumeric(strings.TrimRight(s, "=")) {
 		return false
