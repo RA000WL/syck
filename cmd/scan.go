@@ -95,6 +95,7 @@ var (
 	scanArchives     bool
 	scanBinaries     bool
 	multiline        bool
+	stripComments    bool
 )
 
 func init() {
@@ -146,6 +147,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanArchives, "scan-archives", false, "extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)")
 	scanCmd.Flags().BoolVar(&scanBinaries, "scan-binaries", false, "extract and scan strings from binary files")
 	scanCmd.Flags().BoolVar(&multiline, "multiline", false, "enable multi-line pattern matching (sliding window)")
+	scanCmd.Flags().BoolVar(&stripComments, "strip-comments", false, "strip comment lines before scanning")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -270,6 +272,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ProbeJuicyFiles:  endpoints && !noJuicyFiles,
 		ScanArchives:     scanArchives,
 		ScanBinaries:     scanBinaries,
+		StripComments:    stripComments,
 	}
 
 	if progressFlag && !quiet && !pipe {

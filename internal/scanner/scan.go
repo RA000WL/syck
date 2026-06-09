@@ -478,6 +478,11 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	var longLineCount int
 	lines := strings.Split(content, "\n")
 
+	if cfg.StripComments {
+		content = StripLineComments(content)
+		lines = strings.Split(content, "\n")
+	}
+
 	df := decoder.Flags{
 		Base64:  cfg.DecodeBase64,
 		Hex:     cfg.DecodeHex,
