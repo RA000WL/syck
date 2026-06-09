@@ -102,6 +102,7 @@ var (
 	entropyThresholds map[string]string
 	webhookURL        string
 	webhookStyle      string
+	cacheDB           string
 )
 
 func init() {
@@ -160,6 +161,7 @@ func init() {
 	scanCmd.Flags().StringToStringVar(&entropyThresholds, "entropy-threshold", nil, "per-alphabet entropy threshold (hex=3.0,base64=4.2)")
 	scanCmd.Flags().StringVar(&webhookURL, "webhook-url", "", "send findings to this webhook URL")
 	scanCmd.Flags().StringVar(&webhookStyle, "webhook-style", "json", "webhook payload style: slack, discord, or json (default json)")
+	scanCmd.Flags().StringVar(&cacheDB, "cache-db", "", "path to SQLite cache database for cross-run dedup")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -301,6 +303,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ProbeGraphQL:      probeGraphQL,
 		ParseOpenAPI:      parseOpenAPI,
 		EntropyThresholds: entropyThresholdsParsed,
+		CacheDB:           cacheDB,
 	}
 
 	if progressFlag && !quiet && !pipe {

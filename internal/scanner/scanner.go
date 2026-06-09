@@ -54,4 +54,5 @@ type Config struct {
 	ProbeGraphQL      bool                             // probe GraphQL endpoints with introspection query
 	ParseOpenAPI      bool                             // parse OpenAPI/Swagger specs and inject discovered endpoints
 	EntropyThresholds map[string]float64               `json:"entropy_thresholds,omitempty"` // per-alphabet entropy threshold overrides
+	CacheDB           string                           // path to SQLite cache database for cross-run dedup
 }

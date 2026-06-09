@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RA000WL/syck/internal/correlator"
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
 	"github.com/RA000WL/syck/internal/endpoints"
@@ -164,6 +165,20 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 
 	if cfg.DowngradeFP {
 		allFindings = DowngradeFP(allFindings)
+	}
+
+	if cfg.CacheDB != "" {
+		cache, err := correlator.OpenCache(cfg.CacheDB)
+		if err == nil {
+			for i := range allFindings {
+				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
+				isNew, _ := cache.Record(fp)
+				if isNew {
+					allFindings[i].IsNew = true
+				}
+			}
+			cache.Close()
+		}
 	}
 
 	return allFindings, nil

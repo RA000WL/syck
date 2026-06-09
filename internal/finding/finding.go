@@ -43,7 +43,10 @@ type Finding struct {
 	Column              int
 	RuleName            string
 	Severity            Severity
-	RiskScore           int `json:"risk_score,omitempty"`
+	RiskScore           int    `json:"risk_score,omitempty"`
+	FirstSeen           string `json:"first_seen,omitempty"`
+	LastSeen            string `json:"last_seen,omitempty"`
+	IsNew               bool   `json:"is_new,omitempty"`
 	Secret              string
 	Context             string
 	ContextBefore       string
