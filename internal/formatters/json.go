@@ -35,6 +35,9 @@ type jsonSummary struct {
 	FilesWithFindings int            `json:"files_with_findings"`
 	TotalFindings     int            `json:"total_findings"`
 	BySeverity        map[string]int `json:"by_severity"`
+	FileTypeCounts    map[string]int `json:"file_type_counts,omitempty"`
+	RiskScoreDist     map[int]int    `json:"risk_score_distribution,omitempty"`
+	EndpointCount     int            `json:"endpoint_count,omitempty"`
 }
 
 func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
@@ -73,15 +76,14 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		}
 	}
 
-	summary := finding.BuildSummary(findings)
+	summary := BuildSummary(findings)
 	out.Summary = jsonSummary{
 		FilesWithFindings: summary.FilesWithFindings,
 		TotalFindings:     summary.TotalFindings,
-		BySeverity:        make(map[string]int),
-	}
-
-	for s, count := range summary.BySeverity {
-		out.Summary.BySeverity[finding.SeverityNames[s]] = count
+		BySeverity:        summary.SeverityCounts,
+		FileTypeCounts:    summary.FileTypeCounts,
+		RiskScoreDist:     summary.RiskScoreDist,
+		EndpointCount:     summary.EndpointCount,
 	}
 
 	data, err := json.MarshalIndent(out, "", "  ")

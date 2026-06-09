@@ -2,6 +2,7 @@ package formatters
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -93,25 +94,53 @@ th{color:#aaa;font-weight:600}
 		b.WriteString("</table>\n")
 	}
 
-	summary := finding.BuildSummary(findings)
+	summary := BuildSummary(findings)
 	b.WriteString(`<div class="summary-box">
 `)
 	b.WriteString(fmt.Sprintf("<p><strong>Files with findings:</strong> %d</p>\n", summary.FilesWithFindings))
 	b.WriteString(fmt.Sprintf("<p><strong>Total findings:</strong> %d</p>\n", summary.TotalFindings))
 
 	if summary.TotalFindings > 0 {
-		b.WriteString("<table>\n<tr><th>Severity</th><th>Count</th></tr>\n")
-		sevs := make([]finding.Severity, 0, len(summary.BySeverity))
-		for s := range summary.BySeverity {
-			sevs = append(sevs, s)
-		}
-		finding.SeverityOrder(sevs)
-		for _, s := range sevs {
-			color := sevBadgeColor[s]
-			b.WriteString(fmt.Sprintf("<tr><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%d</td></tr>\n",
-				color, finding.SeverityNames[s], summary.BySeverity[s]))
+		b.WriteString("<h3>By Severity</h3><table>\n<tr><th>Severity</th><th>Count</th></tr>\n")
+		for _, sev := range []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"} {
+			if count := summary.SeverityCounts[sev]; count > 0 {
+				sv := finding.SeverityFromName[sev]
+				color := sevBadgeColor[sv]
+				b.WriteString(fmt.Sprintf("<tr><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%d</td></tr>\n",
+					color, sev, count))
+			}
 		}
 		b.WriteString("</table>\n")
+
+		if len(summary.FileTypeCounts) > 0 {
+			b.WriteString("<h3>By File Type</h3><table>\n<tr><th>Extension</th><th>Count</th></tr>\n")
+			exts := make([]string, 0, len(summary.FileTypeCounts))
+			for ext := range summary.FileTypeCounts {
+				exts = append(exts, ext)
+			}
+			sort.Strings(exts)
+			for _, ext := range exts {
+				b.WriteString(fmt.Sprintf("<tr><td><code>%s</code></td><td>%d</td></tr>\n", htmlEscape(ext), summary.FileTypeCounts[ext]))
+			}
+			b.WriteString("</table>\n")
+		}
+
+		if len(summary.RiskScoreDist) > 0 {
+			b.WriteString("<h3>Risk Score Distribution</h3><table>\n<tr><th>Score</th><th>Count</th></tr>\n")
+			scores := make([]int, 0, len(summary.RiskScoreDist))
+			for s := range summary.RiskScoreDist {
+				scores = append(scores, s)
+			}
+			sort.Ints(scores)
+			for _, s := range scores {
+				b.WriteString(fmt.Sprintf("<tr><td>%d</td><td>%d</td></tr>\n", s, summary.RiskScoreDist[s]))
+			}
+			b.WriteString("</table>\n")
+		}
+
+		if summary.EndpointCount > 0 {
+			b.WriteString(fmt.Sprintf("<p><strong>Endpoints detected:</strong> %d</p>\n", summary.EndpointCount))
+		}
 	}
 
 	b.WriteString("</div>\n</div>\n</body>\n</html>\n")
