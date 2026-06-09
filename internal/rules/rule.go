@@ -15,6 +15,7 @@ type Rule struct {
 	RequiresContext  bool     `yaml:"requires_context,omitempty"`
 	Verify           bool     `yaml:"verify,omitempty"`
 	Version          string   `yaml:"version,omitempty"`
+	MultiLine        bool     `yaml:"multi_line,omitempty"`
 	compiled         *regexp.Regexp
 }
 

@@ -18,6 +18,7 @@ type Config struct {
 	Exclude          *regexp.Regexp
 	Rules            *rules.RuleSet
 	MinSeverity      finding.Severity
+	MultiLine        bool // enable multi-line pattern matching (sliding window)
 	MinEndpointScore int  // 0-10; only show endpoints with score >= this
 	ProbeJuicyFiles  bool // enable juicy file probing after BFS
 	NoDedup          bool

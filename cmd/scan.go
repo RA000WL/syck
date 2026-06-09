@@ -94,6 +94,7 @@ var (
 	sensitiveOnly    bool
 	scanArchives     bool
 	scanBinaries     bool
+	multiline        bool
 )
 
 func init() {
@@ -144,6 +145,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&sensitiveOnly, "sensitive-only", false, "deprecated: use --min-endpoint-score 5 (kept for backward compat)")
 	scanCmd.Flags().BoolVar(&scanArchives, "scan-archives", false, "extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)")
 	scanCmd.Flags().BoolVar(&scanBinaries, "scan-binaries", false, "extract and scan strings from binary files")
+	scanCmd.Flags().BoolVar(&multiline, "multiline", false, "enable multi-line pattern matching (sliding window)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -263,6 +265,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		RespectRobots:    !ignoreRobots,
 		GitHistory:       gitHistory,
 		MaxScanLineLen:   maxScanLineLen,
+		MultiLine:        multiline,
 		MinEndpointScore: minEndpointScore,
 		ProbeJuicyFiles:  endpoints && !noJuicyFiles,
 		ScanArchives:     scanArchives,

@@ -560,6 +560,16 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				})
 			}
 		}
+		// Multi-line pattern matching (sliding window)
+		if cfg.MultiLine && lineNum >= 2 {
+			windowStart := lineNum - maxMultiLineWindow - 1
+			if windowStart < 0 {
+				windowStart = 0
+			}
+			mlScanner := NewMultiLineScanner(cfg.Rules, cfg.MinSeverity)
+			mlFindings := mlScanner.ScanMultiLine(lines[windowStart:lineNum], path, windowStart+1)
+			findings = append(findings, mlFindings...)
+		}
 		// Entropy token scan — only on lines with secret-context keywords
 
 		if entropy.HasSecretContext(line) {
