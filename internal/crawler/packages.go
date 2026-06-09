@@ -38,8 +38,10 @@ func ScanPackageFile(path, content string) []PackageEntry {
 
 func scanNpmPackage(path, content string, isLock bool) []PackageEntry {
 	if !isLock {
-		if m := npmTokenRe.FindStringSubmatch(content); len(m) >= 2 {
-			return []PackageEntry{{Name: ".npmrc", Source: "package.json", Line: 1, Secret: m[1]}}
+		for i, l := range strings.Split(content, "\n") {
+			if m := npmTokenRe.FindStringSubmatch(l); len(m) >= 2 {
+				return []PackageEntry{{Name: ".npmrc", Source: "package.json", Line: i + 1, Secret: m[1]}}
+			}
 		}
 	}
 	var deps []PackageEntry
@@ -69,7 +71,7 @@ func scanRequirementsTxt(path, content string) []PackageEntry {
 func scanYarnLock(path, content string) []PackageEntry {
 	var deps []PackageEntry
 	for i, line := range strings.Split(content, "\n") {
-		if strings.HasPrefix(line, "  resolved \"") && strings.Contains(line, "http://") {
+		if strings.HasPrefix(line, "  resolved \"") && (strings.Contains(line, "http://") || strings.Contains(line, "https://")) {
 			deps = append(deps, PackageEntry{Name: strings.TrimSpace(line), Source: "yarn.lock", Line: i + 1})
 		}
 	}
@@ -83,8 +85,7 @@ func scanGoMod(path, content string) []PackageEntry {
 		if strings.HasPrefix(trimmed, "//") {
 			continue
 		}
-		parts := strings.Fields(trimmed)
-		if len(parts) >= 2 && parts[len(parts)-1] == "//indirect" {
+		if strings.HasSuffix(trimmed, "// indirect") {
 			deps = append(deps, PackageEntry{Name: trimmed, Source: "go.mod", Line: i + 1})
 		}
 	}
@@ -104,7 +105,7 @@ func scanCargoToml(path, content string) []PackageEntry {
 			inDeps = false
 		}
 		if inDeps && strings.Contains(trimmed, "=") && !strings.Contains(trimmed, "path") {
-			if strings.Contains(trimmed, "\"*\"") || strings.Contains(trimmed, "git") {
+			if strings.Contains(trimmed, "\"*\"") || strings.Contains(trimmed, "git =") || strings.Contains(trimmed, "git+") {
 				deps = append(deps, PackageEntry{Name: trimmed, Source: "Cargo.toml", Line: i + 1, Mutable: true})
 			}
 		}

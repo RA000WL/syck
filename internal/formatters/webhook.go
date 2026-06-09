@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
+	"os"
 	"time"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -19,6 +21,10 @@ const (
 )
 
 func PostWebhook(url string, style WebhookStyle, findings []finding.Finding) error {
+	if parsedURL, err := neturl.Parse(url); err == nil && parsedURL.Scheme == "http" {
+		fmt.Fprintf(os.Stderr, "[warning] webhook URL uses HTTP — secrets will be sent in plaintext\n")
+	}
+
 	var body []byte
 	var err error
 
@@ -82,9 +88,13 @@ func discordPayload(findings []finding.Finding) ([]byte, error) {
 		if i >= 10 {
 			break
 		}
+		description := f.RuleName + "\n" + f.Context
+		if len(description) > 4096 {
+			description = description[:4093] + "..."
+		}
 		embeds = append(embeds, discordEmbed{
 			Title:       fmt.Sprintf("[%s] %s", finding.SeverityNames[f.Severity], f.RuleName),
-			Description: f.Secret,
+			Description: description,
 			Color:       15158332,
 		})
 	}

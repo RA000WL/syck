@@ -104,7 +104,7 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		}
 	}
 
-	summary := finding.BuildSummary(findings)
+	summary := finding.BuildBasicSummary(findings)
 	b.WriteString("\n── Summary ──────────────────────────────\n")
 	b.WriteString(fmt.Sprintf("  Files with findings : %d\n", summary.FilesWithFindings))
 	b.WriteString(fmt.Sprintf("  Total findings      : %d\n", summary.TotalFindings))

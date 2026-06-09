@@ -39,7 +39,7 @@ func (f *MarkdownFormatter) Format(findings []finding.Finding, opts FormatOption
 		b.WriteString("\n")
 	}
 
-	summary := finding.BuildSummary(findings)
+	summary := finding.BuildBasicSummary(findings)
 	b.WriteString("## Summary\n\n")
 	b.WriteString(fmt.Sprintf("- **Files with findings:** %d\n", summary.FilesWithFindings))
 	b.WriteString(fmt.Sprintf("- **Total findings:** %d\n\n", summary.TotalFindings))

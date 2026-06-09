@@ -17,7 +17,10 @@ func DetectAlphabet(s string) Alphabet {
 	if len(s) == 0 {
 		return AlphabetUnknown
 	}
-	if strings.ContainsAny(s, "-_") && isAlphanumeric(s) {
+	if strings.ContainsAny(s, "-_") && isAlphanumericPlus(s) {
+		if strings.Contains(s, "-") && strings.Contains(s, "_") && !strings.ContainsAny(s, "/+") {
+			return AlphabetJWT
+		}
 		return AlphabetBase64URL
 	}
 	if isAll(s, "0123456789abcdefABCDEF") {
@@ -42,6 +45,15 @@ func DetectAlphabet(s string) Alphabet {
 func isAlphanumeric(s string) bool {
 	for _, r := range s {
 		if !((r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlphanumericPlus(s string) bool {
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '-' || r == '_') {
 			return false
 		}
 	}

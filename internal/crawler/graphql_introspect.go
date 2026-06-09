@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,7 +22,10 @@ type GraphQLIntrospectResult struct {
 const introspectionQuery = `{"query":"query { __schema { types { name fields { name } } queryType { name } mutationType { name } } }"}`
 
 func ProbeGraphQLIntrospection(client *http.Client, endpointURL string, timeout time.Duration) (*GraphQLIntrospectResult, error) {
-	req, err := http.NewRequest("POST", endpointURL, bytes.NewBufferString(introspectionQuery))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL, bytes.NewBufferString(introspectionQuery))
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +42,10 @@ func ProbeGraphQLIntrospection(client *http.Client, endpointURL string, timeout 
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 100*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
 	var result struct {
 		Data_ struct {
 			Schema_ struct {

@@ -12,8 +12,8 @@ func TestDetectAlphabet(t *testing.T) {
 		{"DEadBeEf", AlphabetUpperHex},
 		{"aGVsbG8=", AlphabetBase64},
 		{"aGVsbG8", AlphabetUnknown},
-		{"aGVsbG8-_aGVsbG8", AlphabetUnknown},
-		{"github_pat_AAAaaa111", AlphabetUnknown},
+		{"aGVsbG8-_aGVsbG8", AlphabetJWT},
+		{"github_pat_AAAaaa111", AlphabetBase64URL},
 		{"a", AlphabetLowerHex},
 	}
 	for _, c := range cases {

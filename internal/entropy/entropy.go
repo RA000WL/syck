@@ -5,6 +5,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 func Shannon(data string) float64 {
@@ -16,7 +17,7 @@ func Shannon(data string) float64 {
 		freq[ch]++
 	}
 	var ent float64
-	n := float64(len(data))
+	n := float64(utf8.RuneCountInString(data))
 	for _, count := range freq {
 		if count == 0 {
 			continue
@@ -137,54 +138,6 @@ func thresholdFor(a Alphabet) float64 {
 	}
 }
 
-var lowEntropyPatterns = []string{
-	"localhost", "example", "test", "mock", "staging",
-	"qwerty", "xxxxx", "aaaaa", "12345", "password",
-	"passw0rd", "admin", "root", "nobody",
-}
-
-func IsLowEntropy(s string) bool {
-	lower := toLower(s)
-	for _, pat := range lowEntropyPatterns {
-		if contains(lower, pat) {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 32
-		}
-		b[i] = c
-	}
-	return string(b)
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		match := true
-		for j := 0; j < len(sub); j++ {
-			if s[i+j] != sub[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
 func Base64Entropy(s string) float64 {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 	return shannonFiltered(s, alphabet)
@@ -212,7 +165,7 @@ func shannonFiltered(s, alphabet string) float64 {
 		freq[r]++
 	}
 	var ent float64
-	n := float64(len(s))
+	n := float64(utf8.RuneCountInString(s))
 	for _, c := range freq {
 		p := float64(c) / n
 		ent -= p * math.Log2(p)

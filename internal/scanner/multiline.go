@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"strings"
+
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
 )
@@ -20,13 +22,7 @@ func (s *MultiLineScanner) ScanMultiLine(lines []string, path string, startLine 
 	if len(lines) < 2 {
 		return nil
 	}
-	content := ""
-	for i, l := range lines {
-		if i > 0 {
-			content += "\n"
-		}
-		content += l
-	}
+	content := strings.Join(lines, "\n")
 	var findings []finding.Finding
 	for _, rule := range s.rs.Rules {
 		if !rule.MultiLine || rule.Compiled() == nil {

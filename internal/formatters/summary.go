@@ -35,9 +35,10 @@ func BuildSummary(findings []finding.Finding) *ScanSummary {
 		}
 		s.FileTypeCounts[ext]++
 
-		if f.RiskScore > 0 {
+		if f.RiskScore >= 0 {
 			s.RiskScoreDist[f.RiskScore]++
 		}
+		// NOTE: prefix-based detection — add new endpoint rule prefixes here
 		if strings.HasPrefix(f.RuleName, "endpoint") || strings.HasPrefix(f.RuleName, "openapi_") || strings.HasPrefix(f.RuleName, "graphql_") {
 			s.EndpointCount++
 		}

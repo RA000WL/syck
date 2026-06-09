@@ -63,7 +63,7 @@ type Summary struct {
 	BySeverity        map[Severity]int
 }
 
-func BuildSummary(findings []Finding) Summary {
+func BuildBasicSummary(findings []Finding) Summary {
 	s := Summary{
 		BySeverity: make(map[Severity]int),
 	}
@@ -105,7 +105,7 @@ func Deduplicate(findings []Finding) []Finding {
 		if len(ctxPrefix) > 40 {
 			ctxPrefix = ctxPrefix[:40]
 		}
-		key := f.RuleName + ":" + f.Secret + ":" + f.File + ":" + ctxPrefix
+		key := f.RuleName + "\x00" + f.Secret + "\x00" + f.File + "\x00" + ctxPrefix
 		if seen[key] {
 			continue
 		}

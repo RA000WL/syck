@@ -15,6 +15,7 @@ type binaryString struct {
 	offset int
 }
 
+// Line() approximates line number from byte offset; results are approximate for binary files
 func (s binaryString) Line() int {
 	return int(math.Floor(float64(s.offset)/40)) + 1
 }

@@ -7,6 +7,8 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -42,7 +44,12 @@ func scanZip(data []byte) ([]ArchiveMember, error) {
 		return nil, err
 	}
 	var members []ArchiveMember
+	var totalRead int64
 	for _, f := range r.File {
+		clean := filepath.Clean(f.Name)
+		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			continue
+		}
 		if f.FileInfo().IsDir() || f.UncompressedSize > maxArchiveMemberBytes {
 			continue
 		}
@@ -50,8 +57,17 @@ func scanZip(data []byte) ([]ArchiveMember, error) {
 		if err != nil {
 			continue
 		}
-		content, _ := io.ReadAll(io.LimitReader(rc, maxArchiveMemberBytes))
-		rc.Close()
+		content, readErr := func() ([]byte, error) {
+			defer rc.Close()
+			return io.ReadAll(io.LimitReader(rc, maxArchiveMemberBytes))
+		}()
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "[debug] read archive member %s: %v\n", f.Name, readErr)
+		}
+		totalRead += int64(len(content))
+		if totalRead > maxArchiveTotalBytes {
+			break
+		}
 		if isTextContent(content) {
 			members = append(members, ArchiveMember{Path: f.Name, Content: string(content), Size: int64(len(content))})
 		}
@@ -80,15 +96,30 @@ func scanTar(data []byte) ([]ArchiveMember, error) {
 
 func scanTarReader(tr *tar.Reader) ([]ArchiveMember, error) {
 	var members []ArchiveMember
+	var totalRead int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
-		if err != nil || hdr == nil || hdr.FileInfo().IsDir() || hdr.Size > maxArchiveMemberBytes {
+		if err != nil || hdr == nil {
 			continue
 		}
-		content, _ := io.ReadAll(io.LimitReader(tr, maxArchiveMemberBytes))
+		clean := filepath.Clean(hdr.Name)
+		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			continue
+		}
+		if hdr.FileInfo().IsDir() || hdr.Size > maxArchiveMemberBytes {
+			continue
+		}
+		content, readErr := io.ReadAll(io.LimitReader(tr, maxArchiveMemberBytes))
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "[debug] read tar member %s: %v\n", hdr.Name, readErr)
+		}
+		totalRead += int64(len(content))
+		if totalRead > maxArchiveTotalBytes {
+			break
+		}
 		if isTextContent(content) {
 			members = append(members, ArchiveMember{Path: hdr.Name, Content: string(content), Size: int64(len(content))})
 		}

@@ -24,6 +24,13 @@ import (
 
 const maxEndpointBuf = 10 << 20
 
+var streamingBufPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 1024*1024)
+		return &b
+	},
+}
+
 var textExtensions = map[string]bool{
 	".txt": true, ".go": true, ".py": true, ".js": true, ".ts": true,
 	".jsx": true, ".tsx": true, ".json": true, ".yaml": true, ".yml": true,
@@ -75,6 +82,9 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 	for _, root := range paths {
 		info, err := os.Stat(root)
 		if err != nil {
+			if cfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] stat %s: %v\n", root, err)
+			}
 			continue
 		}
 		if !info.IsDir() {
@@ -116,14 +126,17 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 						ext == ".dylib" || ext == ".class" || ext == ".pyc" ||
 						ext == ".o" || ext == ".obj" || ext == ".wasm"
 					if isBinaryExt {
+						sem <- struct{}{}
 						wg.Add(1)
 						go func(fp string) {
 							defer wg.Done()
+							defer func() { <-sem }()
 							filesScanned.Add(1)
 							f, e := ScanBinaryFile(fp, cfg)
 							if e == nil && len(f) > 0 {
 								mu.Lock()
 								allFindings = append(allFindings, f...)
+								totalFindings.Add(int64(len(f)))
 								mu.Unlock()
 							}
 						}(path)
@@ -193,7 +206,7 @@ func ScanBinaryFile(path string, cfg Config) ([]finding.Finding, error) {
 	var findings []finding.Finding
 	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 	for _, s := range strs {
-		findings = append(findings, scanContent(s.text, path+"(binary)", cfg, "binary_", nil, hasDecoders)...)
+		findings = append(findings, scanContent(s.text, path+" (binary)", cfg, "binary_", nil, hasDecoders)...)
 	}
 	return findings, nil
 }
@@ -379,11 +392,17 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 	}
 	defer f.Close()
 
+	if cfg.Debug && (cfg.StripComments || cfg.MultiLine) {
+		fmt.Fprintf(os.Stderr, "[debug] streaming mode for %s: StripComments/MultiLine not supported for files >1MB\n", path)
+	}
+
 	var findings []finding.Finding
 	lineNum := 0
 	var prevLine string
 	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 1024*1024)
+	bp := streamingBufPool.Get().(*[]byte)
+	defer streamingBufPool.Put(bp)
+	buf := *bp
 	scanner.Buffer(buf, len(buf))
 	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 	df := decoder.Flags{
@@ -413,6 +432,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		}
 
 		var ctxBefore string
+		// Note: ctxAfter unavailable in streaming mode — see scanContent for full context
 		if lineNum > 1 {
 			ctxBefore = strings.TrimSpace(prevLine)
 		}
@@ -455,6 +475,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
 				if !checkEntropyToken(tok, cfg.EntropyThresholds) {
+					continue
+				}
+				if entropy.IsMediaToken(tok) {
 					continue
 				}
 				col := strings.Index(line, tok)
@@ -516,12 +539,11 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	skipSecrets map[string]bool, hasDecoders bool) []finding.Finding {
 	var findings []finding.Finding
 	var longLineCount int
-	lines := strings.Split(content, "\n")
 
 	if cfg.StripComments {
 		content = StripLineComments(content)
-		lines = strings.Split(content, "\n")
 	}
+	lines := strings.Split(content, "\n")
 
 	df := decoder.Flags{
 		Base64:  cfg.DecodeBase64,
@@ -534,6 +556,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	if cfg.MultiLine {
 		mlScanner = NewMultiLineScanner(cfg.Rules, cfg.MinSeverity)
 	}
+	mlSeen := map[string]bool{}
 
 	for lineNum, line := range lines {
 		lineNum++
@@ -612,12 +635,18 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		}
 		// Multi-line pattern matching (sliding window)
 		if cfg.MultiLine && lineNum >= 2 {
-			windowStart := lineNum - maxMultiLineWindow - 1
+			windowStart := lineNum - maxMultiLineWindow
 			if windowStart < 0 {
 				windowStart = 0
 			}
 			mlFindings := mlScanner.ScanMultiLine(lines[windowStart:lineNum], path, windowStart+1)
-			findings = append(findings, mlFindings...)
+			for _, f := range mlFindings {
+				key := f.File + "|" + f.Secret + "|" + f.RuleName
+				if !mlSeen[key] {
+					mlSeen[key] = true
+					findings = append(findings, f)
+				}
+			}
 		}
 		// Entropy token scan — only on lines with secret-context keywords
 

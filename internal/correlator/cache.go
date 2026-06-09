@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -26,10 +25,6 @@ func OpenCache(path string) (*Cache, error) {
 		db.Close()
 		return nil, fmt.Errorf("create cache table: %w", err)
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_fingerprint ON findings(fingerprint)`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("create index: %w", err)
-	}
 	return &Cache{db: db}, nil
 }
 
@@ -43,19 +38,20 @@ func Fingerprint(ruleName, secret, file string) string {
 }
 
 func (c *Cache) Record(fingerprint string) (isNew bool, err error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	var firstSeen string
-	err = c.db.QueryRow(`SELECT first_seen FROM findings WHERE fingerprint = ?`, fingerprint).Scan(&firstSeen)
-	if err == nil {
-		_, err = c.db.Exec(`UPDATE findings SET last_seen = ? WHERE fingerprint = ?`, now, fingerprint)
-		return false, err
-	}
-	if err != sql.ErrNoRows {
-		return false, err
-	}
-	_, err = c.db.Exec(`INSERT INTO findings (fingerprint, first_seen, last_seen) VALUES (?, ?, ?)`, fingerprint, now, now)
+	_, err = c.db.Exec(
+		`INSERT INTO findings (fingerprint, first_seen, last_seen)
+		 VALUES (?, datetime('now'), datetime('now'))`,
+		fingerprint,
+	)
 	if err != nil {
-		return false, err
+		_, updateErr := c.db.Exec(
+			"UPDATE findings SET last_seen = datetime('now') WHERE fingerprint = ?",
+			fingerprint,
+		)
+		if updateErr != nil {
+			return false, updateErr
+		}
+		return false, nil
 	}
 	return true, nil
 }
