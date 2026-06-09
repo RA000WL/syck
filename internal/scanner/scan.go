@@ -435,7 +435,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
-				if !entropy.IsEntropyTokenMatch(tok) {
+				if !checkEntropyToken(tok, cfg.EntropyThresholds) {
 					continue
 				}
 				col := strings.Index(line, tok)
@@ -600,7 +600,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
-				if !entropy.IsEntropyTokenMatch(tok) {
+				if !checkEntropyToken(tok, cfg.EntropyThresholds) {
 					continue
 				}
 				if skipSecrets != nil {
@@ -947,6 +947,21 @@ func baseOf(rawURL string) string {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String()
+}
+
+func checkEntropyToken(tok string, thresholds map[string]float64) bool {
+	if !entropy.IsEntropyTokenMatch(tok) {
+		return false
+	}
+	if len(thresholds) == 0 {
+		return true
+	}
+	a := entropy.DetectAlphabet(tok)
+	alphaName := a.String()
+	if override, ok := thresholds[alphaName]; ok {
+		return entropy.EntropyByAlphabet(tok, a) >= override
+	}
+	return true
 }
 
 func contextLabel(tagPrefix string) string {

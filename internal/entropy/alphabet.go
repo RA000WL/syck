@@ -57,6 +57,38 @@ func isAll(s, alphabet string) bool {
 	return true
 }
 
+func (a Alphabet) String() string {
+	switch a {
+	case AlphabetLowerHex:
+		return "hex"
+	case AlphabetUpperHex:
+		return "hex"
+	case AlphabetBase64:
+		return "base64"
+	case AlphabetBase64URL:
+		return "base64url"
+	case AlphabetJWT:
+		return "jwt"
+	default:
+		return "unknown"
+	}
+}
+
+func ParseAlphabet(s string) Alphabet {
+	switch s {
+	case "hex":
+		return AlphabetLowerHex
+	case "base64":
+		return AlphabetBase64
+	case "base64url":
+		return AlphabetBase64URL
+	case "jwt":
+		return AlphabetJWT
+	default:
+		return AlphabetUnknown
+	}
+}
+
 func isBase64(s string) bool {
 	if !isAlphanumeric(strings.TrimRight(s, "=")) {
 		return false

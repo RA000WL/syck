@@ -99,6 +99,7 @@ var (
 	detectAuthHeaders bool
 	probeGraphQL      bool
 	parseOpenAPI      bool
+	entropyThresholds map[string]string
 )
 
 func init() {
@@ -154,6 +155,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", false, "detect hardcoded Authorization headers and API keys")
 	scanCmd.Flags().BoolVar(&probeGraphQL, "probe-graphql", false, "probe GraphQL endpoints with introspection query")
 	scanCmd.Flags().BoolVar(&parseOpenAPI, "parse-openapi", false, "parse OpenAPI/Swagger specs and inject discovered endpoints")
+	scanCmd.Flags().StringToStringVar(&entropyThresholds, "entropy-threshold", nil, "per-alphabet entropy threshold (hex=3.0,base64=4.2)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -242,6 +244,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	var entropyThresholdsParsed map[string]float64
+	if len(entropyThresholds) > 0 {
+		entropyThresholdsParsed = make(map[string]float64, len(entropyThresholds))
+		for k, v := range entropyThresholds {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Errorf("invalid --entropy-threshold value for %q: %q (must be a float)", k, v)
+			}
+			entropyThresholdsParsed[k] = f
+		}
+	}
+
 	scanCfg := scanner.Config{
 		Workers:           workers,
 		MaxFileSize:       maxSize,
@@ -282,6 +296,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		DetectAuthHeaders: detectAuthHeaders,
 		ProbeGraphQL:      probeGraphQL,
 		ParseOpenAPI:      parseOpenAPI,
+		EntropyThresholds: entropyThresholdsParsed,
 	}
 
 	if progressFlag && !quiet && !pipe {
