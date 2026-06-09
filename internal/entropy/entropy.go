@@ -263,3 +263,41 @@ func IsMediaToken(tok string) bool {
 	}
 	return false
 }
+
+func HasContextKeyword(line string) bool {
+	lower := strings.ToLower(line)
+	keywords := []string{
+		"secret", "token", "apikey", "api_key", "auth", "bearer",
+		"password", "credential", "private", "secret_key", "access_key",
+	}
+	for _, kw := range keywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+type ContextualSecret struct {
+	Token   string
+	Entropy float64
+}
+
+func ExtractContextualSecrets(line string, minEntropy float64) []ContextualSecret {
+	if !HasContextKeyword(line) {
+		return nil
+	}
+	var results []ContextualSecret
+	tokens := EntropyTokenRe.FindAllString(line, -1)
+	for _, tok := range tokens {
+		if len(tok) < 20 {
+			continue
+		}
+		e := Shannon(tok)
+		if e < minEntropy {
+			continue
+		}
+		results = append(results, ContextualSecret{Token: tok, Entropy: e})
+	}
+	return results
+}

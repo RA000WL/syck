@@ -460,16 +460,16 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				}
 
 				findings = append(findings, finding.Finding{
-					File:          path,
-					Line:          lineNum,
-					Column:        m[0],
-					RuleName:      rule.Name,
-					Severity:      sev,
-					Secret:        secret,
-					Context:       finding.Truncate(strings.TrimSpace(line)),
-					ContextBefore: finding.Truncate(ctxBefore),
-					Entropy:       e,
-					Confidence:    ConfidenceRegex,
+					File:            path,
+					Line:            lineNum,
+					Column:          m[0],
+					RuleName:        rule.Name,
+					Severity:        sev,
+					Secret:          secret,
+					Context:         finding.Truncate(strings.TrimSpace(line)),
+					ContextBefore:   finding.Truncate(ctxBefore),
+					Entropy:         e,
+					Confidence:      finding.ConfidenceRegex,
 					DetectionMethod: "regex",
 				})
 			}
@@ -489,16 +489,16 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					col = 0
 				}
 				findings = append(findings, finding.Finding{
-					File:           path,
-					Line:           lineNum,
-					Column:         col,
-					RuleName:       "high_entropy_token",
-					Severity:       finding.SeverityMedium,
-					Secret:         tok,
-					Context:        finding.Truncate(strings.TrimSpace(line)),
-					ContextBefore:  finding.Truncate(ctxBefore),
-					Entropy:        entropy.Shannon(tok),
-					Confidence:     ConfidenceEntropy + ConfidenceContext,
+					File:            path,
+					Line:            lineNum,
+					Column:          col,
+					RuleName:        "high_entropy_token",
+					Severity:        finding.SeverityMedium,
+					Secret:          tok,
+					Context:         finding.Truncate(strings.TrimSpace(line)),
+					ContextBefore:   finding.Truncate(ctxBefore),
+					Entropy:         entropy.Shannon(tok),
+					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 					DetectionMethod: "entropy+context",
 				})
 			}
@@ -509,15 +509,15 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				continue
 			}
 			findings = append(findings, finding.Finding{
-				File:           path,
-				Line:           lineNum,
-				Column:         strings.Index(line, cs.Token),
-				RuleName:       "contextual_entropy_secret",
-				Severity:       finding.SeverityHigh,
-				Secret:         cs.Token,
-				Context:        finding.Truncate(strings.TrimSpace(line)),
-				Entropy:        cs.Entropy,
-				Confidence:     ConfidenceEntropy + ConfidenceContext,
+				File:            path,
+				Line:            lineNum,
+				Column:          strings.Index(line, cs.Token),
+				RuleName:        "contextual_entropy_secret",
+				Severity:        finding.SeverityHigh,
+				Secret:          cs.Token,
+				Context:         finding.Truncate(strings.TrimSpace(line)),
+				Entropy:         cs.Entropy,
+				Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 				DetectionMethod: "entropy+context",
 			})
 		}
@@ -648,25 +648,25 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 				ctx = finding.Truncate(ctx)
 
-				conf := ConfidenceRegex
+				conf := finding.ConfidenceRegex
 				method := "regex"
 				if tagPrefix != "" {
-					conf += ConfidenceDecoded
+					conf += finding.ConfidenceDecoded
 					method = "decoded_regex"
 				}
 
 				findings = append(findings, finding.Finding{
-					File:           path,
-					Line:           lineNum,
-					Column:         m[0],
-					RuleName:       ruleName,
-					Severity:       sev,
-					Secret:         secret,
-					Context:        ctx,
-					ContextBefore:  ctxBefore,
-					ContextAfter:   ctxAfter,
-					Entropy:        e,
-					Confidence:     conf,
+					File:            path,
+					Line:            lineNum,
+					Column:          m[0],
+					RuleName:        ruleName,
+					Severity:        sev,
+					Secret:          secret,
+					Context:         ctx,
+					ContextBefore:   ctxBefore,
+					ContextAfter:    ctxAfter,
+					Entropy:         e,
+					Confidence:      conf,
 					DetectionMethod: method,
 				})
 			}
@@ -715,17 +715,17 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 				ctx = finding.Truncate(ctx)
 				findings = append(findings, finding.Finding{
-					File:           path,
-					Line:           lineNum,
-					Column:         col,
-					RuleName:       "high_entropy_token",
-					Severity:       finding.SeverityMedium,
-					Secret:         tok,
-					Context:        ctx,
-					ContextBefore:  ctxBefore,
-					ContextAfter:   ctxAfter,
-					Entropy:        entropy.Shannon(tok),
-					Confidence:     ConfidenceEntropy + ConfidenceContext,
+					File:            path,
+					Line:            lineNum,
+					Column:          col,
+					RuleName:        "high_entropy_token",
+					Severity:        finding.SeverityMedium,
+					Secret:          tok,
+					Context:         ctx,
+					ContextBefore:   ctxBefore,
+					ContextAfter:    ctxAfter,
+					Entropy:         entropy.Shannon(tok),
+					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 					DetectionMethod: "entropy+context",
 				})
 			}
@@ -736,15 +736,15 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				continue
 			}
 			findings = append(findings, finding.Finding{
-				File:           path,
-				Line:           lineNum,
-				Column:         strings.Index(line, cs.Token),
-				RuleName:       "contextual_entropy_secret",
-				Severity:       finding.SeverityHigh,
-				Secret:         cs.Token,
-				Context:        finding.Truncate(strings.TrimSpace(line)),
-				Entropy:        cs.Entropy,
-				Confidence:     ConfidenceEntropy + ConfidenceContext,
+				File:            path,
+				Line:            lineNum,
+				Column:          strings.Index(line, cs.Token),
+				RuleName:        "contextual_entropy_secret",
+				Severity:        finding.SeverityHigh,
+				Secret:          cs.Token,
+				Context:         finding.Truncate(strings.TrimSpace(line)),
+				Entropy:         cs.Entropy,
+				Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 				DetectionMethod: "entropy+context",
 			})
 		}
