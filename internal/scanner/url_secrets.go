@@ -27,7 +27,7 @@ func ExtractURLSecrets(line string, path string, lineno int) []finding.Finding {
 	var findings []finding.Finding
 	matches := urlRE.FindAllString(line, -1)
 	for _, rawURL := range matches {
-		rawURL = strings.TrimRight(rawURL, "',\")];}]+")
+		rawURL = strings.TrimRight(rawURL, "',\")];}+")
 		parsed, err := url.Parse(rawURL)
 		if err != nil {
 			continue

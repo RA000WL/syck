@@ -120,7 +120,7 @@ func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 			}
 			body, _ := io.ReadAll(io.LimitReader(resp2.Body, maxJuicyBodyBytes+1))
 			if len(body) > maxJuicyBodyBytes {
-				io.Copy(io.Discard, resp2.Body)
+				_, _ = io.Copy(io.Discard, resp2.Body)
 				return
 			}
 
