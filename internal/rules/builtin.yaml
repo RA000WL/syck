@@ -726,3 +726,24 @@ rules:
     severity: CRITICAL
     pattern: 'mysql://[^:]+:[^@]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]+'
     tags: [database, connection-string]
+  # ── PII / GDPR ──────────────────────────
+  - name: email_address
+    severity: LOW
+    pattern: '\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b'
+    tags: [pii, email, gdpr]
+
+  # ── Password Hashes ──────────────────────
+  - name: password_hash_bcrypt
+    severity: HIGH
+    pattern: '\$2[aby]?\$\d{1,2}\$[./A-Za-z0-9]{53}'
+    tags: [crypto, password-hash]
+
+  - name: password_hash_sha256
+    severity: MEDIUM
+    pattern: '(?i)(?:sha256|sha-256|hash)\s*[:=]\s*[''"]([0-9a-f]{64})[''"]'
+    tags: [crypto, password-hash]
+
+  - name: password_hash_md5
+    severity: MEDIUM
+    pattern: '(?i)(?:md5|password[_\-]?hash)\s*[:=]\s*[''"]([0-9a-f]{32})[''"]'
+    tags: [crypto, password-hash]
