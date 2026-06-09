@@ -90,7 +90,7 @@ func scanTarReader(tr *tar.Reader) ([]ArchiveMember, error) {
 		}
 		content, _ := io.ReadAll(io.LimitReader(tr, maxArchiveMemberBytes))
 		if isTextContent(content) {
-			members = append(members, ArchiveMember{Path: hdr.Name, Content: string(content), Size: hdr.Size})
+			members = append(members, ArchiveMember{Path: hdr.Name, Content: string(content), Size: int64(len(content))})
 		}
 	}
 	return members, nil

@@ -157,6 +157,30 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		return nil, err
 	}
 
+	// Archive extraction — check before streaming to ensure full content is read
+	if cfg.ScanArchives {
+		ext := strings.ToLower(filepath.Ext(path))
+		lower := strings.ToLower(path)
+		if ext == ".zip" || ext == ".jar" || ext == ".war" || ext == ".ear" ||
+			ext == ".tar" || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			members, err := crawler.ScanArchive(raw, path)
+			if err != nil {
+				return nil, nil
+			}
+			var findings []finding.Finding
+			hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+			for _, m := range members {
+				mFindings := scanContent(m.Content, m.Path+" ($archive: "+filepath.Base(path)+")", cfg, "archive_", nil, hasDecoders)
+				findings = append(findings, mFindings...)
+			}
+			return findings, nil
+		}
+	}
+
 	// Streaming mode for files >1MB to avoid loading entire content
 	if info.Size() > 1024*1024 {
 		return scanFileStreaming(path, cfg)
@@ -169,24 +193,6 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 
 	var findings []finding.Finding
 
-	if cfg.ScanArchives {
-		ext := strings.ToLower(filepath.Ext(path))
-		lower := strings.ToLower(path)
-		isArchive := ext == ".zip" || ext == ".jar" || ext == ".war" || ext == ".ear" ||
-			ext == ".tar" || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
-		if isArchive {
-			members, err := crawler.ScanArchive(raw, path)
-			if err != nil {
-				return findings, nil
-			}
-			hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
-			for _, m := range members {
-				mFindings := scanContent(m.Content, m.Path+" ($archive: "+filepath.Base(path)+")", cfg, "archive_", nil, hasDecoders)
-				findings = append(findings, mFindings...)
-			}
-			return findings, nil
-		}
-	}
 	gzipScanned := make(map[string]bool)
 	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 
@@ -505,7 +511,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				ctx := strings.TrimSpace(line)
 				if tagPrefix != "" {
 					ruleName = tagPrefix + ruleName
-					ctx = "gzip decoded: " + ctx
+					ctx = contextLabel(tagPrefix) + ctx
 				}
 				ctx = finding.Truncate(ctx)
 
@@ -548,7 +554,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 				ctx := strings.TrimSpace(line)
 				if tagPrefix != "" {
-					ctx = "gzip decoded: " + ctx
+					ctx = contextLabel(tagPrefix) + ctx
 				}
 				ctx = finding.Truncate(ctx)
 				findings = append(findings, finding.Finding{
@@ -796,4 +802,13 @@ func baseOf(rawURL string) string {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String()
+}
+
+func contextLabel(tagPrefix string) string {
+	switch tagPrefix {
+	case "archive_":
+		return "archive: "
+	default:
+		return "gzip decoded: "
+	}
 }
