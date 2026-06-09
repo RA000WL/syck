@@ -830,6 +830,23 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// V1.2: cloud storage URL detection
+	for _, c := range crawled {
+		if c.Content == "" {
+			continue
+		}
+		for _, ref := range crawler.ExtractCloudStorage(c.Content) {
+			allFindings = append(allFindings, finding.Finding{
+				File:     c.URL,
+				Line:     1,
+				RuleName: "cloud_storage_" + ref.Provider,
+				Severity: finding.SeverityMedium,
+				Secret:   ref.URL,
+				Context:  fmt.Sprintf("cloud storage reference: %s", ref.URL),
+			})
+		}
+	}
+
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
 	}
