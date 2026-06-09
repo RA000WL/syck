@@ -714,10 +714,6 @@ rules:
     severity: CRITICAL
     pattern: '\bdop_[0-9a-zA-Z\-_]{24,}\b'
     tags: [cloud, digitalocean]
-  - name: telegram_bot_token
-    severity: HIGH
-    pattern: '\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b'
-    tags: [messaging, telegram]
   - name: discord_webhook
     severity: HIGH
     pattern: 'https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
