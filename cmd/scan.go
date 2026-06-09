@@ -49,53 +49,54 @@ Examples:
 }
 
 var (
-	rulesFile        string
-	severityStr      string
-	formatStr        string
-	outputFile       string
-	redact           bool
-	noDedup          bool
-	excludeStr       string
-	quiet            bool
-	workers          int
-	maxFileSize      string
-	decodeBase64     bool
-	decodeHex        bool
-	decodeUnicode    bool
-	decodeURL        bool
-	decodeGzip       bool
-	jsReconstruct    bool
-	endpoints        bool
-	pipe             bool
-	failOn           string
-	downgradeFP      bool
-	urlList          []string
-	urlFile          string
-	scopeStr         string
-	crawlLimit       int
-	crawlDepth       int
-	headless         bool
-	rateLimit        int
-	userAgent        string
-	cookies          bool
-	cookieFile       string
-	concurrency      int
-	hostConcurrency  int
-	ignoreRobots     bool
-	gitHistory       bool
-	validate         bool
-	verify           bool
-	verifyRate       int
-	ignoreFile       string
-	maxScanLineLen   int
-	progressFlag     bool
-	minEndpointScore int
-	noJuicyFiles     bool
-	sensitiveOnly    bool
-	scanArchives     bool
-	scanBinaries     bool
-	multiline        bool
-	stripComments    bool
+	rulesFile         string
+	severityStr       string
+	formatStr         string
+	outputFile        string
+	redact            bool
+	noDedup           bool
+	excludeStr        string
+	quiet             bool
+	workers           int
+	maxFileSize       string
+	decodeBase64      bool
+	decodeHex         bool
+	decodeUnicode     bool
+	decodeURL         bool
+	decodeGzip        bool
+	jsReconstruct     bool
+	endpoints         bool
+	pipe              bool
+	failOn            string
+	downgradeFP       bool
+	urlList           []string
+	urlFile           string
+	scopeStr          string
+	crawlLimit        int
+	crawlDepth        int
+	headless          bool
+	rateLimit         int
+	userAgent         string
+	cookies           bool
+	cookieFile        string
+	concurrency       int
+	hostConcurrency   int
+	ignoreRobots      bool
+	gitHistory        bool
+	validate          bool
+	verify            bool
+	verifyRate        int
+	ignoreFile        string
+	maxScanLineLen    int
+	progressFlag      bool
+	minEndpointScore  int
+	noJuicyFiles      bool
+	sensitiveOnly     bool
+	scanArchives      bool
+	scanBinaries      bool
+	multiline         bool
+	stripComments     bool
+	detectAuthHeaders bool
 )
 
 func init() {
@@ -148,6 +149,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanBinaries, "scan-binaries", false, "extract and scan strings from binary files")
 	scanCmd.Flags().BoolVar(&multiline, "multiline", false, "enable multi-line pattern matching (sliding window)")
 	scanCmd.Flags().BoolVar(&stripComments, "strip-comments", false, "strip comment lines before scanning")
+	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", false, "detect hardcoded Authorization headers and API keys")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -237,42 +239,43 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	scanCfg := scanner.Config{
-		Workers:          workers,
-		MaxFileSize:      maxSize,
-		Exclude:          excludeRegex,
-		Rules:            rs,
-		MinSeverity:      sev,
-		NoDedup:          noDedup,
-		Debug:            debugMode,
-		DecodeBase64:     decodeBase64,
-		DecodeHex:        decodeHex,
-		DecodeUnicode:    decodeUnicode,
-		DecodeURL:        decodeURL,
-		DecodeGzip:       decodeGzip,
-		JSReconstruct:    jsReconstruct,
-		Endpoints:        endpoints,
-		DowngradeFP:      downgradeFP,
-		URLs:             allURLs,
-		URLFile:          urlFile,
-		Scope:            scopeRegex,
-		CrawlLimit:       crawlLimit,
-		CrawlDepth:       crawlDepth,
-		Headless:         headless,
-		RateLimit:        rateLimit,
-		UserAgent:        userAgent,
-		Cookies:          cookies,
-		CookieFile:       cookieFile,
-		Concurrency:      concurrency,
-		HostConcurrency:  hostConcurrency,
-		RespectRobots:    !ignoreRobots,
-		GitHistory:       gitHistory,
-		MaxScanLineLen:   maxScanLineLen,
-		MultiLine:        multiline,
-		MinEndpointScore: minEndpointScore,
-		ProbeJuicyFiles:  endpoints && !noJuicyFiles,
-		ScanArchives:     scanArchives,
-		ScanBinaries:     scanBinaries,
-		StripComments:    stripComments,
+		Workers:           workers,
+		MaxFileSize:       maxSize,
+		Exclude:           excludeRegex,
+		Rules:             rs,
+		MinSeverity:       sev,
+		NoDedup:           noDedup,
+		Debug:             debugMode,
+		DecodeBase64:      decodeBase64,
+		DecodeHex:         decodeHex,
+		DecodeUnicode:     decodeUnicode,
+		DecodeURL:         decodeURL,
+		DecodeGzip:        decodeGzip,
+		JSReconstruct:     jsReconstruct,
+		Endpoints:         endpoints,
+		DowngradeFP:       downgradeFP,
+		URLs:              allURLs,
+		URLFile:           urlFile,
+		Scope:             scopeRegex,
+		CrawlLimit:        crawlLimit,
+		CrawlDepth:        crawlDepth,
+		Headless:          headless,
+		RateLimit:         rateLimit,
+		UserAgent:         userAgent,
+		Cookies:           cookies,
+		CookieFile:        cookieFile,
+		Concurrency:       concurrency,
+		HostConcurrency:   hostConcurrency,
+		RespectRobots:     !ignoreRobots,
+		GitHistory:        gitHistory,
+		MaxScanLineLen:    maxScanLineLen,
+		MultiLine:         multiline,
+		MinEndpointScore:  minEndpointScore,
+		ProbeJuicyFiles:   endpoints && !noJuicyFiles,
+		ScanArchives:      scanArchives,
+		ScanBinaries:      scanBinaries,
+		StripComments:     stripComments,
+		DetectAuthHeaders: detectAuthHeaders,
 	}
 
 	if progressFlag && !quiet && !pipe {

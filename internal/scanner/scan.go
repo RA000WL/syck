@@ -641,6 +641,10 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 			}
 			findings = append(findings, decodedFindings...)
 		}
+
+		if cfg.DetectAuthHeaders {
+			findings = append(findings, DetectAuthHeaders(line, path, lineNum)...)
+		}
 	}
 
 	return findings
