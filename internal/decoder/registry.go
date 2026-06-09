@@ -57,6 +57,14 @@ func (r *Registry) Active(flags Flags) []Decoder {
 			if flags.DoubleBase64 {
 				out = append(out, r.decs[name])
 			}
+		case "gzip":
+			if flags.Gzip {
+				out = append(out, r.decs[name])
+			}
+		case "charcode":
+			if flags.CharCode {
+				out = append(out, r.decs[name])
+			}
 		default:
 			out = append(out, r.decs[name])
 		}

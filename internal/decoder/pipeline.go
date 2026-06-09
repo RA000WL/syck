@@ -3,7 +3,9 @@ package decoder
 import (
 	"compress/gzip"
 	"compress/zlib"
+	"encoding/base64"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/RA000WL/syck/internal/entropy"
@@ -12,6 +14,11 @@ import (
 )
 
 const MaxRecursionDepth = 3
+
+const (
+	scanChunkSize = 1024
+	scanOverlap   = 128
+)
 
 func DecodeAndRescan(
 	line string,
@@ -60,8 +67,34 @@ func scanDecoded(
 	minSev finding.Severity,
 	findings *[]finding.Finding,
 ) {
-	if len(decodedText) > 200 {
-		decodedText = decodedText[:200]
+	if len(decodedText) <= scanChunkSize {
+		scanDecodedChunk(decodedText, path, lineno, sourceTag, rs, minSev, findings)
+		return
+	}
+	for i := 0; i < len(decodedText); i += scanChunkSize - scanOverlap {
+		end := i + scanChunkSize
+		if end > len(decodedText) {
+			end = len(decodedText)
+		}
+		chunk := decodedText[i:end]
+		scanDecodedChunk(chunk, path, lineno, sourceTag, rs, minSev, findings)
+		if end == len(decodedText) {
+			break
+		}
+	}
+}
+
+func scanDecodedChunk(
+	decodedText string,
+	path string,
+	lineno int,
+	sourceTag string,
+	rs *rules.RuleSet,
+	minSev finding.Severity,
+	findings *[]finding.Finding,
+) {
+	if len(decodedText) > 500 {
+		decodedText = decodedText[:500]
 	}
 	context := sourceTag + " decoded: " + decodedText
 
@@ -120,6 +153,25 @@ func TryGzipDecompress(data []byte) ([]byte, bool) {
 	}
 
 	return nil, false
+}
+
+var b64GzipRE = regexp.MustCompile(`\b[A-Za-z0-9+/]{64,}={0,2}\b`)
+
+func tryGzipInline(line string) []DecodeResult {
+	var results []DecodeResult
+	for _, m := range b64GzipRE.FindAllString(line, -1) {
+		decoded, err := base64.StdEncoding.DecodeString(m)
+		if err != nil {
+			decoded, err = base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(m)
+			if err != nil {
+				continue
+			}
+		}
+		if decompressed, ok := TryGzipDecompress(decoded); ok {
+			results = append(results, DecodeResult{SourceTag: "gzip", Text: string(decompressed)})
+		}
+	}
+	return results
 }
 
 func DecodeFileContent(raw []byte) (string, bool) {

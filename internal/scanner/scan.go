@@ -406,10 +406,12 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 	scanner.Buffer(buf, len(buf))
 	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 	df := decoder.Flags{
-		Base64:  cfg.DecodeBase64,
-		Hex:     cfg.DecodeHex,
-		Unicode: cfg.DecodeUnicode,
-		URL:     cfg.DecodeURL,
+		Base64:   cfg.DecodeBase64,
+		Hex:      cfg.DecodeHex,
+		Unicode:  cfg.DecodeUnicode,
+		URL:      cfg.DecodeURL,
+		Gzip:     cfg.DecodeGzip,
+		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
 	}
 
 	// Accumulate content for endpoint extraction (up to 10MB to avoid OOM)
@@ -467,6 +469,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Context:       finding.Truncate(strings.TrimSpace(line)),
 					ContextBefore: finding.Truncate(ctxBefore),
 					Entropy:       e,
+					Confidence:    ConfidenceRegex,
+					DetectionMethod: "regex",
 				})
 			}
 		}
@@ -485,23 +489,46 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					col = 0
 				}
 				findings = append(findings, finding.Finding{
-					File:          path,
-					Line:          lineNum,
-					Column:        col,
-					RuleName:      "high_entropy_token",
-					Severity:      finding.SeverityMedium,
-					Secret:        tok,
-					Context:       finding.Truncate(strings.TrimSpace(line)),
-					ContextBefore: finding.Truncate(ctxBefore),
-					Entropy:       entropy.Shannon(tok),
+					File:           path,
+					Line:           lineNum,
+					Column:         col,
+					RuleName:       "high_entropy_token",
+					Severity:       finding.SeverityMedium,
+					Secret:         tok,
+					Context:        finding.Truncate(strings.TrimSpace(line)),
+					ContextBefore:  finding.Truncate(ctxBefore),
+					Entropy:        entropy.Shannon(tok),
+					Confidence:     ConfidenceEntropy + ConfidenceContext,
+					DetectionMethod: "entropy+context",
 				})
 			}
+		}
+
+		for _, cs := range entropy.ExtractContextualSecrets(line, 4.5) {
+			if entropy.IsMediaToken(cs.Token) {
+				continue
+			}
+			findings = append(findings, finding.Finding{
+				File:           path,
+				Line:           lineNum,
+				Column:         strings.Index(line, cs.Token),
+				RuleName:       "contextual_entropy_secret",
+				Severity:       finding.SeverityHigh,
+				Secret:         cs.Token,
+				Context:        finding.Truncate(strings.TrimSpace(line)),
+				Entropy:        cs.Entropy,
+				Confidence:     ConfidenceEntropy + ConfidenceContext,
+				DetectionMethod: "entropy+context",
+			})
 		}
 
 		if hasDecoders {
 			findings = append(findings, decoder.DecodeAndRescan(line, path, lineNum,
 				cfg.Rules, cfg.MinSeverity, df)...)
 		}
+
+		urlFindings := ExtractURLSecrets(line, path, lineNum)
+		findings = append(findings, urlFindings...)
 
 		prevLine = line
 	}
@@ -546,10 +573,12 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 	lines := strings.Split(content, "\n")
 
 	df := decoder.Flags{
-		Base64:  cfg.DecodeBase64,
-		Hex:     cfg.DecodeHex,
-		Unicode: cfg.DecodeUnicode,
-		URL:     cfg.DecodeURL,
+		Base64:   cfg.DecodeBase64,
+		Hex:      cfg.DecodeHex,
+		Unicode:  cfg.DecodeUnicode,
+		URL:      cfg.DecodeURL,
+		Gzip:     cfg.DecodeGzip,
+		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
 	}
 
 	var mlScanner *MultiLineScanner
@@ -619,17 +648,26 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 				ctx = finding.Truncate(ctx)
 
+				conf := ConfidenceRegex
+				method := "regex"
+				if tagPrefix != "" {
+					conf += ConfidenceDecoded
+					method = "decoded_regex"
+				}
+
 				findings = append(findings, finding.Finding{
-					File:          path,
-					Line:          lineNum,
-					Column:        m[0],
-					RuleName:      ruleName,
-					Severity:      sev,
-					Secret:        secret,
-					Context:       ctx,
-					ContextBefore: ctxBefore,
-					ContextAfter:  ctxAfter,
-					Entropy:       e,
+					File:           path,
+					Line:           lineNum,
+					Column:         m[0],
+					RuleName:       ruleName,
+					Severity:       sev,
+					Secret:         secret,
+					Context:        ctx,
+					ContextBefore:  ctxBefore,
+					ContextAfter:   ctxAfter,
+					Entropy:        e,
+					Confidence:     conf,
+					DetectionMethod: method,
 				})
 			}
 		}
@@ -677,18 +715,38 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 				ctx = finding.Truncate(ctx)
 				findings = append(findings, finding.Finding{
-					File:          path,
-					Line:          lineNum,
-					Column:        col,
-					RuleName:      "high_entropy_token",
-					Severity:      finding.SeverityMedium,
-					Secret:        tok,
-					Context:       ctx,
-					ContextBefore: ctxBefore,
-					ContextAfter:  ctxAfter,
-					Entropy:       entropy.Shannon(tok),
+					File:           path,
+					Line:           lineNum,
+					Column:         col,
+					RuleName:       "high_entropy_token",
+					Severity:       finding.SeverityMedium,
+					Secret:         tok,
+					Context:        ctx,
+					ContextBefore:  ctxBefore,
+					ContextAfter:   ctxAfter,
+					Entropy:        entropy.Shannon(tok),
+					Confidence:     ConfidenceEntropy + ConfidenceContext,
+					DetectionMethod: "entropy+context",
 				})
 			}
+		}
+
+		for _, cs := range entropy.ExtractContextualSecrets(line, 4.5) {
+			if entropy.IsMediaToken(cs.Token) {
+				continue
+			}
+			findings = append(findings, finding.Finding{
+				File:           path,
+				Line:           lineNum,
+				Column:         strings.Index(line, cs.Token),
+				RuleName:       "contextual_entropy_secret",
+				Severity:       finding.SeverityHigh,
+				Secret:         cs.Token,
+				Context:        finding.Truncate(strings.TrimSpace(line)),
+				Entropy:        cs.Entropy,
+				Confidence:     ConfidenceEntropy + ConfidenceContext,
+				DetectionMethod: "entropy+context",
+			})
 		}
 
 		if hasDecoders {
@@ -718,6 +776,9 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		if cfg.DetectAuthHeaders {
 			findings = append(findings, DetectAuthHeaders(line, path, lineNum)...)
 		}
+
+		urlFindings := ExtractURLSecrets(line, path, lineNum)
+		findings = append(findings, urlFindings...)
 	}
 
 	return findings

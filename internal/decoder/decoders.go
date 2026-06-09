@@ -141,10 +141,12 @@ type Flags struct {
 	Base64URL    bool
 	JWT          bool
 	DoubleBase64 bool
+	Gzip         bool
+	CharCode     bool
 }
 
 func (f Flags) HasAny() bool {
-	return f.Base64 || f.Hex || f.Unicode || f.URL || f.Base64URL || f.JWT || f.DoubleBase64
+	return f.Base64 || f.Hex || f.Unicode || f.URL || f.Base64URL || f.JWT || f.DoubleBase64 || f.Gzip || f.CharCode
 }
 
 var defaultRegistry = NewRegistry()
@@ -157,6 +159,8 @@ func init() {
 	defaultRegistry.Register("url", tryURLEncoded)
 	defaultRegistry.Register("jwt", tryJWT)
 	defaultRegistry.Register("doublebase64", tryDoubleBase64)
+	defaultRegistry.Register("gzip", tryGzipInline)
+	defaultRegistry.Register("charcode", tryCharCode)
 }
 
 func activeDecoders(flags Flags) []Decoder {
