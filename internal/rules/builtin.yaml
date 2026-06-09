@@ -14,7 +14,7 @@ rules:
     tags: [aws, cloud]
   - name: aws_secret_access_key
     severity: CRITICAL
-    pattern: '(?i)aws[_\-\.]?secret[_\-\.]?(?:access[_\-\.]?)?key\s*[:=]\s*[''"]([A-Za-z0-9+/]{40})[''"]'
+    pattern: '(?i)(?:aws[_\-\.]?)?secret[_\-\.]?(?:access[_\-\.]?)?key\s*[:=]\s*[''"]([A-Za-z0-9+/]{40})[''"]'
     tags: [aws, cloud]
   - name: aws_session_token
     severity: CRITICAL
@@ -76,7 +76,7 @@ rules:
     tags: [github, vcs]
   - name: github_fine_grained_token
     severity: CRITICAL
-    pattern: 'github_pat_[0-9a-zA-Z_]{82}\b'
+    pattern: 'github_pat_[0-9a-zA-Z_]{82,}\b'
     tags: [github, vcs]
 
   # ── GitLab ───────────────────────────────
@@ -382,7 +382,7 @@ rules:
     tags: [newrelic, monitoring]
   - name: notion_api_token
     severity: HIGH
-    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{40,}\b'
+    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{16,}\b'
     tags: [notion, productivity]
   - name: instagram_api_token
     severity: MEDIUM
@@ -400,7 +400,7 @@ rules:
     tags: [datadog, monitoring]
   - name: sentry_dsn
     severity: MEDIUM
-    pattern: 'https://[0-9a-f]{32}@[a-z0-9]+\.ingest\.sentry\.io/\d+'
+    pattern: '(?i)https://[0-9a-f]{32}@[a-z0-9]+\.ingest\.sentry\.io/\d+'
     tags: [sentry, monitoring]
   - name: sentry_auth_token
     severity: HIGH
@@ -642,7 +642,7 @@ rules:
     tags: [database, mongodb]
   - name: redis_url
     severity: CRITICAL
-    pattern: '\bredis://[^@\s]+:[^@\s]+@[a-zA-Z0-9.\-]+:\d+\b'
+    pattern: '\bredis://[^@\s]*:[^@\s]+@[a-zA-Z0-9.\-]+:\d+\b'
     tags: [database, redis]
   - name: sqlite_url
     severity: LOW
