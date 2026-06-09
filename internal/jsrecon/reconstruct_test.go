@@ -165,3 +165,33 @@ func TestPropagateConstantsTernaryNoStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestPropagateConstantsArrayIndex(t *testing.T) {
+	content := "var _parts=[\"AKIAIOSFODNN7FAKETEST\",\"FAKE\",\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYFAKESECRETKEY\",\"KEY\"];\nvar _awsId=_parts[0];\nvar _awsSecret=_parts[2];"
+	results := propagateConstants(content)
+	foundA, foundB := false, false
+	for _, r := range results {
+		if r.text == "AKIAIOSFODNN7FAKETEST" {
+			foundA = true
+		}
+		if r.text == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYFAKESECRETKEY" {
+			foundB = true
+		}
+	}
+	if !foundA {
+		t.Errorf("expected _parts[0] resolved to AKIAIOSFODNN7FAKETEST, got %v", results)
+	}
+	if !foundB {
+		t.Errorf("expected _parts[2] resolved to the AWS secret, got %v", results)
+	}
+}
+
+func TestPropagateConstantsArrayIndexOOB(t *testing.T) {
+	content := "var arr=[\"short\"];\nvar x=arr[99];"
+	results := propagateConstants(content)
+	for _, r := range results {
+		if r.text == "short" {
+			t.Errorf("should not resolve out-of-bounds array index")
+		}
+	}
+}

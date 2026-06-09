@@ -18,6 +18,8 @@ var (
 	idChainRE             = regexp.MustCompile(`\b(\w+)\s*\+\s*(\w+(?:\s*\+\s*\w+)*)`)
 	ternaryStringDoubleRE = regexp.MustCompile(`\?\s*"([^"]+)"\s*:\s*"([^"]+)"`)
 	ternaryStringSingleRE = regexp.MustCompile(`\?\s*'([^']+)'\s*:\s*'([^']+)'`)
+	arrayDeclSingleRE     = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*\[([^\]]+)\]`)
+	arrayIndexRE          = regexp.MustCompile(`\b(\w+)\[(\d+)\]`)
 )
 
 const minReconstructLen = 20
@@ -50,6 +52,9 @@ func ReconstructAndScan(
 	for _, r := range reconstructTernaries(content) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_ternary", path, rs, minSev)...)
 	}
+	for _, r := range resolveArrayAccess(content) {
+		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_array", path, rs, minSev)...)
+	}
 
 	return findings
 }
@@ -68,34 +73,74 @@ func propagateConstants(content string) []reconstructResult {
 		}
 	}
 
-	if len(consts) == 0 {
-		return results
-	}
-
-	for lineno, line := range lines {
-		if !strings.Contains(line, "+") {
-			continue
-		}
-		matches := idChainRE.FindAllStringSubmatch(line, -1)
-		for _, m := range matches {
-			fullChain := m[0]
-			parts := strings.Split(fullChain, "+")
-			allResolved := true
-			var reconstructed strings.Builder
-			for _, part := range parts {
-				part = strings.TrimSpace(part)
-				if val, ok := consts[part]; ok {
-					reconstructed.WriteString(val)
-				} else {
-					allResolved = false
-					break
+	if len(consts) > 0 {
+		for lineno, line := range lines {
+			if !strings.Contains(line, "+") {
+				continue
+			}
+			matches := idChainRE.FindAllStringSubmatch(line, -1)
+			for _, m := range matches {
+				fullChain := m[0]
+				parts := strings.Split(fullChain, "+")
+				allResolved := true
+				var reconstructed strings.Builder
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if val, ok := consts[part]; ok {
+						reconstructed.WriteString(val)
+					} else {
+						allResolved = false
+						break
+					}
+				}
+				if allResolved && reconstructed.Len() >= minReconstructLen {
+					results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed.String()})
 				}
 			}
-			if allResolved && reconstructed.Len() >= minReconstructLen {
-				results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed.String()})
+		}
+	}
+
+	// Array index resolution
+	arrays := map[string][]string{}
+	for _, line := range lines {
+		if m := arrayDeclSingleRE.FindStringSubmatch(line); len(m) > 0 {
+			inner := m[2]
+			elements := extractStringLiterals(inner)
+			if len(elements) > 0 {
+				arrays[m[1]] = elements
 			}
 		}
 	}
+	if len(arrays) > 0 {
+		for lineno, line := range lines {
+			if !strings.Contains(line, "[") {
+				continue
+			}
+			matches := arrayIndexRE.FindAllStringSubmatch(line, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				arrName := m[1]
+				idx := 0
+				for _, ch := range m[2] {
+					idx = idx*10 + int(ch-'0')
+				}
+				elems, ok := arrays[arrName]
+				if !ok {
+					continue
+				}
+				if idx < 0 || idx >= len(elems) {
+					continue
+				}
+				val := elems[idx]
+				if len(val) >= minReconstructLen {
+					results = append(results, reconstructResult{lineNo: lineno + 1, text: val})
+				}
+			}
+		}
+	}
+
 	return results
 }
 
@@ -118,6 +163,55 @@ func reconstructTernaries(content string) []reconstructResult {
 				if len(branchB) >= minReconstructLen {
 					results = append(results, reconstructResult{lineNo: lineno + 1, text: branchB})
 				}
+			}
+		}
+	}
+	return results
+}
+
+func resolveArrayAccess(content string) []reconstructResult {
+	var results []reconstructResult
+	lines := strings.Split(content, "\n")
+
+	arrays := map[string][]string{}
+	for _, line := range lines {
+		if m := arrayDeclSingleRE.FindStringSubmatch(line); len(m) > 0 {
+			inner := m[2]
+			elements := extractStringLiterals(inner)
+			if len(elements) > 0 {
+				arrays[m[1]] = elements
+			}
+		}
+	}
+
+	if len(arrays) == 0 {
+		return results
+	}
+
+	for lineno, line := range lines {
+		if !strings.Contains(line, "[") {
+			continue
+		}
+		matches := arrayIndexRE.FindAllStringSubmatch(line, -1)
+		for _, m := range matches {
+			if len(m) < 3 {
+				continue
+			}
+			arrName := m[1]
+			idx := 0
+			for _, ch := range m[2] {
+				idx = idx*10 + int(ch-'0')
+			}
+			elems, ok := arrays[arrName]
+			if !ok {
+				continue
+			}
+			if idx < 0 || idx >= len(elems) {
+				continue
+			}
+			val := elems[idx]
+			if len(val) >= minReconstructLen {
+				results = append(results, reconstructResult{lineNo: lineno + 1, text: val})
 			}
 		}
 	}
