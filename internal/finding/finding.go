@@ -98,7 +98,11 @@ func Deduplicate(findings []Finding) []Finding {
 	seen := make(map[string]bool)
 	var result []Finding
 	for _, f := range findings {
-		key := f.RuleName + ":" + f.Secret + ":" + f.File
+		ctxPrefix := f.Context
+		if len(ctxPrefix) > 40 {
+			ctxPrefix = ctxPrefix[:40]
+		}
+		key := f.RuleName + ":" + f.Secret + ":" + f.File + ":" + ctxPrefix
 		if seen[key] {
 			continue
 		}
