@@ -135,3 +135,33 @@ var mid = "1234567890abcdef";
 var key = a + b;`
 	_ = ReconstructAndScan(content, "test.js", &rules.RuleSet{}, finding.Severity(0))
 }
+
+func TestPropagateConstantsTernary(t *testing.T) {
+	content := "var _isProduction=true;\nvar _secret=_isProduction?\"FAKEJWTSECRET_SuperSecure\":\"FAKEJWTSECRET_Dev_Weaker\";"
+	results := reconstructTernaries(content)
+	if len(results) < 2 {
+		t.Fatalf("expected at least 2 ternary results, got %d: %v", len(results), results)
+	}
+	foundA, foundB := false, false
+	for _, r := range results {
+		if r.text == "FAKEJWTSECRET_SuperSecure" {
+			foundA = true
+		}
+		if r.text == "FAKEJWTSECRET_Dev_Weaker" {
+			foundB = true
+		}
+	}
+	if !foundA || !foundB {
+		t.Errorf("expected both ternary branches in results, got %v", results)
+	}
+}
+
+func TestPropagateConstantsTernaryNoStrings(t *testing.T) {
+	content := "var x = a ? b : c;"
+	results := reconstructTernaries(content)
+	for _, r := range results {
+		if r.text == "a" || r.text == "b" || r.text == "c" {
+			t.Errorf("should not emit unresolved ternary branch: %v", r)
+		}
+	}
+}

@@ -10,12 +10,14 @@ import (
 )
 
 var (
-	joinExprSingleRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*'([^']*)'\s*\)`)
-	joinExprDoubleRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*"([^"]*)"\s*\)`)
-	templateRE       = regexp.MustCompile("`([^`$]*)`")
-	declSingleRE     = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*'([^']*)'`)
-	declDoubleRE     = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*"([^"]*)"`)
-	idChainRE        = regexp.MustCompile(`\b(\w+)\s*\+\s*(\w+(?:\s*\+\s*\w+)*)`)
+	joinExprSingleRE      = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*'([^']*)'\s*\)`)
+	joinExprDoubleRE      = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*"([^"]*)"\s*\)`)
+	templateRE            = regexp.MustCompile("`([^`$]*)`")
+	declSingleRE          = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*'([^']*)'`)
+	declDoubleRE          = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*"([^"]*)"`)
+	idChainRE             = regexp.MustCompile(`\b(\w+)\s*\+\s*(\w+(?:\s*\+\s*\w+)*)`)
+	ternaryStringDoubleRE = regexp.MustCompile(`\?\s*"([^"]+)"\s*:\s*"([^"]+)"`)
+	ternaryStringSingleRE = regexp.MustCompile(`\?\s*'([^']+)'\s*:\s*'([^']+)'`)
 )
 
 const minReconstructLen = 20
@@ -44,6 +46,9 @@ func ReconstructAndScan(
 	}
 	for _, r := range propagateConstants(content) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_var", path, rs, minSev)...)
+	}
+	for _, r := range reconstructTernaries(content) {
+		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_ternary", path, rs, minSev)...)
 	}
 
 	return findings
@@ -88,6 +93,31 @@ func propagateConstants(content string) []reconstructResult {
 			}
 			if allResolved && reconstructed.Len() >= minReconstructLen {
 				results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed.String()})
+			}
+		}
+	}
+	return results
+}
+
+func reconstructTernaries(content string) []reconstructResult {
+	var results []reconstructResult
+	lines := strings.Split(content, "\n")
+
+	for lineno, line := range lines {
+		for _, re := range []*regexp.Regexp{ternaryStringDoubleRE, ternaryStringSingleRE} {
+			matches := re.FindAllStringSubmatch(line, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				branchA := m[1]
+				branchB := m[2]
+				if len(branchA) >= minReconstructLen {
+					results = append(results, reconstructResult{lineNo: lineno + 1, text: branchA})
+				}
+				if len(branchB) >= minReconstructLen {
+					results = append(results, reconstructResult{lineNo: lineno + 1, text: branchB})
+				}
 			}
 		}
 	}
