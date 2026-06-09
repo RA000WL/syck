@@ -25,6 +25,19 @@ var defaultJuicyPaths = []string{
 	"/phpinfo.php", "/info.php", "/test.php",
 	"/admin", "/administrator", "/wp-admin", "/wp-login.php",
 	"/elmah.axd", "/trace.axd",
+
+	// Backup / archive discovery
+	"/backup", "/backup.sql", "/backup.zip", "/backup.tar.gz",
+	"/db", "/db.sql", "/database.sql", "/dump.sql", "/dump.zip",
+	"/data", "/data.sql", "/data.zip",
+	"/exports", "/export.sql",
+	"/uploads", "/uploads.zip",
+	"/site.zip", "/source.zip", "/src.zip", "/code.zip",
+	"/.DS_Store",
+	"/package.json", "/composer.json", "/Gemfile", "/go.mod", "/requirements.txt",
+	"/Dockerfile", "/docker-compose.yml", "/docker-compose.yaml",
+	"/.terraform", "/.terraform.lock.hcl", "/terraform.tfstate",
+	"/secrets.yml", "/secrets.yaml", "/credentials", "/.htpasswd",
 }
 
 const maxJuicyBodyBytes = 1 << 20
