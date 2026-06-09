@@ -47,4 +47,5 @@ type Config struct {
 	MaxScanLineLen   int                              // skip per-line scanning on lines exceeding this length (0=unlimited)
 	Progress         func(filesScanned, findings int) // optional callback fired per scanned file; nil = no-op
 	ScanArchives     bool                             // extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)
+	ScanBinaries     bool                             // extract and scan strings from binary files
 }

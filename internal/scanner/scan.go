@@ -110,6 +110,24 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 			}
 			ext := strings.ToLower(filepath.Ext(path))
 			if !textExtensions[ext] && !isTextFile(path) {
+				if cfg.ScanBinaries {
+					isBinaryExt := ext == ".exe" || ext == ".dll" || ext == ".so" ||
+						ext == ".dylib" || ext == ".class" || ext == ".pyc" ||
+						ext == ".o" || ext == ".obj" || ext == ".wasm"
+					if isBinaryExt {
+						wg.Add(1)
+						go func(fp string) {
+							defer wg.Done()
+							f, e := ScanBinaryFile(fp, cfg)
+							if e == nil && len(f) > 0 {
+								mu.Lock()
+								allFindings = append(allFindings, f...)
+								mu.Unlock()
+							}
+						}(path)
+						return nil
+					}
+				}
 				return nil
 			}
 			if info.Size() > cfg.MaxFileSize {
@@ -149,6 +167,19 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	return allFindings, nil
+}
+
+func ScanBinaryFile(path string, cfg Config) ([]finding.Finding, error) {
+	strs, err := ExtractBinaryStrings(path)
+	if err != nil || len(strs) == 0 {
+		return nil, err
+	}
+	var findings []finding.Finding
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	for _, s := range strs {
+		findings = append(findings, scanContent(s.text, path+"(binary)", cfg, "binary_", nil, hasDecoders)...)
+	}
+	return findings, nil
 }
 
 func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
@@ -808,6 +839,8 @@ func contextLabel(tagPrefix string) string {
 	switch tagPrefix {
 	case "archive_":
 		return "archive: "
+	case "binary_":
+		return "binary: "
 	default:
 		return "gzip decoded: "
 	}
