@@ -53,8 +53,8 @@ func TestRuleStageFindingShape(t *testing.T) {
 	if f.Entropy != 0 {
 		t.Errorf("Entropy = %v, want 0 (V1 RuleStage doesn't compute entropy)", f.Entropy)
 	}
-	if f.Confidence != "" {
-		t.Errorf("Confidence = %q, want empty (Confidence set in M9 stage, not here)", f.Confidence)
+	if f.ConfidenceBand != "" {
+		t.Errorf("ConfidenceBand = %q, want empty (ConfidenceBand set in M9 stage, not here)", f.ConfidenceBand)
 	}
 }
 

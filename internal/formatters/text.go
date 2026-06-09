@@ -80,7 +80,7 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			} else if f.RiskScore >= 5 {
 				riskMarker = " [!]"
 			}
-			confColor := confidenceColor(f.Confidence, opts.NoColor)
+			confColor := confidenceColor(f.ConfidenceBand, opts.NoColor)
 			verStr := ""
 			if f.VerificationStatus != "" {
 				verStr = " [" + f.VerificationStatus + "]"
@@ -93,11 +93,11 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 					sevColor, sevName, ansi.reset,
 					ansi.cyan, rule, riskMarker, ansi.reset,
 					ansi.gray, f.Entropy, ansi.reset,
-					confColor, f.Confidence, ansi.reset, verStr))
+					confColor, f.ConfidenceBand, ansi.reset, verStr))
 				b.WriteString(fmt.Sprintf("       secret : %s%s%s\n", ansi.yellow, f.Secret, ansi.reset))
 				b.WriteString(fmt.Sprintf("       context: %s%s%s\n", ansi.gray, f.Context, ansi.reset))
 			} else {
-				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s%s]  entropy=%.3f  confidence=%s%s\n", line, col, sevName, rule, riskMarker, f.Entropy, f.Confidence, verStr))
+				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s%s]  entropy=%.3f  confidence=%s%s\n", line, col, sevName, rule, riskMarker, f.Entropy, f.ConfidenceBand, verStr))
 				b.WriteString(fmt.Sprintf("       secret : %s\n", f.Secret))
 				b.WriteString(fmt.Sprintf("       context: %s\n", f.Context))
 			}

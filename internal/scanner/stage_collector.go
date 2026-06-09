@@ -71,11 +71,11 @@ func (s *CollectorStage) Process(content, path string) []finding.Finding {
 
 	for _, sf := range surfaceFindings {
 		f := finding.Finding{
-			File:       path,
-			RuleName:   "attack_surface_" + sf.Category,
-			Severity:   sf.Severity,
-			Confidence: "HIGH",
-			Context:    sf.Category + ": " + sf.URL,
+			File:           path,
+			RuleName:       "attack_surface_" + sf.Category,
+			Severity:       sf.Severity,
+			ConfidenceBand: "HIGH",
+			Context:        sf.Category + ": " + sf.URL,
 		}
 		if ep, ok := urlByEndpoint[sf.URL]; ok {
 			f.Line = ep.Line

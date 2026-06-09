@@ -34,7 +34,7 @@ func (f *MarkdownFormatter) Format(findings []finding.Finding, opts FormatOption
 		b.WriteString("|------|----------|------|------------|--------------|------|---------|--------|\n")
 		for _, f := range ff {
 			b.WriteString(fmt.Sprintf("| %d | %s | %d | %s | %s | `%s` | %.3f | `%s` |\n",
-				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.Confidence, f.VerificationStatus, f.RuleName, f.Entropy, f.Secret))
+				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.ConfidenceBand, f.VerificationStatus, f.RuleName, f.Entropy, f.Secret))
 		}
 		b.WriteString("\n")
 	}

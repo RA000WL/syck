@@ -25,7 +25,7 @@ func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 			sig.Entropy = entropy.Shannon(in[i].Secret)
 		}
 		score := s.scorer.Score(sig)
-		in[i].Confidence = confidence.Band(score)
+		in[i].ConfidenceBand = confidence.Band(score)
 	}
 	return in
 }

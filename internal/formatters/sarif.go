@@ -163,7 +163,7 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 				},
 			}},
 			Properties: sarifProperties{
-				Confidence:         f.Confidence,
+				Confidence:         f.ConfidenceBand,
 				VerificationStatus: f.VerificationStatus,
 				RiskScore:          f.RiskScore,
 			},

@@ -18,8 +18,8 @@ func TestPipelineSmoke(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
-	if got[0].Confidence != "MEDIUM" {
-		t.Errorf("Confidence = %q, want MEDIUM (one signal: regex match = 40 pts, no entropy/verification/context)", got[0].Confidence)
+	if got[0].ConfidenceBand != "MEDIUM" {
+		t.Errorf("ConfidenceBand = %q, want MEDIUM (one signal: regex match = 40 pts, no entropy/verification/context)", got[0].ConfidenceBand)
 	}
 }
 
@@ -37,7 +37,7 @@ func TestPipelineEntropyTokenPath(t *testing.T) {
 	if got[0].RuleName != "entropy_token" {
 		t.Errorf("RuleName = %q, want entropy_token (no regex match, only entropy stage fires)", got[0].RuleName)
 	}
-	if got[0].Confidence != "LOW" {
-		t.Errorf("Confidence = %q, want LOW (RegexMatch=false → 0 pts; Shannon(hex)=4.0 < 4.5 floor → 0 entropy pts; total 0)", got[0].Confidence)
+	if got[0].ConfidenceBand != "LOW" {
+		t.Errorf("ConfidenceBand = %q, want LOW (RegexMatch=false → 0 pts; Shannon(hex)=4.0 < 4.5 floor → 0 entropy pts; total 0)", got[0].ConfidenceBand)
 	}
 }

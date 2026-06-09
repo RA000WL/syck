@@ -4,6 +4,14 @@ import "sort"
 
 const MaxContextLen = 500
 
+const (
+	ConfidenceRegex    = 60
+	ConfidenceEntropy  = 15
+	ConfidenceContext  = 15
+	ConfidenceDecoded  = 10
+	ConfidenceURLParam = 10
+)
+
 type Severity int
 
 const (
@@ -52,7 +60,9 @@ type Finding struct {
 	ContextBefore       string
 	ContextAfter        string
 	Entropy             float64
-	Confidence          string
+	Confidence          int    `json:"confidence,omitempty"`
+	ConfidenceBand      string `json:"confidence_band,omitempty"`
+	DetectionMethod     string `json:"detection_method,omitempty"`
 	VerificationStatus  string
 	DecodedValuePreview string
 }

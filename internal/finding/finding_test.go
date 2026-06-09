@@ -4,12 +4,12 @@ import "testing"
 
 func TestFindingConfidenceField(t *testing.T) {
 	f := Finding{
-		RuleName:   "x",
-		Severity:   SeverityHigh,
-		Confidence: "HIGH",
+		RuleName:       "x",
+		Severity:       SeverityHigh,
+		ConfidenceBand: "HIGH",
 	}
-	if f.Confidence != "HIGH" {
-		t.Errorf("Confidence = %q, want HIGH", f.Confidence)
+	if f.ConfidenceBand != "HIGH" {
+		t.Errorf("ConfidenceBand = %q, want HIGH", f.ConfidenceBand)
 	}
 	if f.Severity != SeverityHigh {
 		t.Errorf("Severity = %v, want SeverityHigh", f.Severity)

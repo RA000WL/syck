@@ -41,7 +41,7 @@ func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (s
 			csvEscape(secret),
 			f.Entropy,
 			csvEscape(ctx),
-			csvEscape(f.Confidence),
+			csvEscape(f.ConfidenceBand),
 			csvEscape(f.VerificationStatus),
 			csvEscape(f.DecodedValuePreview),
 		))

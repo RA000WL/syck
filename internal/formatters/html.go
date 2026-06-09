@@ -77,8 +77,8 @@ th{color:#aaa;font-weight:600}
 				riskBadge = fmt.Sprintf(`<span class="badge" style="background:%s">%d</span>`, riskColor, f.RiskScore)
 			}
 			confBadge := ""
-			if f.Confidence != "" {
-				confBadge = fmt.Sprintf(`<span class="badge" style="background:%s">%s</span>`, confColor(f.Confidence), htmlEscape(f.Confidence))
+			if f.ConfidenceBand != "" {
+				confBadge = fmt.Sprintf(`<span class="badge" style="background:%s">%s</span>`, confColor(f.ConfidenceBand), htmlEscape(f.ConfidenceBand))
 			}
 			verBadge := ""
 			if f.VerificationStatus != "" {

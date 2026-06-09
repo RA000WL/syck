@@ -70,7 +70,7 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			ContextBefore: ctxBefore,
 			ContextAfter:  ctxAfter,
 			Entropy:       f.Entropy,
-			Confidence:    f.Confidence,
+			Confidence:    f.ConfidenceBand,
 			Verification:  f.VerificationStatus,
 			DecodedPrev:   f.DecodedValuePreview,
 		}
