@@ -1,6 +1,7 @@
 package endpoints
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -180,5 +181,28 @@ func TestExtractOpenAPI(t *testing.T) {
 		if len(eps) == 0 {
 			t.Errorf("expected OpenAPI endpoint in %q, got none", content)
 		}
+	}
+}
+
+func TestExtractComputedProperties(t *testing.T) {
+	content := "const url = baseURL + '/api/v1/users/' + userId;"
+	eps := ExtractEndpoints("test.js", content)
+	found := false
+	for _, ep := range eps {
+		if strings.Contains(ep.Endpoint, "/api/v1/users") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected /api/v1/users in endpoints, got %+v", eps)
+	}
+}
+
+func TestExtractTemplateLiterals(t *testing.T) {
+	content := "fetch(`https://api.example.com/users/${userId}/profile`)"
+	eps := ExtractEndpoints("test.js", content)
+	if len(eps) < 1 {
+		t.Fatal("expected at least 1 endpoint from template literal")
 	}
 }

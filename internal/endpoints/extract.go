@@ -48,6 +48,13 @@ var endpointPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/query)['"]`),
 	regexp.MustCompile(`['"]((?:https?://[^'"]+)?/gql(?:/v\d+)?)['"]`),
 	regexp.MustCompile(`(?i)['"]?(?:gql|graphql)(?:Client|Endpoint|API)\s*[:=]\s*['"]([^'"]+)['"]`),
+
+	// JS computed property / template literal patterns (V1.2)
+	regexp.MustCompile("`(https?://[^$`]+\\$\\{[^}]+\\}[^`]*)`"),
+	// String concatenation with base URL variable + path constant
+	regexp.MustCompile(`(?i)(?:baseURL|baseUrl|apiUrl|apiURL|endpoint)\s*\+\s*['"]\s*((?:/api|/v\d+|/internal|/admin|/auth)[^'"]+)['"]`),
+	// _.template or template literal with path constant
+	regexp.MustCompile(`(?i)['"]\s*\+\s*['"]((?:/api|/v\d+|/admin|/[a-z]+/[a-z]+))['"]`),
 }
 
 var staticAssetExts = map[string]bool{
