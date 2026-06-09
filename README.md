@@ -5,29 +5,37 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner written in Go. 150+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
+A fast, modular secret scanner written in Go. 160+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
 
-**Why syck?** Most secret scanners either miss too much (regex-only) or drown you in false positives (entropy-only). syck combines both with rule-specific context keywords, decoder layers, and a precision-hardened rule set that scores 100% precision on the curated test corpus (vs. 11.9% for the Python reference).
+**Why syck?** Most secret scanners either miss too much (regex-only) or drown you in false positives (entropy-only). syck combines both with rule-specific context keywords, decoder layers, confidence scoring, and a precision-hardened rule set.
 
 ## Features
 
-- **150+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, and 50+ providers
-- **Entropy analysis** — Shannon entropy scoring catches high-entropy tokens that regex alone misses
+- **160+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, email/password hashes, PII, and 50+ providers
+- **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
+- **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
+- **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
 - **6 output formats** — text, JSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
 - **URL crawling** — BFS crawler with goquery HTML extraction, per-host rate limiting, scope filtering
 - **Headless Chrome** — SPA/JS-rendered page support via go-rod
 - **Git history scanning** — walk all commits, scan deleted/modified files
 - **Live validation** — confirm found secrets are active against 13 provider APIs
 - **.syckignore** — fingerprint + regex pattern suppression of known false positives
-- **Multi-layer decoding** — base64, hex, Unicode escape, URL-encoded, gzip, recursive up to depth 4
-- **JS string reconstruction** — concat chains, array joins, template literals
+- **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
+- **JS string reconstruction** — constant propagation, concatenation chains, array joins (arbitrary separators), template literals, ternary expressions, array index access
 - **JSON-aware scanning** — walks parsed JSON tree under known secret-key names
 - **CI gate mode** — `--fail-on` exits non-zero when findings meet severity threshold
 - **Zero runtime dependencies** — single static binary, no pip/npm required
 - **Endpoint detection** — JS-aware crawl extracts API endpoints from fetch/axios/XHR, 6 frontend router patterns (React/Vue/Angular), 4 GraphQL variants, 3 OpenAPI/Swagger patterns
 - **Risk scoring** — 19-rule risk engine assigns 0-10 score per endpoint with FP-safe prefix checking
 - **Source map harvesting** — crawler fetches `.js.map` alongside `.js` files, extracts endpoints from map content
-- **Juicy file probing** — detects 35 high-value paths: `/.env`, `/admin`, `/actuator/*`, `/metrics`, `/swagger.json`, `/phpinfo.php`, `/wp-admin`, `/.git/config`
+- **Juicy file probing** — detects 65 high-value paths: `.env`, `admin`, `actuator/*`, `metrics`, `swagger.json`, backup files, database dumps, terraform state, and more
+- **URL secret extraction** — detects `access_token`, `api_key`, `token` etc. leaked in URL query parameters
+- **Webhook/SIEM export** — send findings to Slack, Discord, or generic JSON webhooks
+- **SQLite cross-run cache** — fingerprint-based dedup across scan runs for progressive triage
+- **Archive scanning** — extracts and scans zip, tar, tar.gz, jar files with Zip Slip protection
+- **Multi-line detection** — matches secrets spanning multiple lines (PEM keys, JSON configs)
+- **Auth header detection** — Bearer tokens, Basic auth, API key headers
 
 ## Install
 
@@ -49,7 +57,7 @@ Requires Go 1.22+.
 
 | Tool | Approach | Precision | Speed | Decoding | Live validation |
 |------|----------|-----------|-------|----------|-----------------|
-| syck | Regex + entropy + context + 130 rules | 100% (test corpus) | ~50 MB/s | base64, hex, unicode, url, gzip, JS | Yes (13 providers) |
+| syck | Regex + entropy + context + 160 rules + confidence | high | ~50 MB/s | base64, hex, unicode, url, gzip, JWT, charcode, JS recon | Yes (13 providers) |
 | gitleaks | Regex only | ~70% | ~80 MB/s | None | No |
 | trufflehog | Entropy + regex | noisy | ~20 MB/s | base64 | Yes (limited) |
 | detect-secrets | Regex + entropy | ~60% | ~30 MB/s | None | No |
@@ -210,7 +218,8 @@ Validation downgrades unconfirmed secrets to `INFO`.
 | `--decode-unicode` | Decode `\uXXXX` escapes and rescan |
 | `--decode-url` | URL-decode lines and rescan |
 | `--decode-gzip` | Decompress gzip/zlib content and rescan |
-| `--js-reconstruct` | Reconstruct JS concatenated strings, array joins, template literals |
+| `--decode-charcode` | Decode `String.fromCharCode(...)` and rescan |
+| `--js-reconstruct` | Reconstruct JS: constant propagation, concat chains, array joins (arbitrary separators), template literals, ternary expressions, array index access |
 
 ### URL Scanning Flags
 
@@ -389,20 +398,25 @@ syck scan [paths...]
 
 | Package | Purpose |
 |---------|---------|
-| `scanner` | Core scanning engine (parallel file walk, regex match, entropy) |
-| `rules` | YAML rule loading and compilation |
-| `finding` | Finding/Severity types, deduplication |
-| `decoder` | Base64, hex, Unicode, URL decoding |
-| `entropy` | Shannon entropy calculation |
-| `formatters` | Text, JSON, SARIF, Markdown, CSV, HTML output |
+| `scanner` | Core scanning engine (parallel file walk, regex match, entropy, multi-line, auth headers) |
+| `rules` | YAML rule loading, compilation, and validation |
+| `finding` | Finding/Severity types, confidence scoring, deduplication |
+| `decoder` | Base64, base64url, hex, Unicode, URL, gzip, JWT, double-base64, charcode decoding |
+| `entropy` | Shannon entropy, per-alphabet thresholds, media token filtering, contextual secrets |
+| `formatters` | Text, JSON, SARIF, Markdown, CSV, HTML, webhook/SIEM output |
 | `endpoints` | API/GraphQL/WebSocket URL extraction |
-| `crawler` | BFS URL crawler with goquery, cookies, rate limiting |
+| `crawler` | BFS URL crawler with goquery, cookies, rate limiting, archive extraction |
 | `gitscan` | Git commit history walking |
 | `ignore` | .syckignore fingerprint loading and filtering |
 | `validator` | Live secret validation against 13 providers |
 | `json_scanner` | JSON tree walking for secret-key values |
-| `jsrecon` | JS concat/join/template string reconstruction |
+| `jsrecon` | JS constant propagation, concat/join/template/ternary/array reconstruction |
 | `risk` | Endpoint risk scoring (19 rules, FP-safe prefix check) |
+| `correlator` | SQLite cross-run finding cache with fingerprint dedup |
+| `correlation` | Multi-finding correlation (AWS key+secret pairs, OAuth, Stripe, etc.) |
+| `confidence` | Confidence scoring engine (regex/entropy/context/decoded/URL param sources) |
+| `recon` | HTTP response recon (admin panels, debug endpoints, GraphQL, staging, metrics) |
+| `url_secrets` | URL query parameter secret extraction |
 
 
 syck eliminates false positives from overly broad patterns while catching all true positives.
@@ -434,7 +448,7 @@ git push origin feature/my-rule
 
 **Adding a new rule:** Edit `internal/rules/builtin.yaml`, then add positive + negative test fixtures under `internal/ruletest/testdata/`. Run `go run . ruletest` to verify precision/recall before pushing.
 
-**Code style:** `gofmt` + `go vet` + `golangci-lint` must all pass. No new top-level dependencies without discussion.
+**Code style:** `gofmt` + `go vet` + `go test -race ./...` must all pass. No new top-level dependencies without discussion.
 
 ## License
 
