@@ -98,6 +98,7 @@ var (
 	stripComments     bool
 	detectAuthHeaders bool
 	probeGraphQL      bool
+	parseOpenAPI      bool
 )
 
 func init() {
@@ -152,6 +153,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&stripComments, "strip-comments", false, "strip comment lines before scanning")
 	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", false, "detect hardcoded Authorization headers and API keys")
 	scanCmd.Flags().BoolVar(&probeGraphQL, "probe-graphql", false, "probe GraphQL endpoints with introspection query")
+	scanCmd.Flags().BoolVar(&parseOpenAPI, "parse-openapi", false, "parse OpenAPI/Swagger specs and inject discovered endpoints")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -279,6 +281,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		StripComments:     stripComments,
 		DetectAuthHeaders: detectAuthHeaders,
 		ProbeGraphQL:      probeGraphQL,
+		ParseOpenAPI:      parseOpenAPI,
 	}
 
 	if progressFlag && !quiet && !pipe {

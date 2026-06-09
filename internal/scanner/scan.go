@@ -872,6 +872,38 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// V1.2: OpenAPI spec parsing
+	if cfg.ParseOpenAPI {
+		for _, c := range crawled {
+			if c.Content == "" {
+				continue
+			}
+			if !strings.HasSuffix(c.URL, ".json") && !strings.HasSuffix(c.URL, ".yaml") && !strings.HasSuffix(c.URL, ".yml") {
+				continue
+			}
+			spec, err := crawler.ParseOpenAPI(c.Content)
+			if err != nil {
+				continue
+			}
+			paths := spec.ExtractEndpointURLs(c.URL)
+			for _, ep := range paths {
+				score := endpoints.ComputeRiskScore(ep)
+				if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+					continue
+				}
+				allFindings = append(allFindings, finding.Finding{
+					File:      c.URL,
+					Line:      1,
+					RuleName:  "openapi_endpoint",
+					Severity:  finding.SeverityMedium,
+					RiskScore: score,
+					Secret:    ep,
+					Context:   fmt.Sprintf("OpenAPI spec: %s %s", spec.Info.Title, spec.Info.Version),
+				})
+			}
+		}
+	}
+
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
 	}

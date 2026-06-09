@@ -52,4 +52,5 @@ type Config struct {
 	StripComments     bool                             // strip comment lines before scanning
 	DetectAuthHeaders bool                             // detect hardcoded Authorization headers, Bearer tokens, Basic auth, API keys
 	ProbeGraphQL      bool                             // probe GraphQL endpoints with introspection query
+	ParseOpenAPI      bool                             // parse OpenAPI/Swagger specs and inject discovered endpoints
 }
