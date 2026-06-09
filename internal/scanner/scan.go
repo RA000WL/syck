@@ -215,6 +215,9 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 			}
 			members, err := crawler.ScanArchive(raw, path)
 			if err != nil {
+				if cfg.Debug {
+					fmt.Fprintf(os.Stderr, "[debug] archive scan %s: %v\n", path, err)
+				}
 				return nil, nil
 			}
 			var findings []finding.Finding
@@ -526,6 +529,11 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		URL:     cfg.DecodeURL,
 	}
 
+	var mlScanner *MultiLineScanner
+	if cfg.MultiLine {
+		mlScanner = NewMultiLineScanner(cfg.Rules, cfg.MinSeverity)
+	}
+
 	for lineNum, line := range lines {
 		lineNum++
 
@@ -607,7 +615,6 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 			if windowStart < 0 {
 				windowStart = 0
 			}
-			mlScanner := NewMultiLineScanner(cfg.Rules, cfg.MinSeverity)
 			mlFindings := mlScanner.ScanMultiLine(lines[windowStart:lineNum], path, windowStart+1)
 			findings = append(findings, mlFindings...)
 		}
@@ -735,6 +742,18 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	if cfg.JSReconstruct && content != "" {
 		jsFindings := jsrecon.ReconstructAndScan(content, "stdin", cfg.Rules, cfg.MinSeverity)
 		findings = append(findings, jsFindings...)
+	}
+
+	if cfg.CacheDB != "" {
+		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
+			for i := range findings {
+				fp := correlator.Fingerprint(findings[i].RuleName, findings[i].Secret, findings[i].File)
+				if isNew, _ := cache.Record(fp); isNew {
+					findings[i].IsNew = true
+				}
+			}
+			cache.Close()
+		}
 	}
 
 	if cfg.Progress != nil {
@@ -924,6 +943,18 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	}
 	if cfg.DowngradeFP {
 		allFindings = DowngradeFP(allFindings)
+	}
+
+	if cfg.CacheDB != "" {
+		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
+			for i := range allFindings {
+				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
+				if isNew, _ := cache.Record(fp); isNew {
+					allFindings[i].IsNew = true
+				}
+			}
+			cache.Close()
+		}
 	}
 
 	return allFindings, nil

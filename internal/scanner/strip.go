@@ -14,14 +14,7 @@ func StripLineComments(content string) string {
 			result = append(result, "")
 			continue
 		}
-		clean := line
-		if idx := strings.Index(clean, "//"); idx >= 0 {
-			before := strings.TrimSpace(clean[:idx])
-			if before != "" && !strings.HasPrefix(before, "\"") && !strings.HasPrefix(before, "'") {
-				clean = before
-			}
-		}
-		result = append(result, clean)
+		result = append(result, line)
 	}
 	return strings.Join(result, "\n")
 }

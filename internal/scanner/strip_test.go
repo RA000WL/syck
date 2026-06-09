@@ -28,10 +28,18 @@ func TestStripLineComments_NoComments(t *testing.T) {
 	}
 }
 
-func TestStripLineComments_InlineSlashSlash(t *testing.T) {
-	input := "config=value // inline comment"
+func TestStripLineComments_URLPreserved(t *testing.T) {
+	input := `const url = "http://example.com/api/key=abc123";`
 	got := StripLineComments(input)
-	want := "config=value"
+	if got != input {
+		t.Fatalf("expected URL unchanged, got %q", got)
+	}
+}
+
+func TestStripLineComments_LineOnly(t *testing.T) {
+	input := "config=value\n// inline comment"
+	want := "config=value\n"
+	got := StripLineComments(input)
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
