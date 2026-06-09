@@ -10,8 +10,12 @@ import (
 )
 
 var (
-	joinExprRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*['"]\s*['"]\s*\)`)
-	templateRE = regexp.MustCompile("`([^`$]*)`")
+	joinExprSingleRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*'([^']*)'\s*\)`)
+	joinExprDoubleRE = regexp.MustCompile(`\[([^\]]+)\]\s*\.\s*join\s*\(\s*"([^"]*)"\s*\)`)
+	templateRE       = regexp.MustCompile("`([^`$]*)`")
+	declSingleRE     = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*'([^']*)'`)
+	declDoubleRE     = regexp.MustCompile(`(?:var|let|const)\s+(\w+)\s*=\s*"([^"]*)"`)
+	idChainRE        = regexp.MustCompile(`\b(\w+)\s*\+\s*(\w+(?:\s*\+\s*\w+)*)`)
 )
 
 const minReconstructLen = 20
@@ -38,8 +42,56 @@ func ReconstructAndScan(
 	for _, r := range reconstructTemplates(content) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_template", path, rs, minSev)...)
 	}
+	for _, r := range propagateConstants(content) {
+		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_var", path, rs, minSev)...)
+	}
 
 	return findings
+}
+
+func propagateConstants(content string) []reconstructResult {
+	var results []reconstructResult
+	lines := strings.Split(content, "\n")
+
+	consts := map[string]string{}
+	for _, line := range lines {
+		if m := declSingleRE.FindStringSubmatch(line); len(m) > 0 {
+			consts[m[1]] = m[2]
+		}
+		if m := declDoubleRE.FindStringSubmatch(line); len(m) > 0 {
+			consts[m[1]] = m[2]
+		}
+	}
+
+	if len(consts) == 0 {
+		return results
+	}
+
+	for lineno, line := range lines {
+		if !strings.Contains(line, "+") {
+			continue
+		}
+		matches := idChainRE.FindAllStringSubmatch(line, -1)
+		for _, m := range matches {
+			fullChain := m[0]
+			parts := strings.Split(fullChain, "+")
+			allResolved := true
+			var reconstructed strings.Builder
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if val, ok := consts[part]; ok {
+					reconstructed.WriteString(val)
+				} else {
+					allResolved = false
+					break
+				}
+			}
+			if allResolved && reconstructed.Len() >= minReconstructLen {
+				results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed.String()})
+			}
+		}
+	}
+	return results
 }
 
 func reconstructConcatenations(content string) []reconstructResult {
@@ -134,17 +186,20 @@ func reconstructJoins(content string) []reconstructResult {
 	lines := strings.Split(content, "\n")
 
 	for lineno, line := range lines {
-		matches := joinExprRE.FindAllStringSubmatch(line, -1)
-		for _, m := range matches {
-			if len(m) < 2 {
-				continue
-			}
-			inner := m[1]
-			parts := extractStringLiterals(inner)
-			if len(parts) >= 2 {
-				reconstructed := strings.Join(parts, "")
-				if len(reconstructed) >= minReconstructLen {
-					results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed})
+		for _, re := range []*regexp.Regexp{joinExprSingleRE, joinExprDoubleRE} {
+			matches := re.FindAllStringSubmatch(line, -1)
+			for _, m := range matches {
+				if len(m) < 3 {
+					continue
+				}
+				inner := m[1]
+				separator := m[2]
+				parts := extractStringLiterals(inner)
+				if len(parts) >= 2 {
+					reconstructed := strings.Join(parts, separator)
+					if len(reconstructed) >= minReconstructLen {
+						results = append(results, reconstructResult{lineNo: lineno + 1, text: reconstructed})
+					}
 				}
 			}
 		}
