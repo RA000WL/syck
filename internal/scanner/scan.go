@@ -288,6 +288,27 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// V1.2: package manager file discovery
+	if (cfg.Endpoints || cfg.ScanArchives) && content != "" {
+		pkgs := crawler.ScanPackageFile(path, content)
+		for _, p := range pkgs {
+			if p.Secret != "" {
+				findings = append(findings, finding.Finding{
+					File: path, Line: p.Line, RuleName: "npm_auth_token",
+					Severity: finding.SeverityHigh, Secret: p.Secret,
+					Context: finding.Truncate(p.Name),
+				})
+			}
+			if p.Mutable {
+				findings = append(findings, finding.Finding{
+					File: path, Line: p.Line, RuleName: "mutable_dependency",
+					Severity: finding.SeverityLow, Secret: p.Name,
+					Context: fmt.Sprintf("mutable %s dep in %s", p.Source, filepath.Base(path)),
+				})
+			}
+		}
+	}
+
 	return findings, nil
 }
 
