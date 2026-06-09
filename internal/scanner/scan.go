@@ -746,6 +746,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		MaxDepth:        cfg.CrawlDepth,
 		Debug:           cfg.Debug,
 		Endpoints:       cfg.Endpoints,
+		ProbeGraphQL:    cfg.ProbeGraphQL,
 		Headless:        cfg.Headless,
 		RateLimit:       cfg.RateLimit,
 		UserAgent:       cfg.UserAgent,
@@ -843,6 +844,30 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 				Severity: finding.SeverityMedium,
 				Secret:   ref.URL,
 				Context:  fmt.Sprintf("cloud storage reference: %s", ref.URL),
+			})
+		}
+	}
+
+	// V1.2: GraphQL introspection probe
+	if cfg.ProbeGraphQL && len(crawled) > 0 {
+		for _, c := range crawled {
+			if !strings.Contains(c.Content, "graphql") {
+				continue
+			}
+			result, err := crawler.ProbeGraphQLIntrospection(httpClient, c.URL, 10*time.Second)
+			if err != nil {
+				if cfg.Debug {
+					fmt.Fprintf(os.Stderr, "[debug] graphql introspection %s: %v\n", c.URL, err)
+				}
+				continue
+			}
+			allFindings = append(allFindings, finding.Finding{
+				File:     c.URL,
+				Line:     1,
+				RuleName: "graphql_introspection",
+				Severity: finding.SeverityHigh,
+				Secret:   c.URL,
+				Context:  fmt.Sprintf("introspection enabled: %d types, queries=%v, mutations=%v", len(result.Types), result.Queries, result.Mutations),
 			})
 		}
 	}

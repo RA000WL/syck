@@ -97,6 +97,7 @@ var (
 	multiline         bool
 	stripComments     bool
 	detectAuthHeaders bool
+	probeGraphQL      bool
 )
 
 func init() {
@@ -150,6 +151,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&multiline, "multiline", false, "enable multi-line pattern matching (sliding window)")
 	scanCmd.Flags().BoolVar(&stripComments, "strip-comments", false, "strip comment lines before scanning")
 	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", false, "detect hardcoded Authorization headers and API keys")
+	scanCmd.Flags().BoolVar(&probeGraphQL, "probe-graphql", false, "probe GraphQL endpoints with introspection query")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -276,6 +278,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ScanBinaries:      scanBinaries,
 		StripComments:     stripComments,
 		DetectAuthHeaders: detectAuthHeaders,
+		ProbeGraphQL:      probeGraphQL,
 	}
 
 	if progressFlag && !quiet && !pipe {

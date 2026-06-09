@@ -51,4 +51,5 @@ type Config struct {
 	ScanBinaries      bool                             // extract and scan strings from binary files
 	StripComments     bool                             // strip comment lines before scanning
 	DetectAuthHeaders bool                             // detect hardcoded Authorization headers, Bearer tokens, Basic auth, API keys
+	ProbeGraphQL      bool                             // probe GraphQL endpoints with introspection query
 }
