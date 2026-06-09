@@ -168,6 +168,25 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	var findings []finding.Finding
+
+	if cfg.ScanArchives {
+		ext := strings.ToLower(filepath.Ext(path))
+		lower := strings.ToLower(path)
+		isArchive := ext == ".zip" || ext == ".jar" || ext == ".war" || ext == ".ear" ||
+			ext == ".tar" || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz")
+		if isArchive {
+			members, err := crawler.ScanArchive(raw, path)
+			if err != nil {
+				return findings, nil
+			}
+			hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+			for _, m := range members {
+				mFindings := scanContent(m.Content, m.Path+" ($archive: "+filepath.Base(path)+")", cfg, "archive_", nil, hasDecoders)
+				findings = append(findings, mFindings...)
+			}
+			return findings, nil
+		}
+	}
 	gzipScanned := make(map[string]bool)
 	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 

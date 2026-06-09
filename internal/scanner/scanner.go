@@ -46,4 +46,5 @@ type Config struct {
 	GitHistory       bool
 	MaxScanLineLen   int                              // skip per-line scanning on lines exceeding this length (0=unlimited)
 	Progress         func(filesScanned, findings int) // optional callback fired per scanned file; nil = no-op
+	ScanArchives     bool                             // extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)
 }

@@ -92,6 +92,7 @@ var (
 	minEndpointScore int
 	noJuicyFiles     bool
 	sensitiveOnly    bool
+	scanArchives     bool
 )
 
 func init() {
@@ -140,6 +141,7 @@ func init() {
 	scanCmd.Flags().IntVar(&minEndpointScore, "min-endpoint-score", 0, "minimum endpoint risk score (0-10); endpoints below are omitted")
 	scanCmd.Flags().BoolVar(&noJuicyFiles, "no-juicy-files", false, "disable juicy file probing (default: enabled with --endpoints)")
 	scanCmd.Flags().BoolVar(&sensitiveOnly, "sensitive-only", false, "deprecated: use --min-endpoint-score 5 (kept for backward compat)")
+	scanCmd.Flags().BoolVar(&scanArchives, "scan-archives", false, "extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -261,6 +263,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		MaxScanLineLen:   maxScanLineLen,
 		MinEndpointScore: minEndpointScore,
 		ProbeJuicyFiles:  endpoints && !noJuicyFiles,
+		ScanArchives:     scanArchives,
 	}
 
 	if progressFlag && !quiet && !pipe {
