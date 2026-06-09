@@ -100,6 +100,8 @@ var (
 	probeGraphQL      bool
 	parseOpenAPI      bool
 	entropyThresholds map[string]string
+	webhookURL        string
+	webhookStyle      string
 )
 
 func init() {
@@ -156,6 +158,8 @@ func init() {
 	scanCmd.Flags().BoolVar(&probeGraphQL, "probe-graphql", false, "probe GraphQL endpoints with introspection query")
 	scanCmd.Flags().BoolVar(&parseOpenAPI, "parse-openapi", false, "parse OpenAPI/Swagger specs and inject discovered endpoints")
 	scanCmd.Flags().StringToStringVar(&entropyThresholds, "entropy-threshold", nil, "per-alphabet entropy threshold (hex=3.0,base64=4.2)")
+	scanCmd.Flags().StringVar(&webhookURL, "webhook-url", "", "send findings to this webhook URL")
+	scanCmd.Flags().StringVar(&webhookStyle, "webhook-style", "json", "webhook payload style: slack, discord, or json (default json)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -386,6 +390,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		fmt.Print(output)
+	}
+
+	if webhookURL != "" {
+		style := formatters.WebhookStyle(webhookStyle)
+		if err := formatters.PostWebhook(webhookURL, style, findings); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: webhook error: %v\n", err)
+		}
 	}
 
 	// --fail-on: CI gate — exit 1 only if findings meet severity threshold
