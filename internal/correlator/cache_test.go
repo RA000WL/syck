@@ -33,6 +33,35 @@ func TestCache(t *testing.T) {
 	}
 }
 
+func TestCacheSchemaVerdictsAndWeights(t *testing.T) {
+	db := t.TempDir() + "/test.db"
+	c, err := OpenCache(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Verify verdicts table exists by inserting a dummy row
+	// (we need a finding first, so record one)
+	fp := Fingerprint("test_rule", "secret123", "test.js")
+	_, err = c.Record(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Now insert a verdict
+	err = c.Verdict(fp, "fp")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify learned_weights table exists by querying it
+	_, err = c.db.Exec(`SELECT rule_name, file_pattern, tp_weighted, fp_weighted, sample_count, tier, modifier, updated_at FROM learned_weights`)
+	if err != nil {
+		t.Fatal("learned_weights table missing:", err)
+	}
+}
+
 func TestFingerprint(t *testing.T) {
 	fp1 := Fingerprint("a", "b", "c")
 	fp2 := Fingerprint("a", "b", "c")

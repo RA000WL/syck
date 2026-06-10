@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,6 +25,32 @@ func OpenCache(path string) (*Cache, error) {
 	)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create cache table: %w", err)
+	}
+	// New: verdicts table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS verdicts (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		fingerprint TEXT NOT NULL,
+		verdict     TEXT NOT NULL CHECK(verdict IN ('tp', 'fp')),
+		created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+		FOREIGN KEY (fingerprint) REFERENCES findings(fingerprint)
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create verdicts table: %w", err)
+	}
+	// New: learned_weights table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS learned_weights (
+		rule_name    TEXT NOT NULL,
+		file_pattern TEXT NOT NULL,
+		tp_weighted  REAL NOT NULL,
+		fp_weighted  REAL NOT NULL,
+		sample_count INTEGER NOT NULL,
+		tier         INTEGER NOT NULL,
+		modifier     REAL NOT NULL,
+		updated_at   TEXT NOT NULL,
+		PRIMARY KEY (rule_name, file_pattern)
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create learned_weights table: %w", err)
 	}
 	return &Cache{db: db}, nil
 }
@@ -54,4 +81,25 @@ func (c *Cache) Record(fingerprint string) (isNew bool, err error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// Verdict records a user verdict (tp/fp) for a finding.
+func (c *Cache) Verdict(fingerprint, verdict string) error {
+	if verdict != "tp" && verdict != "fp" {
+		return fmt.Errorf("invalid verdict: %s (must be tp or fp)", verdict)
+	}
+	// Verify fingerprint exists in findings
+	var exists int
+	err := c.db.QueryRow("SELECT COUNT(*) FROM findings WHERE fingerprint = ?", fingerprint).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("query findings: %w", err)
+	}
+	if exists == 0 {
+		return fmt.Errorf("fingerprint %s not found in findings", fingerprint)
+	}
+	_, err = c.db.Exec(
+		`INSERT INTO verdicts (fingerprint, verdict, created_at) VALUES (?, ?, ?)`,
+		fingerprint, verdict, time.Now().UTC().Format("2006-01-02 15:04:05"),
+	)
+	return err
 }
