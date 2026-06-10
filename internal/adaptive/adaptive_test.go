@@ -1,6 +1,9 @@
 package adaptive
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestExtractFilePattern(t *testing.T) {
 	tests := []struct {
@@ -67,5 +70,99 @@ func TestTierLabel(t *testing.T) {
 	}
 	if TierTrusted.Label() != "Trusted" {
 		t.Errorf("got %q", TierTrusted.Label())
+	}
+}
+
+func TestComputeModifier_BayesianSmoothing(t *testing.T) {
+	verdicts := []Verdict{
+		{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)},
+	}
+	mod := ComputeModifier("generic_api_key", verdicts)
+	if mod > 1 || mod < -1 {
+		t.Errorf("1 FP, 0 TP: modifier should be near 0 due to smoothing + ramp, got %f", mod)
+	}
+}
+
+func TestComputeModifier_AllFP_Heavy(t *testing.T) {
+	verdicts := make([]Verdict, 100)
+	for i := range verdicts {
+		verdicts[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod := ComputeModifier("generic_api_key", verdicts)
+	if mod > -30 {
+		t.Errorf("100 FP, 0 TP: modifier should be heavily negative, got %f", mod)
+	}
+}
+
+func TestComputeModifier_AllTP_Boost(t *testing.T) {
+	verdicts := make([]Verdict, 100)
+	for i := range verdicts {
+		verdicts[i] = Verdict{Verdict: "tp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod := ComputeModifier("aws_access_key", verdicts)
+	if mod < 30 {
+		t.Errorf("100 TP, 0 FP: modifier should be heavily positive, got %f", mod)
+	}
+}
+
+func TestComputeModifier_MinimumEvidenceRampUp(t *testing.T) {
+	verdicts5 := make([]Verdict, 5)
+	for i := range verdicts5 {
+		verdicts5[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod5 := ComputeModifier("generic_api_key", verdicts5)
+
+	verdicts20 := make([]Verdict, 20)
+	for i := range verdicts20 {
+		verdicts20[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod20 := ComputeModifier("generic_api_key", verdicts20)
+
+	if mod5 < mod20 {
+		t.Errorf("ramp-up failed: mod5=%f should be less negative than mod20=%f", mod5, mod20)
+	}
+}
+
+func TestComputeModifier_HighCertaintyCap(t *testing.T) {
+	verdicts := make([]Verdict, 100)
+	for i := range verdicts {
+		verdicts[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod := ComputeModifier("aws_access_key", verdicts)
+	if mod < -10 {
+		t.Errorf("high-certainty rule capped at -10, got %f", mod)
+	}
+}
+
+func TestComputeModifier_Empty(t *testing.T) {
+	mod := ComputeModifier("any_rule", nil)
+	if mod != 0 {
+		t.Errorf("empty verdicts should return 0, got %f", mod)
+	}
+}
+
+func TestComputeModifier_Clamp(t *testing.T) {
+	verdicts := make([]Verdict, 500)
+	for i := range verdicts {
+		verdicts[i] = Verdict{Verdict: "tp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+	mod := ComputeModifier("generic_api_key", verdicts)
+	if mod > 40 {
+		t.Errorf("modifier should clamp at 40, got %f", mod)
+	}
+	if mod < -40 {
+		t.Errorf("modifier should clamp at -40, got %f", mod)
+	}
+}
+
+func TestHighCertaintyRules(t *testing.T) {
+	rules := []string{"aws_access_key", "github_pat", "stripe_live_key", "private_key"}
+	for _, r := range rules {
+		if !isHighCertainty(r) {
+			t.Errorf("expected %s to be high-certainty", r)
+		}
+	}
+	if isHighCertainty("generic_api_key") {
+		t.Error("generic_api_key should not be high-certainty")
 	}
 }

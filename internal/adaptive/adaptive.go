@@ -115,3 +115,74 @@ func ComputeWeightedStats(verdicts []Verdict) (weightedFP, weightedTP float64, s
 	}
 	return
 }
+
+// High-certainty rules that should never be heavily penalized.
+var highCertaintyRules = map[string]bool{
+	"aws_access_key":     true,
+	"github_pat":         true,
+	"stripe_live_key":    true,
+	"private_key":        true,
+	"aws_secret_key":     true,
+	"github_oauth_token": true,
+	"stripe_restricted":  true,
+}
+
+func isHighCertainty(ruleName string) bool {
+	return highCertaintyRules[ruleName]
+}
+
+func clamp(low, high, val float64) float64 {
+	if val < low {
+		return low
+	}
+	if val > high {
+		return high
+	}
+	return val
+}
+
+// ComputeModifier computes the adaptive confidence modifier for a rule
+// given its verdict history. Uses Bayesian smoothing, minimum evidence
+// ramp-up, per-rule caps, and clamping.
+func ComputeModifier(ruleName string, verdicts []Verdict) float64 {
+	if len(verdicts) == 0 {
+		return 0
+	}
+
+	weightedFP, weightedTP, sampleCount := ComputeWeightedStats(verdicts)
+
+	// Step 1: Bayesian smoothing (prior: 5 TP + 5 FP)
+	smoothedFPRatio := (weightedFP + 5.0) / (weightedFP + weightedTP + 10.0)
+
+	// Step 2: Base modifier
+	modifier := (1 - 2*smoothedFPRatio) * 40
+
+	// Step 3: Minimum evidence ramp-up
+	if sampleCount < 20 {
+		modifier *= float64(sampleCount) / 20.0
+	}
+
+	// Step 4: Per-rule cap
+	if isHighCertainty(ruleName) && modifier < -10 {
+		modifier = -10
+	}
+
+	// Step 5: Clamp
+	return clamp(-40, 40, modifier)
+}
+
+// ComputeModifierFromStats computes a modifier from pre-aggregated stats.
+func ComputeModifierFromStats(ruleName string, weightedFP, weightedTP float64, sampleCount int) float64 {
+	if sampleCount == 0 {
+		return 0
+	}
+	smoothedFPRatio := (weightedFP + 5.0) / (weightedFP + weightedTP + 10.0)
+	modifier := (1 - 2*smoothedFPRatio) * 40
+	if sampleCount < 20 {
+		modifier *= float64(sampleCount) / 20.0
+	}
+	if isHighCertainty(ruleName) && modifier < -10 {
+		modifier = -10
+	}
+	return clamp(-40, 40, modifier)
+}
