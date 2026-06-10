@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RA000WL/syck/internal/adaptive"
 	"github.com/RA000WL/syck/internal/correlator"
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
@@ -186,9 +187,19 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 		if err == nil {
 			for i := range allFindings {
 				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
-				isNew, _ := cache.Record(fp)
+				isNew, _ := cache.RecordWithMeta(fp, allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
 				if isNew {
 					allFindings[i].IsNew = true
+				}
+			}
+			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
+				for i := range allFindings {
+					filePattern := adaptive.ExtractFilePattern(allFindings[i].File)
+					w := cfg.AdaptiveWeights.Get(allFindings[i].RuleName, filePattern)
+					if w != nil {
+						allFindings[i].AdaptiveModifier = int(w.Modifier)
+						allFindings[i].LearningTier = w.Tier.Label()
+					}
 				}
 			}
 			cache.Close()
@@ -839,8 +850,18 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
 			for i := range findings {
 				fp := correlator.Fingerprint(findings[i].RuleName, findings[i].Secret, findings[i].File)
-				if isNew, _ := cache.Record(fp); isNew {
+				if isNew, _ := cache.RecordWithMeta(fp, findings[i].RuleName, findings[i].Secret, findings[i].File); isNew {
 					findings[i].IsNew = true
+				}
+			}
+			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
+				for i := range findings {
+					filePattern := adaptive.ExtractFilePattern(findings[i].File)
+					w := cfg.AdaptiveWeights.Get(findings[i].RuleName, filePattern)
+					if w != nil {
+						findings[i].AdaptiveModifier = int(w.Modifier)
+						findings[i].LearningTier = w.Tier.Label()
+					}
 				}
 			}
 			cache.Close()
@@ -1039,8 +1060,18 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
 			for i := range allFindings {
 				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
-				if isNew, _ := cache.Record(fp); isNew {
+				if isNew, _ := cache.RecordWithMeta(fp, allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File); isNew {
 					allFindings[i].IsNew = true
+				}
+			}
+			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
+				for i := range allFindings {
+					filePattern := adaptive.ExtractFilePattern(allFindings[i].File)
+					w := cfg.AdaptiveWeights.Get(allFindings[i].RuleName, filePattern)
+					if w != nil {
+						allFindings[i].AdaptiveModifier = int(w.Modifier)
+						allFindings[i].LearningTier = w.Tier.Label()
+					}
 				}
 			}
 			cache.Close()

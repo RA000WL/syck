@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/RA000WL/syck/config"
+	"github.com/RA000WL/syck/internal/correlator"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/formatters"
 	"github.com/RA000WL/syck/internal/gitscan"
@@ -103,6 +104,7 @@ var (
 	webhookURL        string
 	webhookStyle      string
 	cacheDB           string
+	adaptiveFlag      bool
 )
 
 func init() {
@@ -162,6 +164,7 @@ func init() {
 	scanCmd.Flags().StringVar(&webhookURL, "webhook-url", "", "send findings to this webhook URL")
 	scanCmd.Flags().StringVar(&webhookStyle, "webhook-style", "json", "webhook payload style: slack, discord, or json (default json)")
 	scanCmd.Flags().StringVar(&cacheDB, "cache-db", "", "path to SQLite cache database for cross-run dedup")
+	scanCmd.Flags().BoolVar(&adaptiveFlag, "adaptive", false, "enable adaptive confidence learning from past verdicts")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -304,12 +307,22 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ParseOpenAPI:      parseOpenAPI,
 		EntropyThresholds: entropyThresholdsParsed,
 		CacheDB:           cacheDB,
+		Adaptive:          adaptiveFlag,
 	}
 
 	if progressFlag && !quiet && !pipe {
 		bar := progress.New(os.Stderr)
 		defer bar.Finish()
 		scanCfg.Progress = bar.Tick
+	}
+
+	if adaptiveFlag && cacheDB != "" {
+		if c, cErr := correlator.OpenCache(cacheDB); cErr == nil {
+			if w, wErr := c.LoadWeights(); wErr == nil {
+				scanCfg.AdaptiveWeights = w
+			}
+			c.Close()
+		}
 	}
 
 	var findings []finding.Finding

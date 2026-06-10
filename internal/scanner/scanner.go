@@ -8,6 +8,7 @@ package scanner
 import (
 	"regexp"
 
+	"github.com/RA000WL/syck/internal/adaptive"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
 )
@@ -55,4 +56,6 @@ type Config struct {
 	ParseOpenAPI      bool                             // parse OpenAPI/Swagger specs and inject discovered endpoints
 	EntropyThresholds map[string]float64               `json:"entropy_thresholds,omitempty"` // per-alphabet entropy threshold overrides
 	CacheDB           string                           // path to SQLite cache database for cross-run dedup
+	Adaptive          bool                             // enable adaptive confidence learning
+	AdaptiveWeights   *adaptive.LearnedWeightStore     // loaded weights (nil if not adaptive)
 }
