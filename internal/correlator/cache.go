@@ -223,6 +223,13 @@ type WeightedStatRow struct {
 	TierLabel       string
 }
 
+// TotalVerdicts returns the total number of verdicts in the database.
+func (c *Cache) TotalVerdicts() (int, error) {
+	var count int
+	err := c.db.QueryRow("SELECT COUNT(*) FROM verdicts").Scan(&count)
+	return count, err
+}
+
 // GetWeightedStats returns stats for all learned weights.
 func (c *Cache) GetWeightedStats() ([]WeightedStatRow, error) {
 	rows, err := c.db.Query(`
