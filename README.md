@@ -33,6 +33,7 @@ A fast, modular secret scanner written in Go. 160+ detection rules, multi-layer 
 - **URL secret extraction** — detects `access_token`, `api_key`, `token` etc. leaked in URL query parameters
 - **Webhook/SIEM export** — send findings to Slack, Discord, or generic JSON webhooks
 - **SQLite cross-run cache** — fingerprint-based dedup across scan runs for progressive triage
+- **Adaptive confidence learning** — learns from user verdicts to reduce false positives over time
 - **Archive scanning** — extracts and scans zip, tar, tar.gz, jar files with Zip Slip protection
 - **Multi-line detection** — matches secrets spanning multiple lines (PEM keys, JSON configs)
 - **Auth header detection** — Bearer tokens, Basic auth, API key headers
@@ -189,6 +190,27 @@ syck scan . --validate
 ```
 
 Validation downgrades unconfirmed secrets to `INFO`.
+
+### Adaptive Learning
+
+Train syck to learn from your triage decisions:
+
+```bash
+# 1. Scan and save to cache
+syck scan . --cache-db scan.db
+
+# 2. Label findings as true/false positive
+syck verdict abc123def fp --cache-db scan.db
+syck verdict 456789abc tp --cache-db scan.db
+
+# 3. View learning stats
+syck verdict --stats --cache-db scan.db
+
+# 4. Scan with adaptive learning enabled
+syck scan . --cache-db scan.db --adaptive
+```
+
+The system uses Bayesian smoothing with a 90-day decay to gradually learn which rules produce false positives in your codebase. Findings in test/mock/vendor directories are tracked separately. High-certainty rules (AWS keys, GitHub PATs, Stripe keys, private keys) are capped to prevent accidental suppression.
 
 ## CLI Reference
 
@@ -413,6 +435,7 @@ syck scan [paths...]
 | `jsrecon` | JS constant propagation, concat/join/template/ternary/array reconstruction |
 | `risk` | Endpoint risk scoring (19 rules, FP-safe prefix check) |
 | `correlator` | SQLite cross-run finding cache with fingerprint dedup |
+| `adaptive` | Adaptive confidence learning engine (Bayesian smoothing, tier classification, weight store) |
 | `correlation` | Multi-finding correlation (AWS key+secret pairs, OAuth, Stripe, etc.) |
 | `confidence` | Confidence scoring engine (regex/entropy/context/decoded/URL param sources) |
 | `recon` | HTTP response recon (admin panels, debug endpoints, GraphQL, staging, metrics) |
