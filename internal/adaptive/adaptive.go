@@ -171,6 +171,34 @@ func ComputeModifier(ruleName string, verdicts []Verdict) float64 {
 	return clamp(-40, 40, modifier)
 }
 
+// LearnedWeightStore is an in-memory store of learned weights.
+type LearnedWeightStore struct {
+	weights map[string]*LearnedWeight // key: "ruleName|filePattern"
+}
+
+func NewLearnedWeightStore() *LearnedWeightStore {
+	return &LearnedWeightStore{weights: make(map[string]*LearnedWeight)}
+}
+
+func (s *LearnedWeightStore) Set(ruleName, filePattern string, tpWeighted, fpWeighted float64, sampleCount int) {
+	key := ruleName + "|" + filePattern
+	modifier := ComputeModifierFromStats(ruleName, fpWeighted, tpWeighted, sampleCount)
+	s.weights[key] = &LearnedWeight{
+		RuleName:    ruleName,
+		FilePattern: filePattern,
+		TPWeighted:  tpWeighted,
+		FPWeighted:  fpWeighted,
+		SampleCount: sampleCount,
+		Tier:        ClassifyTier(sampleCount),
+		Modifier:    modifier,
+	}
+}
+
+func (s *LearnedWeightStore) Get(ruleName, filePattern string) *LearnedWeight {
+	key := ruleName + "|" + filePattern
+	return s.weights[key]
+}
+
 // ComputeModifierFromStats computes a modifier from pre-aggregated stats.
 func ComputeModifierFromStats(ruleName string, weightedFP, weightedTP float64, sampleCount int) float64 {
 	if sampleCount == 0 {

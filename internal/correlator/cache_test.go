@@ -73,3 +73,77 @@ func TestFingerprint(t *testing.T) {
 		t.Fatal("different file should produce different fingerprint")
 	}
 }
+
+func TestCacheRecomputeWeights(t *testing.T) {
+	db := t.TempDir() + "/test.db"
+	c, err := OpenCache(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	fp1 := Fingerprint("rule_a", "secret1", "test.js")
+	fp2 := Fingerprint("rule_a", "secret2", "test.js")
+	c.RecordWithMeta(fp1, "rule_a", "secret1", "test.js")
+	c.RecordWithMeta(fp2, "rule_a", "secret2", "test.js")
+
+	c.Verdict(fp1, "fp")
+	c.Verdict(fp1, "fp")
+	c.Verdict(fp2, "tp")
+
+	err = c.RecomputeWeights()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	c.db.QueryRow("SELECT COUNT(*) FROM learned_weights").Scan(&count)
+	if count == 0 {
+		t.Error("expected learned_weights to have rows after recompute")
+	}
+}
+
+func TestCacheLoadWeights(t *testing.T) {
+	db := t.TempDir() + "/test.db"
+	c, err := OpenCache(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	fp1 := Fingerprint("rule_a", "secret1", "test.js")
+	c.RecordWithMeta(fp1, "rule_a", "secret1", "test.js")
+	c.Verdict(fp1, "fp")
+	c.RecomputeWeights()
+
+	store, err := c.LoadWeights()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := store.Get("rule_a", "*.js")
+	if w == nil {
+		t.Error("expected weight for rule_a+test pattern")
+	}
+}
+
+func TestCacheGetWeightedStats(t *testing.T) {
+	db := t.TempDir() + "/test.db"
+	c, err := OpenCache(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	fp1 := Fingerprint("rule_b", "secret1", "src/main.go")
+	c.RecordWithMeta(fp1, "rule_b", "secret1", "src/main.go")
+	c.Verdict(fp1, "tp")
+	c.RecomputeWeights()
+
+	rows, err := c.GetWeightedStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) == 0 {
+		t.Error("expected at least one weighted stat row")
+	}
+}

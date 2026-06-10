@@ -166,3 +166,33 @@ func TestHighCertaintyRules(t *testing.T) {
 		t.Error("generic_api_key should not be high-certainty")
 	}
 }
+
+func TestLearnedWeightStore_Lookup(t *testing.T) {
+	store := NewLearnedWeightStore()
+	store.Set("generic_api_key", "*.test.js", 10, 80, 90)
+	w := store.Get("generic_api_key", "*.test.js")
+	if w == nil {
+		t.Fatal("expected weight, got nil")
+	}
+	if w.Tier != TierMature {
+		t.Errorf("expected Mature tier, got %v", w.Tier)
+	}
+}
+
+func TestLearnedWeightStore_Default(t *testing.T) {
+	store := NewLearnedWeightStore()
+	w := store.Get("unknown_rule", "*.js")
+	if w != nil {
+		t.Error("expected nil for unknown rule")
+	}
+}
+
+func TestLearnedWeightStore_ModifierComputation(t *testing.T) {
+	store := NewLearnedWeightStore()
+	// All FP → should have negative modifier
+	store.Set("generic_api_key", "*.js", 0, 50, 50)
+	w := store.Get("generic_api_key", "*.js")
+	if w.Modifier >= 0 {
+		t.Errorf("all FPs should have negative modifier, got %f", w.Modifier)
+	}
+}
