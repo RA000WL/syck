@@ -196,3 +196,36 @@ func TestLearnedWeightStore_ModifierComputation(t *testing.T) {
 		t.Errorf("all FPs should have negative modifier, got %f", w.Modifier)
 	}
 }
+
+func TestAdaptiveFullModifierFlow(t *testing.T) {
+	verdicts := make([]Verdict, 50)
+	for i := range verdicts {
+		verdicts[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
+	}
+
+	mod := ComputeModifier("generic_api_key", verdicts)
+
+	// Should be negative
+	if mod >= 0 {
+		t.Errorf("50 FPs should produce negative modifier, got %f", mod)
+	}
+
+	// Should be Mature tier (50-199)
+	store := NewLearnedWeightStore()
+	store.Set("generic_api_key", "*/test/*", 0, 50, 50)
+	w := store.Get("generic_api_key", "*/test/*")
+	if w.Tier != TierMature {
+		t.Errorf("expected Mature tier, got %v", w.Tier)
+	}
+	if w.Modifier >= 0 {
+		t.Errorf("all FPs should have negative modifier, got %f", w.Modifier)
+	}
+
+	// Simulate applying to a finding's confidence
+	// ScoreWithAdaptive(base=60, adaptiveMod=int(mod)) should reduce confidence
+	baseScore := 60
+	adjusted := baseScore + int(w.Modifier)
+	if adjusted >= baseScore {
+		t.Errorf("negative modifier should reduce score: base=%d adjusted=%d", baseScore, adjusted)
+	}
+}
