@@ -65,6 +65,8 @@ type Finding struct {
 	DetectionMethod     string `json:"detection_method,omitempty"`
 	VerificationStatus  string
 	DecodedValuePreview string
+	AdaptiveModifier    int    `json:"adaptive_modifier,omitempty"`
+	LearningTier        string `json:"learning_tier,omitempty"`
 }
 
 type Summary struct {

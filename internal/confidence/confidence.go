@@ -41,6 +41,19 @@ func (s *Scorer) Score(sig Signals) int {
 	return score
 }
 
+// ScoreWithAdaptive computes confidence and applies an adaptive modifier.
+func (s *Scorer) ScoreWithAdaptive(sig Signals, adaptiveMod int) int {
+	base := s.Score(sig)
+	adjusted := base + adaptiveMod
+	if adjusted < 0 {
+		adjusted = 0
+	}
+	if adjusted > 120 {
+		adjusted = 120
+	}
+	return adjusted
+}
+
 func Band(score int) string {
 	switch {
 	case score <= 30:

@@ -50,6 +50,42 @@ func TestVeryHighBand(t *testing.T) {
 	}
 }
 
+func TestScoreWithAdaptive(t *testing.T) {
+	s := NewScorer()
+	sig := Signals{
+		RegexMatch:        true,
+		Entropy:           5.0,
+		HasContextKeyword: true,
+	}
+	base := s.Score(sig) // 40 + 20 + 15 = 75
+
+	// Positive modifier
+	adjusted := s.ScoreWithAdaptive(sig, 10)
+	if adjusted != 85 {
+		t.Errorf("expected 85, got %d", adjusted)
+	}
+
+	// Negative modifier
+	adjusted = s.ScoreWithAdaptive(sig, -20)
+	if adjusted != 55 {
+		t.Errorf("expected 55, got %d", adjusted)
+	}
+
+	// Clamp to 0
+	adjusted = s.ScoreWithAdaptive(sig, -100)
+	if adjusted != 0 {
+		t.Errorf("expected 0 (clamped), got %d", adjusted)
+	}
+
+	// Clamp to 120
+	adjusted = s.ScoreWithAdaptive(sig, 100)
+	if adjusted != 120 {
+		t.Errorf("expected 120 (clamped), got %d", adjusted)
+	}
+
+	_ = base
+}
+
 func TestEntropySignal(t *testing.T) {
 	s := NewScorer()
 	if got := s.Score(Signals{Entropy: 4.5}); got != 20 {
