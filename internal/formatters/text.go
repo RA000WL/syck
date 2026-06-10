@@ -85,19 +85,23 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 			if f.VerificationStatus != "" {
 				verStr = " [" + f.VerificationStatus + "]"
 			}
+			adaptStr := ""
+			if f.AdaptiveModifier != 0 {
+				adaptStr = fmt.Sprintf(" adaptive=%+d [%s]", f.AdaptiveModifier, f.LearningTier)
+			}
 
 			if !opts.NoColor {
-				b.WriteString(fmt.Sprintf("  %s%d%s:%s%d%s  %s[%s]%s %s[%s%s]%s  entropy=%s%.3f%s  confidence=%s%s%s%s\n",
+				b.WriteString(fmt.Sprintf("  %s%d%s:%s%d%s  %s[%s]%s %s[%s%s]%s  entropy=%s%.3f%s  confidence=%s%s%s%s%s\n",
 					ansi.gray, line, ansi.reset,
 					ansi.gray, col, ansi.reset,
 					sevColor, sevName, ansi.reset,
 					ansi.cyan, rule, riskMarker, ansi.reset,
 					ansi.gray, f.Entropy, ansi.reset,
-					confColor, f.ConfidenceBand, ansi.reset, verStr))
+					confColor, f.ConfidenceBand, ansi.reset, verStr, adaptStr))
 				b.WriteString(fmt.Sprintf("       secret : %s%s%s\n", ansi.yellow, f.Secret, ansi.reset))
 				b.WriteString(fmt.Sprintf("       context: %s%s%s\n", ansi.gray, f.Context, ansi.reset))
 			} else {
-				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s%s]  entropy=%.3f  confidence=%s%s\n", line, col, sevName, rule, riskMarker, f.Entropy, f.ConfidenceBand, verStr))
+				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s%s]  entropy=%.3f  confidence=%s%s%s\n", line, col, sevName, rule, riskMarker, f.Entropy, f.ConfidenceBand, verStr, adaptStr))
 				b.WriteString(fmt.Sprintf("       secret : %s\n", f.Secret))
 				b.WriteString(fmt.Sprintf("       context: %s\n", f.Context))
 			}

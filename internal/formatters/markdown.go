@@ -30,11 +30,17 @@ func (f *MarkdownFormatter) Format(findings []finding.Finding, opts FormatOption
 	for _, file := range sortedFiles(byFile) {
 		ff := byFile[file]
 		b.WriteString(fmt.Sprintf("## `%s`\n\n", file))
-		b.WriteString("| Line | Severity | Risk | Confidence | Verification | Rule | Entropy | Secret |\n")
-		b.WriteString("|------|----------|------|------------|--------------|------|---------|--------|\n")
+		b.WriteString("| Line | Severity | Risk | Confidence | Verification | Rule | Entropy | Adapt | Tier | Secret |\n")
+		b.WriteString("|------|----------|------|------------|--------------|------|---------|-------|------|--------|\n")
 		for _, f := range ff {
-			b.WriteString(fmt.Sprintf("| %d | %s | %d | %s | %s | `%s` | %.3f | `%s` |\n",
-				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.ConfidenceBand, f.VerificationStatus, f.RuleName, f.Entropy, f.Secret))
+			adapt := ""
+			tier := ""
+			if f.AdaptiveModifier != 0 {
+				adapt = fmt.Sprintf("%+d", f.AdaptiveModifier)
+				tier = f.LearningTier
+			}
+			b.WriteString(fmt.Sprintf("| %d | %s | %d | %s | %s | `%s` | %.3f | %s | %s | `%s` |\n",
+				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.ConfidenceBand, f.VerificationStatus, f.RuleName, f.Entropy, adapt, tier, f.Secret))
 		}
 		b.WriteString("\n")
 	}

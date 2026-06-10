@@ -65,7 +65,7 @@ th{color:#aaa;font-weight:600}
 	for _, file := range sortedFiles(byFile) {
 		ff := byFile[file]
 		b.WriteString(fmt.Sprintf("<h2><code>%s</code></h2>\n", htmlEscape(file)))
-		b.WriteString("<table>\n<tr><th>Line</th><th>Severity</th><th>Risk</th><th>Confidence</th><th>Verification</th><th>Rule</th><th>Entropy</th><th>Decoded</th><th>Secret</th></tr>\n")
+		b.WriteString("<table>\n<tr><th>Line</th><th>Severity</th><th>Risk</th><th>Confidence</th><th>Verification</th><th>Rule</th><th>Entropy</th><th>Adapt</th><th>Tier</th><th>Decoded</th><th>Secret</th></tr>\n")
 		for _, f := range ff {
 			color := sevBadgeColor[f.Severity]
 			riskBadge := ""
@@ -88,8 +88,14 @@ th{color:#aaa;font-weight:600}
 			if f.DecodedValuePreview != "" {
 				decoded = fmt.Sprintf(`<details><summary>preview</summary><code>%s</code></details>`, htmlEscape(f.DecodedValuePreview))
 			}
-			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%.3f</td><td>%s</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
-				f.Line, color, finding.SeverityNames[f.Severity], riskBadge, confBadge, verBadge, htmlEscape(f.RuleName), f.Entropy, decoded, htmlEscape(f.Secret)))
+			adaptCell := "-"
+			tierCell := "-"
+			if f.AdaptiveModifier != 0 {
+				adaptCell = fmt.Sprintf("%+d", f.AdaptiveModifier)
+				tierCell = f.LearningTier
+			}
+			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%.3f</td><td>%s</td><td>%s</td><td>%s</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
+				f.Line, color, finding.SeverityNames[f.Severity], riskBadge, confBadge, verBadge, htmlEscape(f.RuleName), f.Entropy, adaptCell, tierCell, decoded, htmlEscape(f.Secret)))
 		}
 		b.WriteString("</table>\n")
 	}

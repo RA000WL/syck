@@ -58,6 +58,8 @@ type sarifProperties struct {
 	Confidence         string `json:"confidence"`
 	VerificationStatus string `json:"verificationStatus"`
 	RiskScore          int    `json:"riskScore,omitempty"`
+	AdaptiveModifier   int    `json:"adaptive_modifier,omitempty"`
+	LearningTier       string `json:"learning_tier,omitempty"`
 }
 
 type sarifResult struct {
@@ -166,6 +168,8 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 				Confidence:         f.ConfidenceBand,
 				VerificationStatus: f.VerificationStatus,
 				RiskScore:          f.RiskScore,
+				AdaptiveModifier:   f.AdaptiveModifier,
+				LearningTier:       f.LearningTier,
 			},
 		})
 	}

@@ -15,20 +15,22 @@ type jsonOutput struct {
 }
 
 type jsonFinding struct {
-	File          string  `json:"file"`
-	Line          int     `json:"line"`
-	Column        int     `json:"column"`
-	Rule          string  `json:"rule"`
-	Severity      string  `json:"severity"`
-	RiskScore     int     `json:"risk_score,omitempty"`
-	Secret        string  `json:"secret"`
-	Context       string  `json:"context"`
-	ContextBefore string  `json:"context_before,omitempty"`
-	ContextAfter  string  `json:"context_after,omitempty"`
-	Entropy       float64 `json:"entropy"`
-	Confidence    string  `json:"confidence,omitempty"`
-	Verification  string  `json:"verification_status,omitempty"`
-	DecodedPrev   string  `json:"decoded_value_preview,omitempty"`
+	File             string  `json:"file"`
+	Line             int     `json:"line"`
+	Column           int     `json:"column"`
+	Rule             string  `json:"rule"`
+	Severity         string  `json:"severity"`
+	RiskScore        int     `json:"risk_score,omitempty"`
+	Secret           string  `json:"secret"`
+	Context          string  `json:"context"`
+	ContextBefore    string  `json:"context_before,omitempty"`
+	ContextAfter     string  `json:"context_after,omitempty"`
+	Entropy          float64 `json:"entropy"`
+	Confidence       string  `json:"confidence,omitempty"`
+	Verification     string  `json:"verification_status,omitempty"`
+	DecodedPrev      string  `json:"decoded_value_preview,omitempty"`
+	AdaptiveModifier int     `json:"adaptive_modifier,omitempty"`
+	LearningTier     string  `json:"learning_tier,omitempty"`
 }
 
 type jsonSummary struct {
@@ -59,20 +61,22 @@ func (f *JSONFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		}
 
 		out.Findings[i] = jsonFinding{
-			File:          f.File,
-			Line:          f.Line,
-			Column:        f.Column,
-			Rule:          f.RuleName,
-			Severity:      finding.SeverityNames[f.Severity],
-			RiskScore:     f.RiskScore,
-			Secret:        secret,
-			Context:       ctx,
-			ContextBefore: ctxBefore,
-			ContextAfter:  ctxAfter,
-			Entropy:       f.Entropy,
-			Confidence:    f.ConfidenceBand,
-			Verification:  f.VerificationStatus,
-			DecodedPrev:   f.DecodedValuePreview,
+			File:             f.File,
+			Line:             f.Line,
+			Column:           f.Column,
+			Rule:             f.RuleName,
+			Severity:         finding.SeverityNames[f.Severity],
+			RiskScore:        f.RiskScore,
+			Secret:           secret,
+			Context:          ctx,
+			ContextBefore:    ctxBefore,
+			ContextAfter:     ctxAfter,
+			Entropy:          f.Entropy,
+			Confidence:       f.ConfidenceBand,
+			Verification:     f.VerificationStatus,
+			DecodedPrev:      f.DecodedValuePreview,
+			AdaptiveModifier: f.AdaptiveModifier,
+			LearningTier:     f.LearningTier,
 		}
 	}
 
