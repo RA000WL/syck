@@ -1,10 +1,10 @@
 package jsrecon
 
 import (
+	"github.com/RA000WL/syck/internal/entropy"
 	"regexp"
 	"strings"
 
-	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
 )
@@ -35,33 +35,33 @@ func ReconstructAndScan(
 	rs *rules.RuleSet,
 	minSev finding.Severity,
 ) []finding.Finding {
+	lines := strings.Split(content, "\n")
 	var findings []finding.Finding
 
-	for _, r := range reconstructConcatenations(content) {
+	for _, r := range reconstructConcatenations(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_concat", path, rs, minSev)...)
 	}
-	for _, r := range reconstructJoins(content) {
+	for _, r := range reconstructJoins(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_join", path, rs, minSev)...)
 	}
-	for _, r := range reconstructTemplates(content) {
+	for _, r := range reconstructTemplates(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_template", path, rs, minSev)...)
 	}
-	for _, r := range propagateConstants(content) {
+	for _, r := range propagateConstants(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_var", path, rs, minSev)...)
 	}
-	for _, r := range reconstructTernaries(content) {
+	for _, r := range reconstructTernaries(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_ternary", path, rs, minSev)...)
 	}
-	for _, r := range resolveArrayAccess(content) {
+	for _, r := range resolveArrayAccess(lines) {
 		findings = append(findings, scanReconstructed(r.text, r.lineNo, "reconstructed_array", path, rs, minSev)...)
 	}
 
 	return findings
 }
 
-func propagateConstants(content string) []reconstructResult {
+func propagateConstants(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	consts := map[string]string{}
 	for _, line := range lines {
@@ -144,9 +144,8 @@ func propagateConstants(content string) []reconstructResult {
 	return results
 }
 
-func reconstructTernaries(content string) []reconstructResult {
+func reconstructTernaries(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	for lineno, line := range lines {
 		for _, re := range []*regexp.Regexp{ternaryStringDoubleRE, ternaryStringSingleRE} {
@@ -169,9 +168,8 @@ func reconstructTernaries(content string) []reconstructResult {
 	return results
 }
 
-func resolveArrayAccess(content string) []reconstructResult {
+func resolveArrayAccess(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	arrays := map[string][]string{}
 	for _, line := range lines {
@@ -218,9 +216,8 @@ func resolveArrayAccess(content string) []reconstructResult {
 	return results
 }
 
-func reconstructConcatenations(content string) []reconstructResult {
+func reconstructConcatenations(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	for lineno, line := range lines {
 		parts := extractConcatChain(line)
@@ -335,9 +332,8 @@ func extractStringLiterals(s string) []string {
 	return parts
 }
 
-func reconstructJoins(content string) []reconstructResult {
+func reconstructJoins(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	for lineno, line := range lines {
 		for _, re := range []*regexp.Regexp{joinExprSingleRE, joinExprDoubleRE} {
@@ -361,9 +357,8 @@ func reconstructJoins(content string) []reconstructResult {
 	return results
 }
 
-func reconstructTemplates(content string) []reconstructResult {
+func reconstructTemplates(lines []string) []reconstructResult {
 	var results []reconstructResult
-	lines := strings.Split(content, "\n")
 
 	for lineno, line := range lines {
 		matches := templateRE.FindAllStringSubmatch(line, -1)
@@ -397,7 +392,7 @@ func scanReconstructed(
 	context := "js reconstructed: " + reconstructed
 
 	for _, rule := range rs.Rules {
-		sev := finding.ParseSeverity(rule.Severity)
+		sev := rule.SeverityInt
 		if sev < minSev {
 			continue
 		}

@@ -2,6 +2,8 @@ package rules
 
 import (
 	"regexp"
+
+	"github.com/RA000WL/syck/internal/finding"
 )
 
 type Rule struct {
@@ -17,6 +19,7 @@ type Rule struct {
 	Version          string   `yaml:"version,omitempty"`
 	MultiLine        bool     `yaml:"multi_line,omitempty"`
 	compiled         *regexp.Regexp
+	SeverityInt      finding.Severity
 }
 
 type RuleSet struct {
@@ -29,6 +32,7 @@ func (r *Rule) Compile() error {
 		return err
 	}
 	r.compiled = compiled
+	r.SeverityInt = finding.ParseSeverity(r.Severity)
 	return nil
 }
 

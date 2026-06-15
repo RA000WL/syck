@@ -1,6 +1,7 @@
 package jsrecon
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -9,7 +10,7 @@ import (
 
 func TestPropagateConstantsNoDeclarations(t *testing.T) {
 	content := `console.log("hello");`
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	if len(results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(results))
 	}
@@ -19,7 +20,7 @@ func TestPropagateConstantsSingleVar(t *testing.T) {
 	content := `var a = "this_is_a_long_secret_";
 var b = "value_for_testing_1234";
 var c = a + b;`
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	if len(results) == 0 {
 		t.Fatal("expected results, got none")
 	}
@@ -38,7 +39,7 @@ func TestPropagateConstantsLetAndConst(t *testing.T) {
 	content := `let x = "alpha_bravo_charlie_";
 const y = "delta_echo_foxtrot";
 const z = x + y + x;`
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	if len(results) == 0 {
 		t.Fatal("expected results, got none")
 	}
@@ -58,7 +59,7 @@ func TestPropagateConstantsPartialChain(t *testing.T) {
 	content := `var a = "hel";
 var b = "lo";
 var c = unknown + a + b;`
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	for _, r := range results {
 		if r.text == "hello" {
 			t.Errorf("should not resolve partial chain with unknown identifier")
@@ -70,7 +71,7 @@ func TestPropagateConstantsShortResultSkipped(t *testing.T) {
 	content := `var a = "hi";
 var b = "lo";
 var c = a + b;`
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	for _, r := range results {
 		if r.text == "hilo" {
 			t.Errorf("short result under minReconstructLen should be skipped")
@@ -80,7 +81,7 @@ var c = a + b;`
 
 func TestReconstructJoinsArbitrarySeparator(t *testing.T) {
 	content := `var s = ["alpha_bravo_charlie","delta_echo_foxtrot"].join("-");`
-	results := reconstructJoins(content)
+	results := reconstructJoins(strings.Split(content, "\n"))
 	if len(results) == 0 {
 		t.Fatal("expected results for join with '-' separator, got none")
 	}
@@ -97,7 +98,7 @@ func TestReconstructJoinsArbitrarySeparator(t *testing.T) {
 
 func TestReconstructJoinsEmptySeparator(t *testing.T) {
 	content := `var s = ["alpha_bravo_charlie","delta_echo_foxtrot"].join("");`
-	results := reconstructJoins(content)
+	results := reconstructJoins(strings.Split(content, "\n"))
 	if len(results) == 0 {
 		t.Fatal("expected results for join with empty separator, got none")
 	}
@@ -114,7 +115,7 @@ func TestReconstructJoinsEmptySeparator(t *testing.T) {
 
 func TestReconstructJoinsMultiCharSeparator(t *testing.T) {
 	content := `var s = ["alpha_bravo_charlie","delta_echo_foxtrot"].join("::");`
-	results := reconstructJoins(content)
+	results := reconstructJoins(strings.Split(content, "\n"))
 	if len(results) == 0 {
 		t.Fatal("expected results for join with '::' separator, got none")
 	}
@@ -138,7 +139,7 @@ var key = a + b;`
 
 func TestPropagateConstantsTernary(t *testing.T) {
 	content := "var _isProduction=true;\nvar _secret=_isProduction?\"FAKEJWTSECRET_SuperSecure\":\"FAKEJWTSECRET_Dev_Weaker\";"
-	results := reconstructTernaries(content)
+	results := reconstructTernaries(strings.Split(content, "\n"))
 	if len(results) < 2 {
 		t.Fatalf("expected at least 2 ternary results, got %d: %v", len(results), results)
 	}
@@ -158,7 +159,7 @@ func TestPropagateConstantsTernary(t *testing.T) {
 
 func TestPropagateConstantsTernaryNoStrings(t *testing.T) {
 	content := "var x = a ? b : c;"
-	results := reconstructTernaries(content)
+	results := reconstructTernaries(strings.Split(content, "\n"))
 	for _, r := range results {
 		if r.text == "a" || r.text == "b" || r.text == "c" {
 			t.Errorf("should not emit unresolved ternary branch: %v", r)
@@ -168,7 +169,7 @@ func TestPropagateConstantsTernaryNoStrings(t *testing.T) {
 
 func TestPropagateConstantsArrayIndex(t *testing.T) {
 	content := "var _parts=[\"AKIAIOSFODNN7FAKETEST\",\"FAKE\",\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYFAKESECRETKEY\",\"KEY\"];\nvar _awsId=_parts[0];\nvar _awsSecret=_parts[2];"
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	foundA, foundB := false, false
 	for _, r := range results {
 		if r.text == "AKIAIOSFODNN7FAKETEST" {
@@ -188,7 +189,7 @@ func TestPropagateConstantsArrayIndex(t *testing.T) {
 
 func TestPropagateConstantsArrayIndexOOB(t *testing.T) {
 	content := "var arr=[\"short\"];\nvar x=arr[99];"
-	results := propagateConstants(content)
+	results := propagateConstants(strings.Split(content, "\n"))
 	for _, r := range results {
 		if r.text == "short" {
 			t.Errorf("should not resolve out-of-bounds array index")

@@ -12,13 +12,37 @@ func Shannon(data string) float64 {
 	if len(data) == 0 {
 		return 0
 	}
-	freq := make(map[rune]int)
+	// Fast path: ASCII-only input uses a fixed array (zero GC).
+	allASCII := true
+	var freq [256]int
+	for i := 0; i < len(data); i++ {
+		b := data[i]
+		if b > 127 {
+			allASCII = false
+			break
+		}
+		freq[b]++
+	}
+	if allASCII {
+		var ent float64
+		n := float64(len(data))
+		for _, count := range freq {
+			if count == 0 {
+				continue
+			}
+			p := float64(count) / n
+			ent -= p * math.Log2(p)
+		}
+		return math.Round(ent*1000) / 1000
+	}
+	// Slow path: non-ASCII, use rune map.
+	freq2 := make(map[rune]int)
 	for _, ch := range data {
-		freq[ch]++
+		freq2[ch]++
 	}
 	var ent float64
 	n := float64(utf8.RuneCountInString(data))
-	for _, count := range freq {
+	for _, count := range freq2 {
 		if count == 0 {
 			continue
 		}

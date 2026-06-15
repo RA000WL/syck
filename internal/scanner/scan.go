@@ -468,7 +468,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					secret = line[m[0]:]
 				}
 
-				sev := finding.ParseSeverity(rule.Severity)
+				sev := rule.SeverityInt
 				if sev < cfg.MinSeverity {
 					continue
 				}
@@ -497,7 +497,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
-				if !checkEntropyToken(tok, cfg.EntropyThresholds) {
+				ok, tokEntropy := checkEntropyToken(tok, cfg.EntropyThresholds)
+				if !ok {
 					continue
 				}
 				if entropy.IsMediaToken(tok) {
@@ -516,7 +517,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Secret:          tok,
 					Context:         finding.Truncate(strings.TrimSpace(line)),
 					ContextBefore:   finding.Truncate(ctxBefore),
-					Entropy:         entropy.Shannon(tok),
+					Entropy:         tokEntropy,
 					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 					DetectionMethod: "entropy+context",
 				})
@@ -656,7 +657,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 					}
 				}
 
-				sev := finding.ParseSeverity(rule.Severity)
+				sev := rule.SeverityInt
 				if sev < cfg.MinSeverity {
 					continue
 				}
@@ -716,7 +717,8 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 		if entropy.HasSecretContext(line) {
 			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
-				if !checkEntropyToken(tok, cfg.EntropyThresholds) {
+				ok, tokEntropy := checkEntropyToken(tok, cfg.EntropyThresholds)
+				if !ok {
 					continue
 				}
 				if skipSecrets != nil {
@@ -750,7 +752,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 					Context:         ctx,
 					ContextBefore:   ctxBefore,
 					ContextAfter:    ctxAfter,
-					Entropy:         entropy.Shannon(tok),
+					Entropy:         tokEntropy,
 					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 					DetectionMethod: "entropy+context",
 				})
@@ -1192,19 +1194,20 @@ func baseOf(rawURL string) string {
 	return u.String()
 }
 
-func checkEntropyToken(tok string, thresholds map[string]float64) bool {
+func checkEntropyToken(tok string, thresholds map[string]float64) (bool, float64) {
 	if !entropy.IsEntropyTokenMatch(tok) {
-		return false
+		return false, 0
 	}
 	if len(thresholds) == 0 {
-		return true
+		return true, entropy.Shannon(tok)
 	}
 	a := entropy.DetectAlphabet(tok)
 	alphaName := a.String()
 	if override, ok := thresholds[alphaName]; ok {
-		return entropy.EntropyByAlphabet(tok, a) >= override
+		e := entropy.EntropyByAlphabet(tok, a)
+		return e >= override, e
 	}
-	return true
+	return true, entropy.Shannon(tok)
 }
 
 func confidenceBandFromScore(score int) string {
