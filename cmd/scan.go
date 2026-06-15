@@ -401,9 +401,21 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if progressFlag && !quiet && !pipe {
-		bar := progress.New(os.Stderr)
-		defer bar.Finish()
-		scanCfg.Progress = bar.Tick
+		if urlMode {
+			up := progress.NewURLProgress(os.Stderr, len(allURLs))
+			defer up.Finish()
+			scanCfg.URLProgress = func(url string, findings []finding.Finding, done bool) {
+				up.SetCurrentURL(url)
+				if len(findings) > 0 {
+					up.AddFindings(findings)
+				}
+				up.TickURL()
+			}
+		} else {
+			bar := progress.New(os.Stderr)
+			defer bar.Finish()
+			scanCfg.Progress = bar.Tick
+		}
 	}
 
 	if adaptiveFlag && cacheDB != "" {

@@ -968,6 +968,10 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	for _, c := range crawled {
+		if cfg.URLProgress != nil {
+			cfg.URLProgress(c.URL, nil, false)
+		}
+
 		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
 		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
 		allFindings = append(allFindings, findings...)
@@ -1012,6 +1016,9 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 
 		if cfg.Progress != nil {
 			cfg.Progress(int(urlsScanned.Load()), int(totalFindings.Load()))
+		}
+		if cfg.URLProgress != nil {
+			cfg.URLProgress(c.URL, findings, false)
 		}
 	}
 
