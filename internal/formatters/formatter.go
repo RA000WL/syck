@@ -29,6 +29,8 @@ func New(name string) Formatter {
 	switch name {
 	case "json":
 		return &JSONFormatter{}
+	case "jsonl", "ndjson":
+		return &JSONLFormatter{}
 	case "sarif":
 		return &SARIFFormatter{}
 	case "markdown", "md":

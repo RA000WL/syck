@@ -119,7 +119,7 @@ var (
 func init() {
 	scanCmd.Flags().StringVarP(&rulesFile, "rules", "r", "", "custom rules YAML file")
 	scanCmd.Flags().StringVarP(&severityStr, "severity", "s", "LOW", "minimum severity (INFO, LOW, MEDIUM, HIGH, CRITICAL)")
-	scanCmd.Flags().StringVarP(&formatStr, "format", "f", "text", "output format (text, json, sarif, markdown, csv, html)")
+	scanCmd.Flags().StringVarP(&formatStr, "format", "f", "text", "output format (text, json, jsonl, sarif, markdown, csv, html)")
 	scanCmd.Flags().StringVarP(&outputFile, "output", "o", "", "write output to file instead of stdout")
 	scanCmd.Flags().BoolVar(&redact, "redact", false, "mask secret values in output")
 	scanCmd.Flags().BoolVar(&noDedup, "no-dedup", false, "show all occurrences")
