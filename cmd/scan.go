@@ -115,6 +115,7 @@ var (
 	diffMode          bool
 	httpTimeout       string
 	headerCheck       bool
+	techDetect        bool
 )
 
 func init() {
@@ -184,6 +185,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&diffMode, "diff", false, "only show new findings (requires --cache-db)")
 	scanCmd.Flags().StringVar(&httpTimeout, "http-timeout", "10s", "HTTP client timeout (e.g. 10s, 30s)")
 	scanCmd.Flags().BoolVar(&headerCheck, "header-check", true, "analyze HTTP security headers on discovered URLs (use --no-header-check to disable)")
+	scanCmd.Flags().BoolVar(&techDetect, "tech-detect", true, "detect technologies from HTTP responses and source code (use --no-tech-detect to disable)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -392,6 +394,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		CookieString:      cookieString,
 		NoSitemap:         noSitemap,
 		HeaderCheck:       headerCheck,
+		TechDetect:        techDetect,
 	}
 
 	if progressFlag && !quiet && !pipe {

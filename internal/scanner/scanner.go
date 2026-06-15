@@ -69,4 +69,5 @@ type Config struct {
 	CookieString  string              // cookie string to inject (name=value; name2=value2)
 	NoSitemap     bool                // disable robots/sitemap discovery
 	HeaderCheck   bool                // analyze HTTP security headers on discovered URLs
+	TechDetect    bool                // detect technologies from HTTP responses and source code
 }
