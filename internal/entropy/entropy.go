@@ -301,6 +301,10 @@ func ExtractContextualSecrets(line string, minEntropy float64) []ContextualSecre
 		if idx > 0 && (line[idx-1] == '/' || line[idx-1] == ':' || line[idx-1] == '@') {
 			continue
 		}
+		// Skip URL path segments (contain multiple / separators)
+		if strings.Count(tok, "/") >= 2 {
+			continue
+		}
 		results = append(results, ContextualSecret{Token: tok, Entropy: e})
 	}
 	return results

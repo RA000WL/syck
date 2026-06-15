@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	bearerTokenRe  = regexp.MustCompile(`(?i)(?:Authorization|auth)[\s:=]+['"]?(?:Bearer\s+)?([A-Za-z0-9\-_.+/=]{20,})['"]?`)
+	bearerTokenRe  = regexp.MustCompile(`(?i)(?:Authorization|X-Auth-Token|X-Auth-Key)[\s:=]+['"]?(?:Bearer\s+)?([A-Za-z0-9\-_.+/=]{20,})['"]?`)
 	basicAuthRe    = regexp.MustCompile(`(?i)Authorization:\s*Basic\s+([A-Za-z0-9+/=]{10,})`)
 	apiKeyHeaderRe = regexp.MustCompile(`(?i)(?:X-)?API(?:Key|_Key|-Key)\s*[:=]\s*['"]?([A-Za-z0-9_\-+!@#$%^&*()=]{16,})['"]?`)
 	authTokenRe    = regexp.MustCompile(`(?i)(?:X-)?Auth(?:Token|_Token|-Token)\s*[:=]\s*['"]?([A-Za-z0-9_\-]{16,})['"]?`)
