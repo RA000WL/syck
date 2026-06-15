@@ -436,6 +436,14 @@ rules:
     severity: HIGH
     pattern: '(?i)apiVersion:\s*v1\s*\nkind:\s*Secret\s*\n'
     tags: [kubernetes, container]
+    multi_line: true
+  - name: docker_compose_secret
+    severity: HIGH
+    pattern: '(?i)(?:environment|env):\s*\n\s+(?:.*(?:password|secret|token|api_key|access_key)\s*[:=]\s*[''"]?\S+){1}'
+    tags: [docker, container]
+    multi_line: true
+    requires_context: true
+    context_keywords: [password, secret, token, api_key, access_key, auth]
   - name: pulumi_access_token
     severity: CRITICAL
     pattern: '\bpul-[a-f0-9]{40}\b'
