@@ -1,11 +1,11 @@
 # Phase 1: Bug Bounty Core — V1.5 Design Spec
 
-> **Version:** 1.1 (updated with gap analysis findings)
+> **Version:** 1.2 (updated with gap analysis + user review feedback)
 > **Date:** 2026-06-15
 
 ## Overview
 
-Phase 1 of making SYCK a professional bug bounty tool. Ships 8 components in a single release: proxy support, authenticated crawling, scope file loading, cloud metadata detection, .env rules, diff mode, JSONL output, and configurable HTTP timeouts.
+Phase 1 of making SYCK a professional bug bounty tool. Ships 10 components in a single release: shared HTTP client factory, proxy support, authenticated crawling, scope file loading, robots/sitemap discovery, cookie flag, cloud metadata detection, .env rules, diff mode, JSONL output, and configurable HTTP timeouts.
 
 ## Components
 
@@ -45,7 +45,7 @@ func NewClient(timeout time.Duration, proxyURL string, insecureSkipVerify bool) 
 | `validator/http.go:11` | `&http.Client{Timeout: 5s, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}` | `httpclient.NewClient(5*time.Second, proxyURL, true)` |
 | `cmd/upload_sarif.go:82` | `&http.Client{Timeout: 30s}` | `httpclient.NewClient(30*time.Second, proxyURL, false)` — proxyURL from flags |
 
-**Dead code cleanup:** Remove `defaultHTTPClient` var at `crawler.go:92` (never used).
+**Note:** `defaultHTTPClient` at `crawler.go:92` is used by `robots.go:34` as a fallback client — NOT dead code. Keep it but have it use the factory instead.
 
 **Scanner Config additions:**
 ```go
@@ -66,11 +66,8 @@ ProxyURL    string         // --proxy flag, default ""
 
 **Implementation:**
 - Add `Headers map[string]string` to `scanner.Config`
-- In `ScanURLs`, inject headers into HTTP requests via a custom `RoundTripper` wrapper OR by setting headers on each request
-- The crawler's `Crawl()` method already uses `http.Request` — headers are set before each `Do()` call
-- Headers apply to: crawl requests, juicy file probes, cloud storage checks, GraphQL introspection
+- Use a `RoundTripper` wrapper to inject headers into all requests:
 
-**RoundTripper approach (cleanest):**
 ```go
 type headerTransport struct {
     base    http.RoundTripper
@@ -78,14 +75,18 @@ type headerTransport struct {
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+    // CRITICAL: Clone request before modifying headers.
+    // Modifying the original request causes issues with retries,
+    // redirects, and internal http.Client caching.
+    cloned := req.Clone(req.Context())
     for k, v := range t.headers {
-        req.Header.Set(k, v)
+        cloned.Header.Set(k, v)
     }
-    return t.base.RoundTrip(req)
+    return t.base.RoundTrip(cloned)
 }
 ```
 
-Wrap the shared transport with this before passing to the crawler client.
+**Scope:** Headers apply to: crawl requests, juicy file probes, cloud storage checks, GraphQL introspection. Does NOT apply to validation requests (separate client) or webhook sends.
 
 ### 3. `--scope-file` for Program Scopes
 
@@ -112,13 +113,96 @@ cdn\.example\.com
 - Lines starting with `#` → comments, skipped
 - Empty/whitespace-only lines → skipped
 - Each line treated as a **regex pattern** (consistent with `--scope`)
-- Patterns combined with existing `--scope` into one alternation regex: `scope_regex|file_pattern1|file_pattern2|...`
-- If only `--scope-file` provided (no `--scope`), the combined regex is just the file patterns
+- Patterns compiled as **separate `*regexp.Regexp` objects** (not combined into one alternation regex) — better for debugging which scope matched, avoids regex engine backtracking on large alternations
+- `--scope` and `--scope-file` patterns are checked in order; first match wins
+- If only `--scope-file` provided (no `--scope`), only file patterns apply
 - Error if file doesn't exist or contains no valid patterns
 
-**Implementation:** Parse in `cmd/scan.go` before passing to `scanner.Config`. The `Scope` field on Config becomes the combined regex.
+**Implementation:** Parse in `cmd/scan.go` before passing to `scanner.Config`. Add `ScopePatterns []*regexp.Regexp` to Config.
 
-### 4. Cloud Metadata Detection Rules
+### 4. Robots.txt + Sitemap Discovery
+
+**Problem:** Bug bounty hunters manually check robots.txt and sitemap.xml for hidden endpoints. SYCK's crawler already parses robots.txt for compliance but discards `Sitemap:` directives. No sitemap fetching at all.
+
+**Solution:** Extend the existing `RobotsCache` to extract sitemap URLs, add sitemap XML parsing, and feed discovered URLs into the crawler queue.
+
+**Discovery flow:**
+```
+For each domain visited during crawl:
+  1. Fetch robots.txt (already done by RobotsCache)
+  2. Extract Sitemap: directives (NEW)
+  3. Proactively fetch /sitemap.xml and /sitemap_index.xml (NEW)
+  4. Parse XML to extract <loc> URLs (NEW)
+  5. Handle sitemap index files recursively (NEW)
+  6. Feed all discovered URLs into crawler queue (NEW)
+```
+
+**Changes to `internal/crawler/robots.go`:**
+- Add `Sitemaps []string` field to `robotsRule` struct
+- Parse `Sitemap:` directives in `parseRobotsTxt()` (case-insensitive key)
+- Add `Sitemaps(rawURL string) []string` method on `RobotsCache`
+- Remove nil return for empty rules (a robots.txt with only Sitemap directives is still valid)
+
+**New file `internal/crawler/sitemap.go`:**
+```go
+package crawler
+
+type SitemapFetcher struct {
+    client *http.Client
+    ua     string
+}
+
+type SitemapURL struct {
+    Loc        string
+    LastMod    string
+    ChangeFreq string
+    Priority   string
+}
+
+// FetchSitemaps fetches sitemap URLs for a domain.
+// Tries: Sitemap directives from robots.txt, /sitemap.xml, /sitemap_index.xml
+func (sf *SitemapFetcher) FetchSitemaps(domain string, robotsSitemaps []string) []string
+
+// ParseSitemap parses a sitemap XML and returns URLs.
+func ParseSitemap(content string) []SitemapURL
+
+// ParseSitemapIndex parses a sitemap index and returns nested sitemap URLs.
+func ParseSitemapIndex(content string) []string
+```
+
+**Integration into crawler.go:**
+- After `RobotsCache.getOrCreate(domain)`, call `SitemapFetcher.FetchSitemaps(domain, rule.Sitemaps)`
+- Deduplicate discovered URLs against already-visited set
+- Respect scope regex filtering
+- Add discovered URLs to crawl queue (subject to `CrawlLimit`)
+- Log discovered sitemap URLs at debug level
+
+**CrawlConfig additions:**
+```go
+SitemapEnabled bool // default true, disable with --no-sitemap
+```
+
+**New flag:**
+- `--no-sitemap` (bool): Disable sitemap discovery
+- Env var: `SYCK_SCAN_NO_SITEMAP`
+
+**Performance:** Sitemap parsing is lightweight (XML is small). The main cost is HTTP fetches, which are already rate-limited by the crawler's host semaphore. Max 3 sitemap fetches per domain (robots.txt sitemaps + /sitemap.xml + /sitemap_index.xml).
+
+### 5. `--cookie` Flag
+
+**Problem:** No way to inject specific session cookies for authenticated scanning. Cookie jar persists across runs but requires manual cookie management.
+
+**Flag:**
+- `--cookie` (string): Cookie string in `name=value; name2=value2` format (like browser cookie header)
+- Env var: `SYCK_SCAN_COOKIE`
+
+**Implementation:**
+- Parse cookie string into `[]*http.Cookie` using `http.ParseCookie()`
+- Add to the cookie jar before crawl starts
+- Also injected via headerTransport alongside `--header` values
+- Compatible with `--cookie-file` (existing cookie jar persistence)
+
+### 6. Cloud Metadata Detection Rules
 
 **Problem:** No detection of cloud metadata endpoints (critical SSRF/IMDSv1 attack vectors).
 
@@ -129,72 +213,76 @@ cdn\.example\.com
 ```yaml
 # AWS IMDS endpoint
 - name: cloud_metadata_aws
-  severity: critical
+  severity: high
   pattern: '169\.254\.169\.254(?:/latest/meta-data/|/latest/user-data/|/latest/dynamic/instance-identity/)'
   description: 'AWS EC2 Instance Metadata Service endpoint'
   tags: [cloud, aws, ssrf, metadata]
 
 # GCP metadata endpoint
 - name: cloud_metadata_gcp
-  severity: critical
+  severity: high
   pattern: 'metadata\.google\.internal'
   description: 'GCP Compute Engine metadata endpoint'
   tags: [cloud, gcp, ssrf, metadata]
 
 # Azure metadata endpoint
 - name: cloud_metadata_azure
-  severity: critical
+  severity: high
   pattern: '169\.254\.169\.254/metadata/instance'
   description: 'Azure Instance Metadata Service endpoint'
   tags: [cloud, azure, ssrf, metadata]
 ```
 
+**Severity:** `high` (not critical). Finding a metadata URL in source code is informational — it indicates potential SSRF config but is not confirmed exploitation. A real critical finding would be the endpoint actually responding (future validation work).
+
 **Rule properties:**
-- Severity: critical (these are always high-value findings)
 - No entropy threshold (exact match)
 - No context keywords needed (the URL itself is the finding)
 - Tags: cloud, provider, ssrf, metadata
 
-### 5. `.env` File-Specific Rules
+### 7. `.env` File-Specific Rules
 
 **Problem:** The `dotenv_secret` rule only catches a few patterns. Many provider-specific env vars are missed.
 
-**Solution:** Add targeted rules for high-value env var patterns.
+**Solution:** Add targeted rules for high-value env var patterns with FP reduction.
 
 **New rules (6):**
 
 ```yaml
-# Generic sensitive env var pattern
+# Sensitive connection string env vars
 - name: env_sensitive_var
   severity: high
   pattern: '(?:^|\s)(?:DATABASE_URL|REDIS_URL|MONGODB_URI|MONGODB_CONNECTION|MONGO_URI|SUPABASE_URL|SUPABASE_KEY|SUPABASE_SERVICE_KEY)=(.+)'
   description: 'Sensitive environment variable with connection string or URL'
   tags: [env, database, sensitive]
 
-# Generic token/key env var pattern
+# Provider-specific token env vars
 - name: env_token_var
   severity: high
-  pattern: '(?:^|\s)(?:MAILGUN_API_KEY|SENDGRID_API_KEY|TWILIO_AUTH_TOKEN|CLOUDFLARE_API_KEY|CF_API_KEY|ALGOLIA_API_KEY|ALGOLIA_SEARCH_KEY|STRIPE_SECRET_KEY|STRIPE_LIVE_SECRET|SQUARE_ACCESS_TOKEN|SQUARE_LOCATION_ID)=(.+)'
+  pattern: '(?:^|\s)(?:MAILGUN_API_KEY|SENDGRID_API_KEY|TWILIO_AUTH_TOKEN|CLOUDFLARE_API_KEY|CF_API_KEY|ALGOLIA_API_KEY|ALGOLIA_SEARCH_KEY|STRIPE_SECRET_KEY|STRIPE_LIVE_SECRET|SQUARE_ACCESS_TOKEN)=(.+)'
   description: 'Provider-specific sensitive token in environment variable'
   tags: [env, token, provider]
 
-# Generic password/secret env var (catch-all)
+# Generic secret env var (FP-reduced)
 - name: env_generic_secret
   severity: medium
-  pattern: '(?:^|\s)(?:\w+_SECRET=\S+|\w+_PASSWORD=\S+|\w+_TOKEN=\S+|\w+_KEY=\S+)'
+  pattern: '(?:^|\s)(?:\w+_SECRET=\S{8,}|\w+_PASSWORD=\S{8,}|\w+_TOKEN=\S{20,}|\w+_API_KEY=\S{20,})'
   description: 'Generic secret/password/token environment variable'
   tags: [env, generic, secret]
   requires_context: true
-  context_keywords: [secret, token, password, key]
+  context_keywords: [secret, token, password, key, api, auth, access, private]
   entropy_threshold: 3.0
+  # FP reductions applied:
+  # 1. Minimum value lengths (8 for secret/password, 20 for token/api_key)
+  # 2. requires_context: true — only fires on lines containing relevant keywords
+  # 3. entropy_threshold: 3.0 — filters placeholder values
 
-# .env file detection boost
+# .env file detection
 - name: dotenv_file_secret
   severity: high
   pattern: '(?:^|\s)(?:SECRET|TOKEN|API_KEY|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|AUTH_TOKEN|DATABASE_URL|REDIS_URL|MONGODB_URI)=(.+)'
   description: 'Sensitive value in .env or dotenv file'
   tags: [env, dotenv, secret]
-  # Note: This rule fires more aggressively when the file is a .env file (detected by extension)
 
 # AWS env var patterns
 - name: env_aws_secret
@@ -211,9 +299,14 @@ cdn\.example\.com
   tags: [env, npm, token]
 ```
 
-**Total new rules: 6** (bringing total to ~170)
+**FP reduction in `env_generic_secret`:**
+- Minimum value lengths prevent matching empty or short placeholder values
+- `requires_context: true` with `context_keywords` ensures the line contains a relevant keyword (secret, token, password, etc.)
+- `entropy_threshold: 3.0` filters low-entropy values like `changeme`, `test`, `xxx`
 
-### 6. `--diff` Mode
+**Total new rules: 9** (3 metadata + 6 env)
+
+### 8. `--diff` Mode
 
 **Problem:** When re-scanning with cache, users see ALL findings including previously triaged ones. Need to see only NEW findings.
 
@@ -226,7 +319,7 @@ cdn\.example\.com
 - After all scanning and post-processing (dedup, downgrade, ignore), filter findings by `IsNew == true`
 - `IsNew` is already set by `RecordWithMeta` in the cache flow
 - Filter runs after severity filtering so `--diff --severity HIGH` shows only NEW HIGH+ findings
-- Works with all 6 output formats
+- Works with all 7 output formats (including jsonl)
 
 **Filter position in pipeline:**
 ```
@@ -238,7 +331,7 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 - `--diff` with empty cache (first run) → all findings are "new"
 - `--diff` with cache but no previous verdicts → same as no diff (all findings have IsNew=true from Record)
 
-### 7. `--format jsonl` (JSON Lines / NDJSON)
+### 9. `--format jsonl` (JSON Lines / NDJSON)
 
 **Problem:** JSON formatter accumulates all findings in memory then marshals. No streaming. Can't pipe to `jq` per-finding or stream to SIEM.
 
@@ -247,7 +340,7 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 **Flag value:** `--format jsonl`
 
 **Output format:** One JSON object per line (NDJSON):
-```
+```json
 {"file":"app.js","line":42,"rule":"aws_access_key","severity":"CRITICAL","secret":"AKIA...","entropy":4.2,"context":"aws_access_key = ...","confidence":75,"verification":"POTENTIAL","adaptive_modifier":0,"learning_tier":""}
 {"file":"config.js","line":15,"rule":"github_pat","severity":"CRITICAL","secret":"ghp_...","entropy":4.5,"context":"token = ...","confidence":90,"verification":"VERIFIED","adaptive_modifier":3,"learning_tier":"Mature"}
 ```
@@ -259,10 +352,11 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 - Compatible with `--output` flag for file output
 - Compatible with `--webhook-url` (webhook receives the full JSON payload, not JSONL)
 - Compatible with `--redact` and `--no-color`
+- Includes adaptive_modifier and learning_tier fields (when non-zero)
 
 **Implementation:** New `JSONLFormatter` in `internal/formatters/jsonl.go` implementing `Formatter` interface.
 
-### 8. `--http-timeout` Flag
+### 10. `--http-timeout` Flag
 
 **Problem:** All HTTP timeouts hardcoded at 10s across 6+ locations. Can't adjust for slow targets or fast internal networks.
 
@@ -287,13 +381,17 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 |------|---------|
 | `internal/httpclient/client.go` | **NEW** — `NewTransport()`, `NewClient()` |
 | `internal/httpclient/client_test.go` | **NEW** — Tests for factory |
+| `internal/crawler/robots.go` | Parse `Sitemap:` directives, add `Sitemaps()` method |
+| `internal/crawler/sitemap.go` | **NEW** — `SitemapFetcher`, `ParseSitemap()`, `ParseSitemapIndex()` |
+| `internal/crawler/sitemap_test.go` | **NEW** — Sitemap parsing tests |
+| `internal/crawler/crawler.go` | Integrate sitemap discovery into BFS, add CrawlConfig fields |
 | `internal/rules/builtin.yaml` | +9 new rules (3 metadata + 6 env) |
-| `internal/scanner/scanner.go` | +2 fields: `HTTPTimeout`, `ProxyURL`, `Headers`, `ScopeFile` |
+| `internal/scanner/scanner.go` | +4 fields: `HTTPTimeout`, `ProxyURL`, `Headers`, `ScopePatterns` |
 | `internal/scanner/scan.go` | Use shared client factory, add diff filter, header injection |
 | `internal/formatters/jsonl.go` | **NEW** — JSONL formatter |
 | `internal/formatters/formatter.go` | Register `jsonl` in factory |
-| `cmd/scan.go` | Add 6 new flags, scope-file parsing, diff validation |
-| `cmd/env.go` | Add 6 new env var bindings |
+| `cmd/scan.go` | Add 7 new flags, scope-file parsing, diff validation, cookie parsing |
+| `cmd/env.go` | Add 7 new env var bindings |
 | `crawler/juicy.go` | Use injected client instead of local creation |
 | `formatters/webhook.go` | Accept proxyURL via FormatOptions |
 | `validator/http.go` | Accept shared transport |
@@ -307,13 +405,15 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 | `--auth-token` | string | `""` | `SYCK_SCAN_AUTH_TOKEN` | Bearer token for crawl requests |
 | `--header` | string (repeatable) | | `SYCK_SCAN_HEADER` | Custom header `Name: Value` |
 | `--scope-file` | string | `""` | `SYCK_SCAN_SCOPE_FILE` | File with scope regex patterns |
+| `--cookie` | string | `""` | `SYCK_SCAN_COOKIE` | Cookie string `name=value; name2=value2` |
+| `--no-sitemap` | bool | `false` | `SYCK_SCAN_NO_SITEMAP` | Disable sitemap discovery |
 | `--diff` | bool | `false` | `SYCK_SCAN_DIFF` | Only show new findings (requires --cache-db) |
 | `--http-timeout` | duration | `10s` | `SYCK_SCAN_HTTP_TIMEOUT` | HTTP client timeout |
 
 ## Testing Strategy
 
-- **Unit tests:** httpclient factory (transport creation, proxy, TLS), JSONL formatter, scope-file parsing, diff filter logic
-- **Integration tests:** End-to-end scan with proxy flag, scan with scope-file, diff mode with cache, JSONL piping to jq
+- **Unit tests:** httpclient factory (transport creation, proxy, TLS), JSONL formatter, scope-file parsing, sitemap XML parsing, diff filter logic, cookie parsing
+- **Integration tests:** End-to-end scan with proxy flag, scan with scope-file, diff mode with cache, JSONL piping to jq, sitemap discovery against mock server
 - **Existing tests:** All 22 packages must continue to pass `go test -race ./...`
 
 ## Version & Release
@@ -323,3 +423,17 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 - GoReleaser: same targets (linux/darwin/windows x amd64/arm64)
 - Breaking changes: none (all additions, no removals)
 - Migration: none (new SQLite tables use IF NOT EXISTS, schema migration in OpenCache)
+
+## Future V2 Features (Out of Scope)
+
+- JavaScript endpoint extraction from bundled JS
+- GraphQL deeper schema crawling (mutation input discovery)
+- Wayback Machine integration (waybackurls-style historical URL discovery)
+- Passive subdomain ingestion (import from subfinder/amass/httpx)
+- Response body fingerprinting (framework/CMS detection from HTML patterns)
+- Expanded secret validation pipeline (more providers, JWT structural validation)
+- Hidden parameter discovery (parameter brute-force, common param lists)
+- CORS misconfiguration detection
+- CSP/security header analysis
+- Technology/framework fingerprinting (Wappalyzer-style)
+- WAF detection from response headers
