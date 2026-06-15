@@ -1,6 +1,6 @@
 # Phase 1: Bug Bounty Core — V1.5 Design Spec
 
-> **Version:** 1.2 (updated with gap analysis + user review feedback)
+> **Version:** 1.3 (final — header multi-value, sitemap limits, diff pipeline, cookie hardening)
 > **Date:** 2026-06-15
 
 ## Overview
@@ -65,13 +65,13 @@ ProxyURL    string         // --proxy flag, default ""
 - Env vars: `SYCK_SCAN_AUTH_TOKEN`, `SYCK_SCAN_HEADER`
 
 **Implementation:**
-- Add `Headers map[string]string` to `scanner.Config`
+- Add `Headers map[string][]string` to `scanner.Config` (multi-value to support duplicate header names)
 - Use a `RoundTripper` wrapper to inject headers into all requests:
 
 ```go
 type headerTransport struct {
     base    http.RoundTripper
-    headers map[string]string
+    headers map[string][]string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -79,11 +79,19 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
     // Modifying the original request causes issues with retries,
     // redirects, and internal http.Client caching.
     cloned := req.Clone(req.Context())
-    for k, v := range t.headers {
-        cloned.Header.Set(k, v)
+    for k, vals := range t.headers {
+        for _, v := range vals {
+            cloned.Header.Add(k, v)
+        }
     }
     return t.base.RoundTrip(cloned)
 }
+```
+
+This correctly handles:
+```bash
+--header "Cookie: a=1" --header "Cookie: b=2"  # Both cookies sent
+--header "Accept: application/json" --header "Accept: text/plain"  # Both values sent
 ```
 
 **Scope:** Headers apply to: crawl requests, juicy file probes, cloud storage checks, GraphQL introspection. Does NOT apply to validation requests (separate client) or webhook sends.
@@ -147,6 +155,12 @@ For each domain visited during crawl:
 ```go
 package crawler
 
+const (
+    MaxSitemapDepth       = 3     // Max recursion depth for sitemap index files
+    MaxSitemapsPerDomain  = 100   // Max sitemap fetches per domain
+    MaxURLsFromSitemaps   = 10000 // Max URLs extracted from sitemaps per domain
+)
+
 type SitemapFetcher struct {
     client *http.Client
     ua     string
@@ -161,6 +175,7 @@ type SitemapURL struct {
 
 // FetchSitemaps fetches sitemap URLs for a domain.
 // Tries: Sitemap directives from robots.txt, /sitemap.xml, /sitemap_index.xml
+// Respects MaxSitemapDepth, MaxSitemapsPerDomain, MaxURLsFromSitemaps limits.
 func (sf *SitemapFetcher) FetchSitemaps(domain string, robotsSitemaps []string) []string
 
 // ParseSitemap parses a sitemap XML and returns URLs.
@@ -170,12 +185,29 @@ func ParseSitemap(content string) []SitemapURL
 func ParseSitemapIndex(content string) []string
 ```
 
+**Recursion safety:**
+- `MaxSitemapDepth = 3` — sitemap index → sitemap index → sitemap index (stops here)
+- `MaxSitemapsPerDomain = 100` — prevents abuse from adversarial sitemaps
+- `MaxURLsFromSitemaps = 10000` — caps memory usage per domain
+- All limits tracked via a `sitemapState` struct passed through recursion
+
 **Integration into crawler.go:**
 - After `RobotsCache.getOrCreate(domain)`, call `SitemapFetcher.FetchSitemaps(domain, rule.Sitemaps)`
+- **Scope filtering BEFORE enqueue:** Parse each discovered URL, check host against scope regex, then enqueue only in-scope URLs. This prevents huge sitemap files from consuming memory for out-of-scope assets.
 - Deduplicate discovered URLs against already-visited set
-- Respect scope regex filtering
 - Add discovered URLs to crawl queue (subject to `CrawlLimit`)
 - Log discovered sitemap URLs at debug level
+
+**Sitemap URL processing flow:**
+```
+Fetch sitemap XML
+→ Parse XML → extract <loc> URLs
+→ For each URL:
+    → Parse host
+    → Check scope regex (early filter)
+    → Check dedup (visited set)
+    → Enqueue if in-scope + not visited
+```
 
 **CrawlConfig additions:**
 ```go
@@ -197,10 +229,12 @@ SitemapEnabled bool // default true, disable with --no-sitemap
 - Env var: `SYCK_SCAN_COOKIE`
 
 **Implementation:**
-- Parse cookie string into `[]*http.Cookie` using `http.ParseCookie()`
-- Add to the cookie jar before crawl starts
-- Also injected via headerTransport alongside `--header` values
+- Parse cookie string into `[]*http.Cookie` using a custom parser
+- Go's `http.ParseCookie()` is designed for a single Set-Cookie header, not the `Cookie:` request header format (`name1=value1; name2=value2`). A small custom parser splitting on `; ` and parsing each `name=value` pair is more reliable.
+- Add parsed cookies to the cookie jar before crawl starts
+- Also injected via headerTransport alongside `--header` values (as `Cookie:` header)
 - Compatible with `--cookie-file` (existing cookie jar persistence)
+- **Must test** with edge cases: cookies with `=` in value, spaces around `; `, empty values, quoted values
 
 ### 6. Cloud Metadata Detection Rules
 
@@ -316,14 +350,14 @@ SitemapEnabled bool // default true, disable with --no-sitemap
 - **Requires `--cache-db`** — if `--diff` is set without `--cache-db`, return error: `"--diff requires --cache-db for cross-run comparison"`
 
 **Implementation:**
-- After all scanning and post-processing (dedup, downgrade, ignore), filter findings by `IsNew == true`
+- After all scanning and post-processing, filter findings by `IsNew == true`
 - `IsNew` is already set by `RecordWithMeta` in the cache flow
-- Filter runs after severity filtering so `--diff --severity HIGH` shows only NEW HIGH+ findings
+- Diff filter runs AFTER severity filter, so `--diff --severity HIGH` shows only NEW HIGH+ findings
 - Works with all 7 output formats (including jsonl)
 
 **Filter position in pipeline:**
 ```
-Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record → [DIFF FILTER] → Severity Filter → Format → Output
+Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record → Severity Filter → [DIFF FILTER] → Format → Output
 ```
 
 **Edge cases:**
@@ -386,7 +420,7 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 | `internal/crawler/sitemap_test.go` | **NEW** — Sitemap parsing tests |
 | `internal/crawler/crawler.go` | Integrate sitemap discovery into BFS, add CrawlConfig fields |
 | `internal/rules/builtin.yaml` | +9 new rules (3 metadata + 6 env) |
-| `internal/scanner/scanner.go` | +4 fields: `HTTPTimeout`, `ProxyURL`, `Headers`, `ScopePatterns` |
+| `internal/scanner/scanner.go` | +4 fields: `HTTPTimeout`, `ProxyURL`, `Headers map[string][]string`, `ScopePatterns []*regexp.Regexp` |
 | `internal/scanner/scan.go` | Use shared client factory, add diff filter, header injection |
 | `internal/formatters/jsonl.go` | **NEW** — JSONL formatter |
 | `internal/formatters/formatter.go` | Register `jsonl` in factory |
@@ -426,7 +460,7 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 
 ## Future V2 Features (Out of Scope)
 
-- JavaScript endpoint extraction from bundled JS
+- **JavaScript endpoint extraction from bundled JS** — extract `/api/v1/users`, `/graphql`, `/admin` from downloaded JS files (highest bug bounty ROI)
 - GraphQL deeper schema crawling (mutation input discovery)
 - Wayback Machine integration (waybackurls-style historical URL discovery)
 - Passive subdomain ingestion (import from subfinder/amass/httpx)
@@ -437,3 +471,4 @@ Scan → Dedup → FP Downgrade → SyckIgnore → Validate → Cache Record →
 - CSP/security header analysis
 - Technology/framework fingerprinting (Wappalyzer-style)
 - WAF detection from response headers
+- **Metadata rule context boosting** — boost `cloud_metadata_*` findings when context includes `fetch`, `axios`, `curl`, `request`, `proxy` keywords (reduces FP on static IP lists like `blockedIPs`)
