@@ -5,18 +5,18 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner written in Go. 160+ detection rules, multi-layer decoding, entropy analysis, URL crawling, and live secret validation — all in a single static binary.
-
-**Why syck?** Most secret scanners either miss too much (regex-only) or drown you in false positives (entropy-only). syck combines both with rule-specific context keywords, decoder layers, confidence scoring, and a precision-hardened rule set.
+A fast, modular secret scanner written in Go. 200+ detection rules, multi-layer decoding, entropy analysis, URL crawling, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
 
 ## Features
 
-- **160+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, email/password hashes, PII, and 50+ providers
+- **200+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
 - **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
-- **6 output formats** — text, JSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
-- **URL crawling** — BFS crawler with goquery HTML extraction, per-host rate limiting, scope filtering
+- **Security header analysis** — CSP, HSTS, X-Frame-Options, CORS misconfigurations, cookie security, server version disclosure, and more (18 finding types)
+- **Technology fingerprinting** — detects CMS (WordPress, Drupal, Shopify), frameworks (Express, Rails, Django, Spring Boot, Laravel, Next.js), languages, libraries, CDNs, and exposed services (GraphQL, Kubernetes API) from HTTP responses and source code
+- **7 output formats** — text, JSON, JSONL/NDJSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
+- **URL crawling** — BFS crawler with goquery HTML extraction, per-host rate limiting, scope filtering, sitemap discovery
 - **Headless Chrome** — SPA/JS-rendered page support via go-rod
 - **Git history scanning** — walk all commits, scan deleted/modified files
 - **Live validation** — confirm found secrets are active against 13 provider APIs
@@ -37,6 +37,9 @@ A fast, modular secret scanner written in Go. 160+ detection rules, multi-layer 
 - **Archive scanning** — extracts and scans zip, tar, tar.gz, jar files with Zip Slip protection
 - **Multi-line detection** — matches secrets spanning multiple lines (PEM keys, JSON configs)
 - **Auth header detection** — Bearer tokens, Basic auth, API key headers
+- **Proxy support** — route all traffic through Burp Suite or any HTTP proxy
+- **Diff mode** — only show new findings since last scan
+- **Cookie + auth injection** — inject cookies and auth headers for authenticated scanning
 
 ## Install
 
@@ -52,18 +55,7 @@ cd syck
 go build -o syck .
 ```
 
-Requires Go 1.22+.
-
-## Why syck?
-
-| Tool | Approach | Precision | Speed | Decoding | Live validation |
-|------|----------|-----------|-------|----------|-----------------|
-| syck | Regex + entropy + context + 160 rules + confidence | high | ~50 MB/s | base64, hex, unicode, url, gzip, JWT, charcode, JS recon | Yes (13 providers) |
-| gitleaks | Regex only | ~70% | ~80 MB/s | None | No |
-| trufflehog | Entropy + regex | noisy | ~20 MB/s | base64 | Yes (limited) |
-| detect-secrets | Regex + entropy | ~60% | ~30 MB/s | None | No |
-
-**Real scenario:** syck scans a 5 MB minified JavaScript bundle in under 2 seconds, reconstructs concatenated strings, decodes any base64-encoded tokens inside, and reports findings with line/column/rule/entropy/context — all in one pass.
+Requires Go 1.26+.
 
 ## Quick Start
 
@@ -285,6 +277,8 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 | `--entropy-threshold` | Per-alphabet entropy threshold overrides (e.g. `hex=3.0,base64=4.2`) |
 | `--max-scan-line-len` | Skip per-line scanning on lines exceeding this length (default: 100000) |
 | `--progress` | Show TUI progress bar on stderr |
+| `--header-check` | Analyze HTTP security headers (CSP, HSTS, CORS, cookies) (default: **on**) |
+| `--tech-detect` | Detect technologies from HTTP responses and source code (default: **on**) |
 
 ### Cache & Adaptive Flags
 
@@ -339,6 +333,7 @@ syck completion bash > /etc/bash_completion.d/syck
 |--------|---------|----------|
 | Text | `--format text` | Terminal (default, colorized) |
 | JSON | `--format json` | Machine parsing, dashboards |
+| JSONL | `--format jsonl` | Streaming/piping, one finding per line |
 | SARIF | `--format sarif` | GitHub Code Scanning upload |
 | Markdown | `--format markdown` | PR comments, reports |
 | CSV | `--format csv` | Spreadsheets, data analysis |
@@ -449,18 +444,21 @@ syck scan [paths...]
     ├── Git history (git log → git show → scan per-commit)
     └── Stdin pipe
           │
-          ├── Regex rules (160+ patterns)
+          ├── Regex rules (200+ patterns)
           ├── Entropy token scan + contextual entropy
           ├── Multi-layer decoders (base64/hex/unicode/url/gzip/JWT/charcode)
           ├── JSON-aware tree walker
           ├── JS string reconstruction (6 methods)
           ├── URL secret extraction
           ├── Auth header detection
-          └── Endpoint extraction (21 patterns + risk scoring)
+          ├── Endpoint extraction (21 patterns + risk scoring)
+          ├── Security header analysis (18 finding types)
+          └── Technology fingerprinting (30+ signals, source + web)
                │
                ├── Deduplication
                ├── FP downgrade
                ├── .syckignore filter
+               ├── Diff mode (--diff)
                ├── Adaptive learning (--adaptive)
                ├── Live validation (--validate)
                └── Formatter → stdout/file/webhook
@@ -475,7 +473,7 @@ syck scan [paths...]
 | `finding` | Finding/Severity types, confidence scoring, deduplication |
 | `decoder` | Base64, base64url, hex, Unicode, URL, gzip, JWT, double-base64, charcode decoding |
 | `entropy` | Shannon entropy, per-alphabet thresholds, media token filtering, contextual secrets |
-| `formatters` | Text, JSON, SARIF, Markdown, CSV, HTML, webhook/SIEM output |
+| `formatters` | Text, JSON, JSONL, SARIF, Markdown, CSV, HTML, webhook/SIEM output |
 | `endpoints` | API/GraphQL/WebSocket URL extraction |
 | `crawler` | BFS URL crawler with goquery, cookies, rate limiting, archive extraction |
 | `gitscan` | Git commit history walking |
@@ -483,16 +481,14 @@ syck scan [paths...]
 | `validator` | Live secret validation against 13 providers |
 | `json_scanner` | JSON tree walking for secret-key values |
 | `jsrecon` | JS constant propagation, concat/join/template/ternary/array reconstruction |
-| `risk` | Endpoint risk scoring (19 rules, FP-safe prefix check) |
 | `correlator` | SQLite cross-run finding cache with fingerprint dedup |
 | `adaptive` | Adaptive confidence learning engine (Bayesian smoothing, tier classification, weight store) |
 | `correlation` | Multi-finding correlation (AWS key+secret pairs, OAuth, Stripe, etc.) |
 | `confidence` | Confidence scoring engine (regex/entropy/context/decoded/URL param sources) |
-| `recon` | HTTP response recon (admin panels, debug endpoints, GraphQL, staging, metrics) |
+| `recon` | HTTP response recon — admin panels, debug endpoints, GraphQL, staging, metrics, security headers, technology fingerprinting (11 detectors) |
+| `httpclient` | Shared HTTP client factory with proxy, TLS, timeout support |
 | `url_secrets` | URL query parameter secret extraction |
 
-
-syck eliminates false positives from overly broad patterns while catching all true positives.
 
 ## Contributing
 
