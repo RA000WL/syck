@@ -634,6 +634,10 @@ rules:
     severity: HIGH
     pattern: '-----BEGIN PGP PRIVATE KEY BLOCK-----'
     tags: [crypto, private-key]
+  - name: age_private_key
+    severity: CRITICAL
+    pattern: 'AGE-SECRET-KEY-[A-Z0-9]+'
+    tags: [crypto, private-key, age]
 
   # ── Database connection strings ──────────
   - name: postgres_url
