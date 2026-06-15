@@ -41,6 +41,11 @@ func NewCollectorStage(cfg Config) *CollectorStage {
 		s.reconReg.Register(recon.NewSecurityHeaderDetector(httpCl))
 	}
 
+	if cfg.TechDetect {
+		httpCl := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
+		s.reconReg.Register(recon.NewTechFingerprintWeb(httpCl))
+	}
+
 	return s
 }
 

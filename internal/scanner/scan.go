@@ -1078,6 +1078,26 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// Technology fingerprinting on crawled URLs
+	if cfg.TechDetect && len(crawled) > 0 {
+		techDetector := recon.NewTechFingerprintWeb(httpClient)
+		crawledURLs := make([]string, 0, len(crawled))
+		for _, c := range crawled {
+			crawledURLs = append(crawledURLs, c.URL)
+		}
+		for _, sf := range techDetector.Detect(crawledURLs) {
+			allFindings = append(allFindings, finding.Finding{
+				File:           sf.URL,
+				Line:           1,
+				RuleName:       sf.Source,
+				Severity:       sf.Severity,
+				ConfidenceBand: confidenceBandFromScore(sf.Confidence),
+				Context:        fmt.Sprintf("%s: %s (confidence=%d)", sf.Category, sf.URL, sf.Confidence),
+				Confidence:     sf.Confidence,
+			})
+		}
+	}
+
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
 	}
@@ -1158,6 +1178,19 @@ func checkEntropyToken(tok string, thresholds map[string]float64) bool {
 		return entropy.EntropyByAlphabet(tok, a) >= override
 	}
 	return true
+}
+
+func confidenceBandFromScore(score int) string {
+	switch {
+	case score >= 95:
+		return "CRITICAL"
+	case score >= 80:
+		return "HIGH"
+	case score >= 60:
+		return "MEDIUM"
+	default:
+		return "LOW"
+	}
 }
 
 // FilterNewOnly returns only findings marked as new (IsNew == true).
