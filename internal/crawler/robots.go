@@ -20,6 +20,7 @@ type robotsEntry struct {
 type robotsRule struct {
 	entries    []robotsEntry
 	crawlDelay time.Duration
+	sitemaps   []string
 }
 
 // RobotsCache caches parsed robots.txt per domain.
@@ -80,6 +81,22 @@ func (rc *RobotsCache) CrawlDelay(rawURL string) time.Duration {
 		return 0
 	}
 	return rule.crawlDelay
+}
+
+// Sitemaps returns the sitemap URLs declared in robots.txt for a domain.
+func (rc *RobotsCache) Sitemaps(rawURL string) []string {
+	if rc == nil {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	rule := rc.getOrCreate(u.Hostname())
+	if rule == nil {
+		return nil
+	}
+	return rule.sitemaps
 }
 
 func (rc *RobotsCache) getOrCreate(domain string) *robotsRule {
@@ -169,10 +186,14 @@ func parseRobotsTxt(content string) *robotsRule {
 					rule.crawlDelay = delay
 				}
 			}
+		case "sitemap":
+			if value != "" {
+				rule.sitemaps = append(rule.sitemaps, value)
+			}
 		}
 	}
 
-	if len(rule.entries) == 0 && rule.crawlDelay == 0 {
+	if len(rule.entries) == 0 && rule.crawlDelay == 0 && len(rule.sitemaps) == 0 {
 		return nil
 	}
 	return &rule

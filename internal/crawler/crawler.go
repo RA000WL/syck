@@ -28,6 +28,7 @@ type CrawlConfig struct {
 	HostConcurrency int
 	RespectRobots   bool
 	SameDomainOnly  bool
+	SitemapEnabled  bool
 }
 
 type hostRateLimiter struct {
@@ -70,18 +71,20 @@ type CrawledURL struct {
 
 // crawler holds state for a crawl session.
 type crawler struct {
-	config      CrawlConfig
-	client      *http.Client
-	rateLim     *hostRateLimiter
-	hostSema    *HostSemaphores
-	robots      *RobotsCache
-	mu          sync.Mutex // protects results and visited
-	results     []CrawledURL
-	visited     map[string]bool
-	queue       []queueEntry
-	queueMu     sync.Mutex
-	debug       bool
-	initialHost string
+	config         CrawlConfig
+	client         *http.Client
+	rateLim        *hostRateLimiter
+	hostSema       *HostSemaphores
+	robots         *RobotsCache
+	sitemapFetcher *SitemapFetcher
+	mu             sync.Mutex // protects results and visited
+	results        []CrawledURL
+	visited        map[string]bool
+	sitemapDomains map[string]bool // domains that have had sitemaps fetched
+	queue          []queueEntry
+	queueMu        sync.Mutex
+	debug          bool
+	initialHost    string
 }
 
 type queueEntry struct {
@@ -134,17 +137,23 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	}
 
 	c := &crawler{
-		config:   cfg,
-		client:   client,
-		rateLim:  newHostRateLimiter(cfg.RateLimit),
-		hostSema: NewHostSemaphores(cfg.Concurrency, cfg.HostConcurrency),
-		visited:  make(map[string]bool),
-		debug:    cfg.Debug,
+		config:         cfg,
+		client:         client,
+		rateLim:        newHostRateLimiter(cfg.RateLimit),
+		hostSema:       NewHostSemaphores(cfg.Concurrency, cfg.HostConcurrency),
+		visited:        make(map[string]bool),
+		sitemapDomains: make(map[string]bool),
+		debug:          cfg.Debug,
 	}
 
 	// Initialize robots.txt cache if enabled
 	if cfg.RespectRobots {
 		c.robots = NewRobotsCache(client, cfg.UserAgent)
+	}
+
+	// Initialize sitemap fetcher if enabled
+	if cfg.SitemapEnabled {
+		c.sitemapFetcher = NewSitemapFetcher(client, cfg.UserAgent)
 	}
 
 	// Seed the queue
@@ -228,6 +237,46 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			if c.robots != nil {
 				if delay := c.robots.CrawlDelay(e.url); delay > 0 {
 					time.Sleep(delay)
+				}
+			}
+
+			// Sitemap discovery: process once per domain
+			if c.sitemapFetcher != nil {
+				parsed, err := url.Parse(e.url)
+				if err == nil {
+					domain := parsed.Hostname()
+					c.mu.Lock()
+					alreadyProcessed := c.sitemapDomains[domain]
+					c.mu.Unlock()
+					if !alreadyProcessed {
+						c.mu.Lock()
+						c.sitemapDomains[domain] = true
+						c.mu.Unlock()
+
+						// Get sitemaps from robots.txt if available
+						var robotsSitemaps []string
+						if c.robots != nil {
+							robotsSitemaps = c.robots.Sitemaps(e.url)
+						}
+
+						sitemapURLs := c.sitemapFetcher.FetchSitemaps(domain, robotsSitemaps)
+						if c.debug {
+							fmt.Printf("[debug] sitemap discovery for %s: found %d URLs\n", domain, len(sitemapURLs))
+						}
+
+						// Enqueue discovered URLs with scope filtering
+						for _, sURL := range sitemapURLs {
+							if cfg.Scope != nil && !cfg.Scope.MatchString(sURL) {
+								continue
+							}
+							if cfg.SameDomainOnly && c.initialHost != "" {
+								if parsed, err := url.Parse(sURL); err != nil || parsed.Hostname() != c.initialHost {
+									continue
+								}
+							}
+							c.enqueueURLs([]string{sURL}, 0)
+						}
+					}
 				}
 			}
 
