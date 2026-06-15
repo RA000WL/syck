@@ -21,6 +21,7 @@ import (
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/jsrecon"
+	"github.com/RA000WL/syck/internal/recon"
 )
 
 const maxEndpointBuf = 10 << 20
@@ -1055,6 +1056,25 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 					Context:   fmt.Sprintf("OpenAPI spec: %s %s", spec.Info.Title, spec.Info.Version),
 				})
 			}
+		}
+	}
+
+	// Security header analysis on crawled URLs
+	if cfg.HeaderCheck && len(crawled) > 0 {
+		headerDetector := recon.NewSecurityHeaderDetector(httpClient)
+		crawledURLs := make([]string, 0, len(crawled))
+		for _, c := range crawled {
+			crawledURLs = append(crawledURLs, c.URL)
+		}
+		for _, sf := range headerDetector.Detect(crawledURLs) {
+			allFindings = append(allFindings, finding.Finding{
+				File:           sf.URL,
+				Line:           1,
+				RuleName:       "attack_surface_" + sf.Category,
+				Severity:       sf.Severity,
+				ConfidenceBand: "HIGH",
+				Context:        sf.Category + ": " + sf.URL,
+			})
 		}
 	}
 

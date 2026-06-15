@@ -469,3 +469,82 @@ func TestCheckSecurityTxt_Present(t *testing.T) {
 		t.Errorf("expected 0 findings, got %d: %v", len(findings), findings)
 	}
 }
+
+// Task 7: Integration test
+
+func TestSecurityHeaderDetector_FullIntegration(t *testing.T) {
+	// Server 1: missing everything
+	srvBad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srvBad.Close()
+
+	// Server 2: weak CSP + CORS wildcard + cookies + server version
+	srvWeak := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval'")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Add("Set-Cookie", "session=abc123; Path=/")
+		w.Header().Set("Server", "nginx/1.18.0")
+		w.WriteHeader(200)
+	}))
+	defer srvWeak.Close()
+
+	// Server 3: all good headers
+	srvGood := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=()")
+		w.Header().Set("X-Powered-By", "Express")
+		w.WriteHeader(200)
+	}))
+	defer srvGood.Close()
+
+	d := NewSecurityHeaderDetector(srvBad.Client())
+	urls := []string{
+		srvBad.URL + "/",
+		srvWeak.URL + "/api",
+		srvGood.URL + "/secure",
+	}
+
+	findings := d.Detect(urls)
+	if len(findings) == 0 {
+		t.Fatal("expected findings, got none")
+	}
+
+	sourceSet := make(map[string]bool)
+	for _, f := range findings {
+		sourceSet[f.Source] = true
+	}
+
+	// Server 1 (bad): missing-csp, missing-xfo, missing-xcto, missing-referrer-policy, missing-permissions-policy
+	if !sourceSet["missing-csp"] {
+		t.Error("expected missing-csp from bad server")
+	}
+	if !sourceSet["missing-xfo"] {
+		t.Error("expected missing-xfo from bad server")
+	}
+
+	// Server 2 (weak): weak-csp-wildcard, weak-csp-unsafe-inline, weak-csp-unsafe-eval, cors-wildcard-credentials, server-version-disclosure
+	if !sourceSet["weak-csp-wildcard"] {
+		t.Error("expected weak-csp-wildcard from weak server")
+	}
+	if !sourceSet["weak-csp-unsafe-inline"] {
+		t.Error("expected weak-csp-unsafe-inline from weak server")
+	}
+	if !sourceSet["weak-csp-unsafe-eval"] {
+		t.Error("expected weak-csp-unsafe-eval from weak server")
+	}
+	if !sourceSet["cors-wildcard-credentials"] {
+		t.Error("expected cors-wildcard-credentials from weak server")
+	}
+	if !sourceSet["server-version-disclosure"] {
+		t.Error("expected server-version-disclosure from weak server")
+	}
+
+	// Server 3 (good): no additional bad findings from this origin
+	// (missing-csp and missing-xfo are from server 1, not server 3)
+}
