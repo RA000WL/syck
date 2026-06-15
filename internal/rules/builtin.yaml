@@ -747,3 +747,62 @@ rules:
     severity: MEDIUM
     pattern: '(?i)(?:md5|password[_\-]?hash)\s*[:=]\s*[''"]([0-9a-f]{32})[''"]'
     tags: [crypto, password-hash]
+
+  # --- Cloud Metadata Endpoints ---
+  - name: cloud_metadata_aws
+    severity: high
+    pattern: '169\.254\.169\.254(?:/latest/meta-data/|/latest/user-data/|/latest/dynamic/instance-identity/)'
+    description: 'AWS EC2 Instance Metadata Service endpoint'
+    tags: [cloud, aws, ssrf, metadata]
+
+  - name: cloud_metadata_gcp
+    severity: high
+    pattern: 'metadata\.google\.internal'
+    description: 'GCP Compute Engine metadata endpoint'
+    tags: [cloud, gcp, ssrf, metadata]
+
+  - name: cloud_metadata_azure
+    severity: high
+    pattern: '169\.254\.169\.254/metadata/instance'
+    description: 'Azure Instance Metadata Service endpoint'
+    tags: [cloud, azure, ssrf, metadata]
+
+  # --- Environment Variable Secrets ---
+  - name: env_sensitive_var
+    severity: high
+    pattern: '(?:^|\s)(?:DATABASE_URL|REDIS_URL|MONGODB_URI|MONGODB_CONNECTION|MONGO_URI|SUPABASE_URL|SUPABASE_KEY|SUPABASE_SERVICE_KEY)=(.+)'
+    description: 'Sensitive environment variable with connection string or URL'
+    tags: [env, database, sensitive]
+
+  - name: env_token_var
+    severity: high
+    pattern: '(?:^|\s)(?:MAILGUN_API_KEY|SENDGRID_API_KEY|TWILIO_AUTH_TOKEN|CLOUDFLARE_API_KEY|CF_API_KEY|ALGOLIA_API_KEY|ALGOLIA_SEARCH_KEY|STRIPE_SECRET_KEY|STRIPE_LIVE_SECRET|SQUARE_ACCESS_TOKEN)=(.+)'
+    description: 'Provider-specific sensitive token in environment variable'
+    tags: [env, token, provider]
+
+  - name: env_generic_secret
+    severity: medium
+    pattern: '(?:^|\s)(?:\w+_SECRET=\S{8,}|\w+_PASSWORD=\S{8,}|\w+_TOKEN=\S{20,}|\w+_API_KEY=\S{20,})'
+    description: 'Generic secret/password/token environment variable'
+    tags: [env, generic, secret]
+    requires_context: true
+    context_keywords: [secret, token, password, key, api, auth, access, private]
+    entropy_threshold: 3.0
+
+  - name: dotenv_file_secret
+    severity: high
+    pattern: '(?:^|\s)(?:SECRET|TOKEN|API_KEY|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|AUTH_TOKEN|DATABASE_URL|REDIS_URL|MONGODB_URI)=(.+)'
+    description: 'Sensitive value in .env or dotenv file'
+    tags: [env, dotenv, secret]
+
+  - name: env_aws_secret
+    severity: critical
+    pattern: '(?:^|\s)AWS_SECRET_ACCESS_KEY=(?![\s]*$)(\S+)'
+    description: 'AWS Secret Access Key in environment variable'
+    tags: [env, aws, cloud]
+
+  - name: npmrc_auth_token
+    severity: high
+    pattern: '_authToken\s*=\s*(?:ghp_|npm_)?[A-Za-z0-9_-]{20,}'
+    description: 'npm auth token in .npmrc file'
+    tags: [env, npm, token]
