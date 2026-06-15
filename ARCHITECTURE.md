@@ -72,16 +72,15 @@ syck-go/
 ├── .goreleaser.yaml                # Release config (linux/darwin/windows x amd64/arm64)
 ├── .syckignore                     # Self-suppression (eats its own dogfood)
 ├── README.md                       # User-facing docs
-├── ROADMAP.md                      # Contributor-facing roadmap
 ├── ARCHITECTURE.md                 # This file
-├── CHECKLIST.md                    # Build/release checklist
 │
 ├── cmd/                            # CLI layer (cobra)
 │   ├── root.go                     # Root command, version flags, persistent flags
-│   ├── scan.go                     # Main scan command — 60+ flags, orchestrates pipeline
+│   ├── scan.go                     # Main scan command — 67 flags, orchestrates pipeline
 │   ├── list_rules.go               # List all detection rules
 │   ├── ruletest.go                 # Rule quality testing harness
 │   ├── upload_sarif.go             # Upload SARIF to GitHub Code Scanning
+│   ├── verdict.go                  # Record true/false positive verdicts for adaptive learning
 │   ├── version.go                  # Print version/commit/date
 │   └── env.go                      # SYCK_* environment variable binding
 │
@@ -90,14 +89,14 @@ syck-go/
 │
 ├── internal/                       # All internal packages (not importable)
 │   ├── rules/                      # Rule loading, compilation, validation
-│   │   ├── builtin.yaml            # 160+ embedded rules (749 lines)
+│   │   ├── builtin.yaml            # 188 embedded rules (876 lines)
 │   │   ├── rule.go                 # Rule/RuleSet types, matching
 │   │   ├── load.go                 # YAML loading, embedding, RuleLoader
 │   │   ├── compile.go              # Thread-safe regex compilation cache
 │   │   └── validate.go             # Rule validation (names, severities, duplicates)
 │   │
 │   ├── scanner/                    # Core scanning engine
-│   │   ├── scanner.go              # Config struct (40+ fields)
+│   │   ├── scanner.go              # Config struct (51 fields)
 │   │   ├── scan.go                 # ScanPaths, ScanFile, ScanReader, ScanURLs, ScanContent
 │   │   ├── pipeline.go             # V1 Pipeline type (8 typed stages)
 │   │   ├── stage_*.go              # Individual pipeline stages
@@ -106,7 +105,10 @@ syck-go/
 │   │   ├── binary.go               # Binary string extraction
 │   │   ├── downgrade.go            # FP downgrade for test/mock/vendor
 │   │   ├── strip.go                # Comment line stripping
-│   │   └── url_secrets.go          # URL query parameter extraction
+│   │   ├── url_secrets.go          # URL query parameter extraction
+│   │   ├── techsource.go           # Source code technology fingerprinting
+│   │   ├── cookie_parser.go        # Browser-style cookie header parsing
+│   │   └── header_transport.go     # HTTP RoundTripper for custom header injection
 │   │
 │   ├── entropy/                    # Entropy analysis
 │   │   ├── entropy.go              # Shannon entropy, context gating, media filter
@@ -136,14 +138,11 @@ syck-go/
 │   │   └── cache.go                # SHA256 fingerprinting, INSERT-or-UPDATE
 │   │
 │   ├── adaptive/                   # Adaptive confidence learning engine
-│   │   ├── types.go                # Tier types, LearnedWeight, FilePattern
-│   │   ├── modifier.go             # Bayesian smoothing, modifier computation
-│   │   ├── store.go                # In-memory weight store, tier classification
-│   │   └── decay.go                # 90-day exponential half-life decay
+│   │   └── adaptive.go             # Tier types, Bayesian smoothing, modifier, weight store, decay
 │   │
 │   ├── endpoints/                  # API endpoint extraction
-│   │   ├── extract.go              # 21+ regex patterns
-│   │   └── risk.go                 # 19 risk scoring rules in 8 groups
+│   │   ├── extract.go              # 17 regex patterns
+│   │   └── risk.go                 # 14 risk scoring rules in 7 groups
 │   │
 │   ├── crawler/                    # Web crawling
 │   │   ├── crawler.go              # BFS crawler with parallel fetching
@@ -159,7 +158,9 @@ syck-go/
 │   │   ├── graphql_introspect.go   # GraphQL introspection probe
 │   │   ├── openapi.go              # OpenAPI/Swagger spec parser
 │   │   ├── archive.go              # Zip/tar/tar.gz/jar extraction (Zip Slip protection)
-│   │   └── packages.go             # Package file scanning (npm/yarn/go/cargo)
+│   │   ├── packages.go             # Package file scanning (npm/yarn/go/cargo)
+│   │   ├── urlcache.go             # SQLite cross-run URL dedup cache
+│   │   └── sitemap.go              # Sitemap XML parsing and fetching
 │   │
 │   ├── jsrecon/                    # JS string reconstruction
 │   │   ├── reconstruct.go          # 6 methods (concat, join, template, const, ternary, array index)
@@ -176,6 +177,7 @@ syck-go/
 │   │   ├── formatter.go            # Formatter interface + factory
 │   │   ├── text.go                 # Colorized terminal
 │   │   ├── json.go                 # Structured JSON
+│   │   ├── jsonl.go                # JSONL/NDJSON (one finding per line)
 │   │   ├── sarif.go                # SARIF 2.1.0
 │   │   ├── markdown.go             # Markdown tables
 │   │   ├── csv.go                  # CSV
@@ -191,7 +193,7 @@ syck-go/
 │   │
 │   ├── recon/                      # Attack surface detection
 │   │   ├── recon.go                # Registry + SurfaceFinding type
-│   │   └── detector_*.go           # 9 detectors (admin, debug, metrics, etc.)
+│   │   └── detector_*.go           # 11 detectors (admin, auth, debug, graphql, headers, internal, metrics, staging, storage, swagger, techweb)
 │   │
 │   ├── ignore/                     # .syckignore support
 │   │   └── ignore.go               # Fingerprint + regex pattern suppression
@@ -205,11 +207,14 @@ syck-go/
 │       ├── corpus.go               # Positive/negative corpus loading
 │       └── generate.go             # Corpus generation utilities
 │
+│   └── httpclient/                 # Shared HTTP client factory
+│       └── client.go               # Transport + client with proxy, TLS, timeout support
+│
 ├── docs/                           # Design docs and specs
 │   ├── examples/
 │   │   └── github-actions.yml      # Example CI workflow
 │   └── superpowers/                # Design specs and implementation plans
-│       ├── specs/v1/               # 12 module specs
+│       ├── specs/                  # Design specs
 │       └── plans/                  # Implementation plans
 │
 └── .github/
@@ -255,7 +260,7 @@ type Pipeline struct {
 SYCK uses a **multi-layer detection approach** where each layer catches different types of secrets:
 
 ### Layer 1: Regex Pattern Matching
-- **160+ rules** in `internal/rules/builtin.yaml`
+- **188 rules** in `internal/rules/builtin.yaml`
 - Each rule: name, severity, regex pattern, tags, optional entropy threshold, context keywords
 - Compiled once at startup with thread-safe caching (`internal/rules/compile.go`)
 - All rules matched against every line of every file
@@ -355,8 +360,8 @@ type Rule struct {
 type Formatter interface {
     Format(findings []finding.Finding, opts FormatOptions) (string, error)
 }
-// Implementations: TextFormatter, JSONFormatter, SARIFFormatter,
-//                  MarkdownFormatter, CSVFormatter, HTMLFormatter
+// Implementations: TextFormatter, JSONFormatter, JSONLFormatter,
+//                  SARIFFormatter, MarkdownFormatter, CSVFormatter, HTMLFormatter
 ```
 
 ### Validator Interface (`internal/validator/validator.go`)
@@ -397,13 +402,13 @@ type Detector interface {
 type Detector interface {
     Detect(urls []string) []SurfaceFinding
 }
-// 9 implementations: Admin, Debug, Metrics, Internal,
-// Staging, Swagger, GraphQL, Storage, Auth
+// 11 implementations: Admin, Auth, Debug, GraphQL, Headers, Internal,
+// Metrics, Staging, Storage, Swagger, TechFingerprintWeb
 ```
 
 ### Scanner Config (`internal/scanner/scanner.go`)
 
-Central configuration struct with 40+ fields controlling every aspect of scanning behavior. Passed through the entire pipeline.
+Central configuration struct with 51 fields controlling every aspect of scanning behavior. Passed through the entire pipeline.
 
 ---
 
@@ -411,27 +416,28 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 
 | Package | Lines | Responsibility |
 |---------|-------|----------------|
-| `cmd/` | ~800 | CLI layer: flag parsing, config loading, pipeline orchestration |
-| `scanner/` | ~2000 | Core engine: parallel file walk, per-line scanning, pipeline stages |
+| `cmd/` | ~1000 | CLI layer: flag parsing, config loading, pipeline orchestration |
+| `scanner/` | ~2500 | Core engine: parallel file walk, per-line scanning, pipeline stages, source tech detection |
 | `rules/` | ~400 | YAML rule loading, thread-safe compilation, validation |
 | `entropy/` | ~300 | Shannon entropy, per-alphabet thresholds, media filter, contextual secrets |
 | `decoder/` | ~500 | 9 decoder types + recursive pipeline (depth 3) |
 | `finding/` | ~200 | Finding struct, severity enum, dedup, summary building |
 | `confidence/` | ~100 | Multi-signal confidence scorer |
 | `correlation/` | ~600 | 8 multi-finding correlation detectors |
-| `correlator/` | ~100 | SQLite cross-run cache |
-| `adaptive/` | ~300 | Adaptive confidence learning engine (types, modifiers, tier classification, weight store) |
-| `endpoints/` | ~400 | 21+ endpoint extraction patterns + 19 risk rules |
-| `crawler/` | ~1500 | BFS web crawler, headless Chrome, archive extraction |
+| `correlator/` | ~200 | SQLite cross-run cache (findings, verdicts, learned weights) |
+| `adaptive/` | ~220 | Adaptive confidence learning (Bayesian smoothing, 4 tiers, 90-day decay) |
+| `endpoints/` | ~400 | 17 endpoint extraction patterns + 14 risk scoring rules |
+| `crawler/` | ~1800 | BFS web crawler, headless Chrome, archive extraction, URL cache, sitemap discovery |
 | `jsrecon/` | ~400 | JS string reconstruction (6 methods) + request analysis |
 | `json_scanner/` | ~150 | JSON tree-walking scanner |
 | `gitscan/` | ~150 | Git commit history walking |
-| `formatters/` | ~1200 | 6 output formats + webhook export + summary |
+| `formatters/` | ~1400 | 7 output formats + webhook export + summary |
 | `validator/` | ~800 | 13 live validation providers + rate limiting |
-| `recon/` | ~500 | 9 attack surface detectors |
+| `recon/` | ~800 | 11 attack surface detectors (security headers, tech fingerprinting, admin/debug/metrics) |
 | `ignore/` | ~100 | .syckignore fingerprint + regex suppression |
 | `progress/` | ~80 | TUI progress bar wrapper |
 | `ruletest/` | ~300 | Rule quality testing harness |
+| `httpclient/` | ~80 | Shared HTTP client factory with proxy, TLS, timeout support |
 | `config/` | ~60 | Viper config loading |
 
 ---
@@ -453,7 +459,7 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 │                       PER-FILE SCANNING                             │
 │                                                                     │
 │  1. Comment stripping (--strip-comments)                            │
-│  2. Regex rule matching (160+ rules, all matched per line)         │
+│  2. Regex rule matching (188 rules, all matched per line)             │
 │  3. Entropy token scan (context-gated, alphabet-aware thresholds)  │
 │  4. Contextual secret extraction (entropy ≥ 4.5, length ≥ 20)     │
 │  5. Multi-line pattern matching (--multiline, 10-line window)      │
@@ -464,7 +470,8 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 │  Additional per-file passes:                                       │
 │  • JSON tree scanning (.json files)                                │
 │  • JS string reconstruction (--js-reconstruct)                     │
-│  • Endpoint extraction (--endpoints, 21+ patterns)                 │
+│  • Endpoint extraction (--endpoints, 17 patterns)                  │
+│  • Source technology fingerprinting (--tech-detect)                 │
 │  • Package file scanning (npm/yarn/go/cargo)                       │
 │  • Binary string extraction (for binary files)                     │
 │  • Archive extraction (zip/tar/jar with Zip Slip protection)       │
@@ -481,13 +488,14 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 │  4. Live validation (--validate, 13 provider APIs)                 │
 │  5. SQLite cache recording (--cache-db)                            │
 │  5a. Load adaptive weights (--adaptive flag, from SQLite cache)    │
+│  6. URL cache recording (--url-cache-db, cross-run URL dedup)      │
 └──────────────────────────────────┬──────────────────────────────────┘
                                    │
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        OUTPUT                                       │
 │                                                                     │
-│  Select formatter: text / json / sarif / markdown / csv / html     │
+│  Select formatter: text / json / jsonl / sarif / markdown / csv / html │
 │  Apply redaction (--redact), color (--no-color)                    │
 │  Show adaptive modifier + learning tier (when adaptive enabled)    │
 │  Write to file (--output) or stdout                                │
@@ -514,6 +522,7 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 - Parallel fetching with host-level semaphores
 - Cookie jar support with file persistence
 - robots.txt compliance (optional)
+- Sitemap XML discovery with recursion limits
 - Random user-agent rotation (80+ strings)
 - Headless Chrome via go-rod for SPAs
 - Source map harvesting (.js → .js.map)
@@ -522,6 +531,9 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 - OpenAPI/Swagger spec parsing
 - Juicy file probing (65 high-value paths)
 - Archive extraction (zip/tar/tar.gz/jar)
+- Cross-run URL cache (--url-cache-db, SQLite dedup)
+- Security header analysis (--header-check, 18 finding types)
+- Technology fingerprinting (--tech-detect, 40+ technologies)
 
 ### Stdin Scanning (`--pipe`)
 - Buffered read, scan as single content block
@@ -555,6 +567,11 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 - Atomic INSERT-or-UPDATE for concurrent access
 - Enables progressive triage across scan runs
 
+### URL Cache (`--url-cache-db`)
+- Table: `crawled_urls` (url_hash TEXT PRIMARY KEY, url, status_code, content_hash, first_seen, last_seen)
+- Cross-run URL dedup: skips previously fetched URLs on subsequent scans
+- Content hash enables detecting content changes across runs
+
 ---
 
 ## 11. Output Formats
@@ -563,6 +580,7 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 |--------|---------|----------|
 | Text | `--format text` | Terminal (default, colorized) |
 | JSON | `--format json` | Machine parsing, dashboards |
+| JSONL | `--format jsonl` | Streaming/piping, one finding per line |
 | SARIF | `--format sarif` | GitHub Code Scanning upload |
 | Markdown | `--format markdown` | PR comments, reports |
 | CSV | `--format csv` | Spreadsheets, data analysis |
@@ -598,7 +616,7 @@ Central configuration struct with 40+ fields controlling every aspect of scannin
 
 ### Risk Scoring (per endpoint)
 
-- 19 group-weighted rules in 8 groups
+- 14 group-weighted rules in 7 groups
 - Per-group max (not flat sum) prevents one category from dominating
 - Score: 0-10 integer
 - `RequiresAPIPrefix` protection against FPs
@@ -677,9 +695,12 @@ Unconfirmed secrets are downgraded to `INFO` severity.
 | **Live Validation** | 13 provider APIs (see above) |
 | **Webhook Export** | Slack, Discord, generic JSON |
 | **SQLite Cache** | Cross-run fingerprinting for progressive triage |
+| **URL Cache** | SQLite cross-run URL dedup for crawler |
 | **Adaptive Learning** | Bayesian confidence adjustment from user verdicts |
 | **GitHub** | SARIF upload (`syck upload-sarif`), Actions workflow, push protection |
 | **Headless Chrome** | go-rod for SPA/JS-rendered page scanning |
+| **Security Headers** | CSP, HSTS, CORS, cookies, server info — 18 finding types |
+| **Tech Fingerprinting** | 40+ technologies from HTTP responses and source code |
 
 ---
 
@@ -698,14 +719,16 @@ Unconfirmed secrets are downgraded to `INFO` severity.
 | `syck version` | Print version, commit, date |
 | `syck completion bash` | Generate shell completions |
 
-### Key Flags (60+ total)
+### Key Flags (67 total)
 
 **Core:** `--severity`, `--format`, `--output`, `--redact`, `--workers`, `--exclude`, `--quiet`, `--no-color`
 **Decoders:** `--decode-base64/hex/unicode/url/gzip`, `--js-reconstruct`
 **URL:** `--url`, `--crawl-limit/depth`, `--headless`, `--rate-limit`, `--scope`
-**Analysis:** `--endpoints`, `--git-history`, `--validate`, `--multiline`, `--strip-comments`, `--scan-archives`, `--scan-binaries`
+**Analysis:** `--endpoints`, `--git-history`, `--validate`, `--multiline`, `--strip-comments`, `--scan-archives`, `--scan-binaries`, `--header-check`, `--tech-detect`
 **Export:** `--webhook-url/style`, `--cache-db`, `--fail-on`
 **Adaptive:** `--adaptive` (enable adaptive learning adjustment on scan)
+**Bug Bounty:** `--proxy`, `--auth-token`, `--header`, `--scope-file`, `--cookie`, `--no-sitemap`, `--diff`, `--http-timeout`
+**URL Cache:** `--url-cache-db` (SQLite cross-run URL dedup)
 **Environment Variables:** Every flag via `SYCK_SCAN_<FLAG>` (uppercase, dashes → underscores)
 
 ---
@@ -728,20 +751,22 @@ rules:
     multi_line: false
 ```
 
-### Rule Categories (160+ rules)
+### Rule Categories (188 rules)
 
 | Category | Examples | Count |
 |----------|----------|-------|
-| Cloud | AWS (5), GCP (5), Azure (3) | 13 |
+| Cloud | AWS (5), GCP (5), Azure (3), Alibaba, Hetzner, Scaleway, Linode | 20 |
 | VCS | GitHub (5), GitLab (2) | 7 |
 | Messaging | Slack (3), Discord (2), Telegram (1) | 6 |
 | Payments | Stripe (4), Square (2), PayPal/Braintree (1) | 7 |
 | AI Providers | OpenAI (3), Anthropic (2), HuggingFace, Replicate, Groq, etc. | 30+ |
 | SaaS | Notion, Linear, Supabase, PlanetScale, ngrok, Cloudflare, etc. | 20+ |
-| Infrastructure | Vault, Docker, Kubernetes, Pulumi, CircleCI, Jenkins, etc. | 15+ |
-| Crypto | RSA/DSA/EC/OpenSSH/PGP private keys | 5 |
+| Infrastructure | Vault, Docker, Kubernetes, Pulumi, CircleCI, Jenkins, Terraform, etc. | 20+ |
+| Crypto | RSA/DSA/EC/OpenSSH/PGP/Age private keys | 6 |
 | Database | PostgreSQL, MySQL, MongoDB, Redis, SQLite connection strings | 5 |
+| Firebase | Service account, Admin SDK, google-services.json | 3 |
 | Generic | catch-all patterns for secrets, passwords, tokens, API keys | 10+ |
+| Environment | Cloud metadata, .env files, npm auth tokens | 9 |
 | PII | email addresses | 1 |
 | Password Hashes | bcrypt, SHA256, MD5 | 3 |
 
@@ -762,7 +787,7 @@ rules:
 |---------|----------|
 | `scanner/` | 14 test files — pipeline stages, URL secrets, auth headers, multiline, binary, strip, entropy, decoder, correlation, verifier, reporter, collector |
 | `correlation/` | 11 test files — all 8 detectors + integration |
-| `recon/` | 9 test files — all 9 detectors |
+| `recon/` | 9 test files — all 11 detectors |
 | `crawler/` | 8 test files — crawl, extract, archive, juicy, cloud storage, GraphQL, OpenAPI |
 | `rules/` | 4 test files — compile, load, validate, matching |
 | `decoder/` | 5 test files — registry, pipeline, JWT, base64url, doublebase64 |
@@ -837,9 +862,9 @@ git checkout -b feature/my-rule
 
 ### Workflow
 
-1. **Pick a task** from ROADMAP.md
+1. **Pick a task** from the issue tracker or `docs/superpowers/plans/`
 2. **Claim it** — change `[ ]` to `[WIP]` in your PR
-3. **Read the spec** at `docs/superpowers/specs/v1/NN-<module>.md`
+3. **Read the spec** at `docs/superpowers/specs/`
 4. **Write tests first** — every new package needs unit tests
 5. **Update checklist** — mark `[x]` when done
 
@@ -873,20 +898,23 @@ git checkout -b feature/my-rule
 | V1.6 | Code Reviews | 3 rounds of review (Zip Slip, OOB bounds, dead code cleanup, performance) |
 | V1.7 | Operational Polish | Env var config, TUI progress, SARIF upload |
 
-### V1.8 (In Progress)
+### V1.8 — Bug Bounty Core
 
-- Endpoint detection from JS-aware crawl
-- Risk scoring (19 rules, 0-10 scale)
-- Source map harvesting
-- Juicy file probing (65 paths)
+- Bug bounty flags (proxy, auth-token, header, scope-file, cookie, no-sitemap, diff, http-timeout)
+- Shared HTTP client factory (proxy, TLS, timeout support)
+- Sitemap XML discovery with recursion limits
+- JSONL/NDJSON output format
+- Diff mode (--diff, only new findings)
+- Cookie parser and header transport
+- 9 new detection rules (cloud metadata, env secrets, age, twilio, cloudflare, firebase, terraform, supabase, alibaba, hetzner, scaleway, linode)
 
-### V1.9 (In Progress)
+### V1.9 — Security Headers & Tech Fingerprinting
 
-- Adaptive confidence learning — learns from user verdicts to reduce false positives
-- `syck verdict` command for recording tp/fp feedback
-- Bayesian smoothing with 90-day exponential decay
-- Per-rule+file_pattern learning tiers (Experimental/Learning/Mature/Trusted)
-- High-certainty rule caps to prevent accidental suppression
+- Security header analysis (18 finding types: CSP, HSTS, CORS, cookies, XCTO, Referrer-Policy, Permissions-Policy, server info, security.txt)
+- Web technology fingerprinting (40+ technologies from HTTP headers, body, cookies)
+- Source code technology fingerprinting (package manifests, config files, imports)
+- --header-check and --tech-detect CLI flags (both default: true)
+- 188 total detection rules
 
 ---
 
@@ -901,6 +929,6 @@ When working on this codebase:
 5. **Rules file**: `internal/rules/builtin.yaml`
 6. **Entry point**: `main.go` → `cmd.Execute()`
 7. **Core scanning**: `internal/scanner/scan.go` (ScanPaths, ScanContent, etc.)
-8. **Output**: 6 formats via `internal/formatters/`
+8. **Output**: 7 formats via `internal/formatters/` (text, json, jsonl, sarif, markdown, csv, html)
 9. **Never assume libraries** — check `go.mod` and neighboring files first
 10. **Run tests after every change** — `go test -race ./...`
