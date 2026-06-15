@@ -584,6 +584,20 @@ rules:
     severity: MEDIUM
     pattern: '(?i)ansible_vault_password\s*[:=]\s*.+'
     tags: [ansible, infrastructure]
+  - name: terraform_aws_access_key
+    severity: CRITICAL
+    pattern: '(?i)(?:access_key|secret_key)\s*=\s*[''"](?:AKIA|ASIA)[A-Z0-9]{16}[''"]'
+    tags: [terraform, iac, aws]
+  - name: terraform_sensitive_var
+    severity: HIGH
+    pattern: '(?i)(?:password|secret|token|api_key|private_key)\s*=\s*[''"][^''"]{8,}[''"]'
+    tags: [terraform, iac, sensitive]
+    requires_context: true
+    context_keywords: [variable, sensitive, default]
+  - name: terraform_backend_credentials
+    severity: CRITICAL
+    pattern: '(?i)(?:access_key|secret_key|password|token)\s*[:=]\s*[''"][^''"]{8,}[''"]'
+    tags: [terraform, iac, backend]
 
   # ── Productivity / Design ────────────────
   - name: figma_api_token
