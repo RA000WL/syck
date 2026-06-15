@@ -441,6 +441,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 		findings = ignore.Filter(findings, ignoreSet)
 	}
 
+	// Diff mode: only show new findings
+	if diffMode {
+		findings = scanner.FilterNewOnly(findings)
+	}
+
 	// --validate: check if found secrets are live against provider APIs
 	if validate {
 		for i := range findings {

@@ -1123,6 +1123,17 @@ func checkEntropyToken(tok string, thresholds map[string]float64) bool {
 	return true
 }
 
+// FilterNewOnly returns only findings marked as new (IsNew == true).
+func FilterNewOnly(findings []finding.Finding) []finding.Finding {
+	var result []finding.Finding
+	for _, f := range findings {
+		if f.IsNew {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 func contextLabel(tagPrefix string) string {
 	switch tagPrefix {
 	case "archive_":
