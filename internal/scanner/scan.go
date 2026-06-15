@@ -878,6 +878,23 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	httpClient := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
 
+	// Wire custom headers and cookies into crawl transport
+	if len(cfg.Headers) > 0 || cfg.CookieString != "" {
+		effectiveHeaders := make(map[string][]string)
+		for k, vals := range cfg.Headers {
+			effectiveHeaders[k] = vals
+		}
+		if cfg.CookieString != "" {
+			for _, c := range ParseCookies(cfg.CookieString) {
+				effectiveHeaders["Cookie"] = append(effectiveHeaders["Cookie"], c.String())
+			}
+		}
+		httpClient.Transport = &headerTransport{
+			base:    httpClient.Transport,
+			headers: effectiveHeaders,
+		}
+	}
+
 	crawlCfg := crawler.CrawlConfig{
 		Scope:           cfg.Scope,
 		Limit:           cfg.CrawlLimit,
