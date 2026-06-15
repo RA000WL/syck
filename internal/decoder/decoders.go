@@ -166,3 +166,13 @@ func init() {
 func activeDecoders(flags Flags) []Decoder {
 	return defaultRegistry.Active(flags)
 }
+
+// PrecomputeDecoders returns the active decoder list for the given flags.
+// Call this once per scan config and pass the result to DecodeAndRescanWithDecoders
+// instead of calling DecodeAndRescan per line (which re-computes the list each time).
+func PrecomputeDecoders(flags Flags) []Decoder {
+	if !flags.HasAny() {
+		return nil
+	}
+	return defaultRegistry.Active(flags)
+}

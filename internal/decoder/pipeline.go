@@ -28,8 +28,30 @@ func DecodeAndRescan(
 	minSev finding.Severity,
 	flags Flags,
 ) []finding.Finding {
-	var findings []finding.Finding
 	decoders := activeDecoders(flags)
+	if len(decoders) == 0 {
+		return nil
+	}
+	var findings []finding.Finding
+	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders)
+	return findings
+}
+
+// DecodeAndRescanWithDecoders is like DecodeAndRescan but uses a pre-computed
+// decoder list. Use PrecomputeDecoders to get the list once per scan config,
+// then call this per line to avoid re-computing the decoder list thousands of times.
+func DecodeAndRescanWithDecoders(
+	line string,
+	path string,
+	lineno int,
+	rs *rules.RuleSet,
+	minSev finding.Severity,
+	decoders []Decoder,
+) []finding.Finding {
+	if len(decoders) == 0 {
+		return nil
+	}
+	var findings []finding.Finding
 	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders)
 	return findings
 }

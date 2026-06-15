@@ -425,6 +425,10 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		Gzip:     cfg.DecodeGzip,
 		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
 	}
+	var activeDec []decoder.Decoder
+	if hasDecoders {
+		activeDec = decoder.PrecomputeDecoders(df)
+	}
 
 	// Accumulate content for endpoint extraction (up to 10MB to avoid OOM)
 	var contentBuf strings.Builder
@@ -454,6 +458,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		for _, rule := range cfg.Rules.Rules {
 			matches := rule.MatchAll(line)
 			for _, m := range matches {
+				if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) {
+					continue
+				}
 				var secret string
 				if m[1] <= len(line) {
 					secret = line[m[0]:m[1]]
@@ -535,8 +542,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		}
 
 		if hasDecoders {
-			findings = append(findings, decoder.DecodeAndRescan(line, path, lineNum,
-				cfg.Rules, cfg.MinSeverity, df)...)
+			findings = append(findings, decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
+				cfg.Rules, cfg.MinSeverity, activeDec)...)
 		}
 
 		urlFindings := ExtractURLSecrets(line, path, lineNum)
@@ -592,6 +599,10 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		Gzip:     cfg.DecodeGzip,
 		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
 	}
+	var activeDec []decoder.Decoder
+	if hasDecoders {
+		activeDec = decoder.PrecomputeDecoders(df)
+	}
 
 	var mlScanner *MultiLineScanner
 	if cfg.MultiLine {
@@ -625,6 +636,9 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		for _, rule := range cfg.Rules.Rules {
 			matches := rule.MatchAll(line)
 			for _, m := range matches {
+				if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) {
+					continue
+				}
 				var secret string
 				if m[1] <= len(line) {
 					secret = line[m[0]:m[1]]
@@ -762,8 +776,8 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		}
 
 		if hasDecoders {
-			decodedFindings := decoder.DecodeAndRescan(line, path, lineNum,
-				cfg.Rules, cfg.MinSeverity, df)
+			decodedFindings := decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
+				cfg.Rules, cfg.MinSeverity, activeDec)
 			if tagPrefix != "" {
 				for i := range decodedFindings {
 					decodedFindings[i].RuleName = tagPrefix + decodedFindings[i].RuleName
@@ -917,6 +931,14 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		RespectRobots:   cfg.RespectRobots,
 		SameDomainOnly:  true,
 		HTTPClient:      httpClient,
+	}
+
+	// Open URL cache if configured
+	if cfg.URLCacheDB != "" {
+		if urlCache, uErr := crawler.OpenURLCache(cfg.URLCacheDB); uErr == nil {
+			defer urlCache.Close()
+			crawlCfg.URLCache = urlCache
+		}
 	}
 
 	crawled := crawler.Crawl(urls, crawlCfg)

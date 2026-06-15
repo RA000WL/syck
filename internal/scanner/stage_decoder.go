@@ -15,16 +15,22 @@ type DecoderFlags struct {
 }
 
 type DecoderStage struct {
-	rs    *rules.RuleSet
-	min   finding.Severity
-	flags DecoderFlags
+	rs       *rules.RuleSet
+	min      finding.Severity
+	flags    DecoderFlags
+	decoders []decoder.Decoder
 }
 
 func NewDecoderStage(rs *rules.RuleSet, min finding.Severity, flags DecoderFlags) *DecoderStage {
-	return &DecoderStage{rs: rs, min: min, flags: flags}
+	df := decoder.Flags{Base64: flags.Base64, Hex: flags.Hex, Unicode: flags.Unicode, URL: flags.URL}
+	return &DecoderStage{
+		rs:       rs,
+		min:      min,
+		flags:    flags,
+		decoders: decoder.PrecomputeDecoders(df),
+	}
 }
 
 func (s *DecoderStage) Process(line, path string, lineno int) []finding.Finding {
-	df := decoder.Flags{Base64: s.flags.Base64, Hex: s.flags.Hex, Unicode: s.flags.Unicode, URL: s.flags.URL}
-	return decoder.DecodeAndRescan(line, path, lineno, s.rs, s.min, df)
+	return decoder.DecodeAndRescanWithDecoders(line, path, lineno, s.rs, s.min, s.decoders)
 }
