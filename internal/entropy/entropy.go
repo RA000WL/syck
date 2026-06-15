@@ -297,6 +297,10 @@ func ExtractContextualSecrets(line string, minEntropy float64) []ContextualSecre
 		if e < minEntropy {
 			continue
 		}
+		idx := strings.Index(line, tok)
+		if idx > 0 && (line[idx-1] == '/' || line[idx-1] == ':' || line[idx-1] == '@') {
+			continue
+		}
 		results = append(results, ContextualSecret{Token: tok, Entropy: e})
 	}
 	return results

@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"strings"
+
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
 )
@@ -21,6 +23,9 @@ func (s *RuleStage) Process(line, path string, lineno int) []finding.Finding {
 		if sev < s.min || r.Compiled() == nil {
 			continue
 		}
+		if r.RequiresContext && !lineHasContextKeyword(line, r.ContextKeywords) {
+			continue
+		}
 		for _, m := range r.MatchAll(line) {
 			secret := line[m[0]:m[1]]
 			out = append(out, finding.Finding{
@@ -34,4 +39,14 @@ func (s *RuleStage) Process(line, path string, lineno int) []finding.Finding {
 		}
 	}
 	return out
+}
+
+func lineHasContextKeyword(line string, keywords []string) bool {
+	lower := strings.ToLower(line)
+	for _, kw := range keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
 }

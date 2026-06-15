@@ -34,10 +34,10 @@ rules:
     severity: CRITICAL
     pattern: '"private_key_id":\s*"[a-f0-9]{40}"'
     tags: [gcp, google]
-  - name: gcp_service_account_key
-    severity: CRITICAL
+  - name: private_key_pkcs8
+    severity: HIGH
     pattern: '-----BEGIN PRIVATE KEY-----'
-    tags: [gcp, google]
+    tags: [crypto, private-key]
   - name: firebase_fcm_key
     severity: HIGH
     pattern: '\bAAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}\b'
@@ -390,7 +390,7 @@ rules:
     tags: [newrelic, monitoring]
   - name: notion_api_token
     severity: HIGH
-    pattern: '\b(?:ntn|secret)_[a-zA-Z0-9\-_]{16,}\b'
+    pattern: '\bntn_[a-zA-Z0-9\-_]{16,}\b'
     tags: [notion, productivity]
   - name: instagram_api_token
     severity: MEDIUM
@@ -447,11 +447,9 @@ rules:
     multi_line: true
   - name: docker_compose_secret
     severity: HIGH
-    pattern: '(?i)(?:environment|env):\s*\n\s+(?:.*(?:password|secret|token|api_key|access_key)\s*[:=]\s*[''"]?\S+){1}'
+    pattern: '(?i)(?:environment|env):\s*\n\s+(?:.*(?:password|secret|token|api_key|access_key)\s*[:=]\s*[''"][^''"]{8,}[''"]){1}'
     tags: [docker, container]
     multi_line: true
-    requires_context: true
-    context_keywords: [password, secret, token, api_key, access_key, auth]
   - name: pulumi_access_token
     severity: CRITICAL
     pattern: '\bpul-[a-f0-9]{40}\b'
@@ -598,6 +596,8 @@ rules:
     severity: CRITICAL
     pattern: '(?i)(?:access_key|secret_key|password|token)\s*[:=]\s*[''"][^''"]{8,}[''"]'
     tags: [terraform, iac, backend]
+    requires_context: true
+    context_keywords: [backend, credential, aws_secret, aws_access, s3, dynamodb]
 
   # ── Productivity / Design ────────────────
   - name: figma_api_token
@@ -756,7 +756,7 @@ rules:
     tags: [credential, netrc]
   - name: heroku_api_key
     severity: HIGH
-    pattern: '\b[A-Za-z0-9\-]{20,}\b.*heroku'
+    pattern: '(?i)(?:heroku[_\-]?(?:api[_\-]?key|token|secret))\s*[:=]\s*[''"][A-Za-z0-9\-]{20,}[''"]'
     tags: [cloud, heroku]
   - name: digitalocean_token
     severity: CRITICAL
