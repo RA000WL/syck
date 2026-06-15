@@ -1,21 +1,26 @@
 package validator
 
 import (
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/RA000WL/syck/internal/httpclient"
 )
 
 var (
-	httpClient = &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
+	httpClient         *http.Client
 	defaultRateLimiter = NewRateLimiter(5.0)
 )
+
+// InitValidatorClient sets the validator's HTTP client with proxy support.
+func InitValidatorClient(proxyURL string) {
+	httpClient = httpclient.NewClient(5*time.Second, proxyURL, true)
+}
+
+func init() {
+	httpClient = httpclient.NewClient(5*time.Second, "", true)
+}
 
 func httpDo(req *http.Request) (*http.Response, error) {
 	host := req.URL.Host

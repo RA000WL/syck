@@ -3,7 +3,6 @@ package scanner
 import (
 	"bufio"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/RA000WL/syck/internal/endpoints"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/jsrecon"
 )
@@ -876,15 +876,7 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 }
 
 func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	httpClient := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
 
 	crawlCfg := crawler.CrawlConfig{
 		Scope:           cfg.Scope,

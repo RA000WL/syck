@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RA000WL/syck/internal/httpclient"
 )
 
 type robotsEntry struct {
@@ -30,7 +32,7 @@ type RobotsCache struct {
 
 func NewRobotsCache(client *http.Client, ua string) *RobotsCache {
 	if client == nil {
-		client = defaultHTTPClient
+		client = httpclient.NewClient(10*time.Second, "", false)
 	}
 	return &RobotsCache{
 		cache:  make(map[string]*robotsRule),

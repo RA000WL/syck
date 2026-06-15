@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	neturl "net/url"
 	"os"
 	"time"
 
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/httpclient"
 )
 
 type WebhookStyle string
@@ -20,7 +20,22 @@ const (
 	WebhookJSON    WebhookStyle = "json"
 )
 
-func PostWebhook(url string, style WebhookStyle, findings []finding.Finding) error {
+type WebhookOption func(*webhookConfig)
+
+type webhookConfig struct {
+	proxyURL string
+}
+
+func WithProxy(url string) WebhookOption {
+	return func(c *webhookConfig) { c.proxyURL = url }
+}
+
+func PostWebhook(url string, style WebhookStyle, findings []finding.Finding, opts ...WebhookOption) error {
+	var cfg webhookConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	if parsedURL, err := neturl.Parse(url); err == nil && parsedURL.Scheme == "http" {
 		fmt.Fprintf(os.Stderr, "[warning] webhook URL uses HTTP — secrets will be sent in plaintext\n")
 	}
@@ -40,7 +55,7 @@ func PostWebhook(url string, style WebhookStyle, findings []finding.Finding) err
 		return err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpclient.NewClient(10*time.Second, cfg.proxyURL, false)
 	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err

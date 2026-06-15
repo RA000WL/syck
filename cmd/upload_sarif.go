@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/spf13/cobra"
 )
 
@@ -79,7 +80,7 @@ func runUploadSarif(cmd *cobra.Command, args []string) error {
 	req.Header.Set("User-Agent", "syck-go")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := httpclient.NewClient(30*time.Second, proxyURL, false)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)

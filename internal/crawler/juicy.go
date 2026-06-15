@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/httpclient"
 )
 
 var defaultJuicyPaths = []string{
@@ -58,7 +59,7 @@ type JuicyFinding struct {
 
 func ProbeJuicy(cfg JuicyConfig) []JuicyFinding {
 	if cfg.Client == nil {
-		cfg.Client = &http.Client{Timeout: 10 * time.Second}
+		cfg.Client = httpclient.NewClient(10*time.Second, "", false)
 	}
 	base, err := url.Parse(cfg.BaseURL)
 	if err != nil {
