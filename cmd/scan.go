@@ -402,6 +402,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	if progressFlag && !quiet && !pipe {
 		if urlMode {
+			target := allURLs[0]
+			scope := ""
+			if scopeStr != "" {
+				scope = scopeStr
+			}
+			progress.PrintBanner(os.Stderr, progress.BannerConfig{
+				Target:       target,
+				Scope:        scope,
+				Workers:      concurrency,
+				RateLimit:    rateLimit,
+				CrawlLimit:   crawlLimit,
+				CrawlDepth:   crawlDepth,
+				Timeout:      httpTimeout,
+				UserAgent:    userAgent,
+				Headless:     headless,
+				ExtractLinks: true,
+				Endpoints:    endpoints,
+				Proxy:        proxyURL,
+			})
 			up := progress.NewURLProgress(os.Stderr, len(allURLs))
 			defer up.Finish()
 			scanCfg.URLProgress = func(url string, findings []finding.Finding, done bool) {

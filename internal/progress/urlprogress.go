@@ -11,6 +11,80 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 )
 
+// BannerConfig holds scan configuration for the startup banner.
+type BannerConfig struct {
+	Target       string
+	Scope        string
+	Workers      int
+	RateLimit    int
+	CrawlLimit   int
+	CrawlDepth   int
+	Timeout      string
+	UserAgent    string
+	Headless     bool
+	ExtractLinks bool
+	Endpoints    bool
+	Proxy        string
+}
+
+// PrintBanner displays a feroxbuster-style startup banner.
+func PrintBanner(w io.Writer, cfg BannerConfig) {
+	target := cfg.Target
+	if len(target) > 50 {
+		target = target[:47] + "..."
+	}
+	scope := cfg.Scope
+	if scope == "" {
+		scope = "(auto)"
+	}
+
+	threads := fmt.Sprintf("%d", cfg.Workers)
+	if cfg.RateLimit > 0 {
+		threads = fmt.Sprintf("%d (rate-limited: %d req/s)", cfg.Workers, cfg.RateLimit)
+	}
+
+	lines := []struct{ label, value string }{
+		{"🎯  Target Url", target},
+		{"🚩  In-Scope Url", scope},
+		{"🚀  Threads", threads},
+		{"📖  Crawl Limit", fmt.Sprintf("%d URLs", cfg.CrawlLimit)},
+		{"🔀  Recursion Depth", fmt.Sprintf("%d", cfg.CrawlDepth)},
+		{"💥  Timeout", cfg.Timeout},
+		{"🦡  User-Agent", cfg.UserAgent},
+		{"🔗  Extract Links", boolStr(cfg.ExtractLinks)},
+		{"🔍  Endpoints", boolStr(cfg.Endpoints)},
+	}
+
+	if cfg.Headless {
+		lines = append(lines, struct{ label, value string }{"🖥️  Headless Chrome", "enabled"})
+	}
+	if cfg.Proxy != "" {
+		lines = append(lines, struct{ label, value string }{"🔀  Proxy", cfg.Proxy})
+	}
+
+	maxLabel := 0
+	for _, l := range lines {
+		if len(l.label) > maxLabel {
+			maxLabel = len(l.label)
+		}
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "───────────────────────────┬──────────────────────")
+	for _, l := range lines {
+		fmt.Fprintf(w, " %-*s │ %s\n", maxLabel, l.label, l.value)
+	}
+	fmt.Fprintln(w, "───────────────────────────┴──────────────────────")
+	fmt.Fprintln(w)
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 // URLProgress holds real-time scan state for URL scanning mode.
 type URLProgress struct {
 	mu          sync.Mutex
