@@ -793,6 +793,11 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		findings = append(findings, urlFindings...)
 	}
 
+	// Source technology fingerprinting
+	if cfg.TechDetect {
+		findings = append(findings, DetectSourceTech(content, path)...)
+	}
+
 	return findings
 }
 
