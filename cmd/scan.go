@@ -116,6 +116,7 @@ var (
 	httpTimeout       string
 	headerCheck       bool
 	techDetect        bool
+	urlCacheDB        string
 )
 
 func init() {
@@ -186,6 +187,7 @@ func init() {
 	scanCmd.Flags().StringVar(&httpTimeout, "http-timeout", "10s", "HTTP client timeout (e.g. 10s, 30s)")
 	scanCmd.Flags().BoolVar(&headerCheck, "header-check", true, "analyze HTTP security headers on discovered URLs (use --no-header-check to disable)")
 	scanCmd.Flags().BoolVar(&techDetect, "tech-detect", true, "detect technologies from HTTP responses and source code (use --no-tech-detect to disable)")
+	scanCmd.Flags().StringVar(&urlCacheDB, "url-cache-db", "", "path to SQLite URL cache database for cross-run crawl dedup")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -395,6 +397,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		NoSitemap:         noSitemap,
 		HeaderCheck:       headerCheck,
 		TechDetect:        techDetect,
+		URLCacheDB:        urlCacheDB,
 	}
 
 	if progressFlag && !quiet && !pipe {

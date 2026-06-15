@@ -70,4 +70,5 @@ type Config struct {
 	NoSitemap     bool                // disable robots/sitemap discovery
 	HeaderCheck   bool                // analyze HTTP security headers on discovered URLs
 	TechDetect    bool                // detect technologies from HTTP responses and source code
+	URLCacheDB    string              // path to SQLite URL cache database for cross-run dedup
 }

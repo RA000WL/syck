@@ -29,6 +29,7 @@ type CrawlConfig struct {
 	RespectRobots   bool
 	SameDomainOnly  bool
 	SitemapEnabled  bool
+	URLCache        *URLCache
 }
 
 type hostRateLimiter struct {
@@ -280,6 +281,14 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 				}
 			}
 
+			// Check URL cache — skip fetch if previously seen with same content
+			if c.config.URLCache != nil && c.config.URLCache.IsSeen(e.url) {
+				if c.debug {
+					fmt.Printf("[debug] cache hit: %s\n", e.url)
+				}
+				return
+			}
+
 			var content, contentType string
 			var fetchErr error
 
@@ -301,6 +310,11 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 					fmt.Printf("[debug] fetch %s: %v\n", e.url, fetchErr)
 				}
 				return
+			}
+
+			// Record in URL cache
+			if c.config.URLCache != nil {
+				c.config.URLCache.Record(e.url, 200, content)
 			}
 
 			c.addResult(CrawledURL{
