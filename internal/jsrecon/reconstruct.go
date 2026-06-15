@@ -235,6 +235,22 @@ func reconstructConcatenations(content string) []reconstructResult {
 }
 
 func extractConcatChain(line string) []string {
+	plusPositions := []int{}
+	for i := 0; i < len(line); i++ {
+		if line[i] == '+' {
+			plusPositions = append(plusPositions, i)
+		}
+	}
+
+	if len(plusPositions) > 1 {
+		for i := 0; i < len(plusPositions)-1; i++ {
+			between := line[plusPositions[i]+1 : plusPositions[i+1]]
+			if hasJSStructuralChars(between) {
+				return nil
+			}
+		}
+	}
+
 	for i := 0; i < len(line); i++ {
 		if line[i] == '+' {
 			before := line[:i]
@@ -259,6 +275,10 @@ func extractConcatChain(line string) []string {
 				rightRemaining := extractConcatChain(strings.TrimSpace(rightRest))
 				result = append(result, rightRemaining...)
 
+				reconstructed := strings.Join(result, "")
+				if hasJSStructuralChars(reconstructed) {
+					return nil
+				}
 				return result
 			}
 		}
@@ -269,6 +289,16 @@ func extractConcatChain(line string) []string {
 		return parts
 	}
 	return nil
+}
+
+func hasJSStructuralChars(s string) bool {
+	for _, c := range s {
+		switch c {
+		case '{', '}', '[', ']', ':', ',':
+			return true
+		}
+	}
+	return false
 }
 
 func extractStringLiterals(s string) []string {
