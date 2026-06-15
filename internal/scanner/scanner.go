@@ -7,6 +7,7 @@ package scanner
 
 import (
 	"regexp"
+	"time"
 
 	"github.com/RA000WL/syck/internal/adaptive"
 	"github.com/RA000WL/syck/internal/finding"
@@ -58,4 +59,13 @@ type Config struct {
 	CacheDB           string                           // path to SQLite cache database for cross-run dedup
 	Adaptive          bool                             // enable adaptive confidence learning
 	AdaptiveWeights   *adaptive.LearnedWeightStore     // loaded weights (nil if not adaptive)
+
+	// Phase 1: Bug bounty core
+	HTTPTimeout   time.Duration       // HTTP client timeout for all requests (default 10s)
+	ProxyURL      string              // HTTP proxy URL for all requests
+	Headers       map[string][]string // custom headers to inject into crawl requests
+	ScopePatterns []*regexp.Regexp    // compiled scope patterns from --scope-file
+	Diff          bool                // only output new findings (requires CacheDB)
+	CookieString  string              // cookie string to inject (name=value; name2=value2)
+	NoSitemap     bool                // disable robots/sitemap discovery
 }
