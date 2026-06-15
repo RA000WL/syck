@@ -219,7 +219,7 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 | Flag | Description |
 |------|-------------|
 | `--severity`, `-s` | Minimum severity: `INFO`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` (default: `LOW`) |
-| `--format`, `-f` | Output format: `text`, `json`, `sarif`, `markdown`, `csv`, `html` (default: `text`) |
+| `--format`, `-f` | Output format: `text`, `json`, `jsonl`, `sarif`, `markdown`, `csv`, `html` (default: `text`) |
 | `--output`, `-o` | Write output to file instead of stdout |
 | `--redact` | Mask secret values in output (first 4 chars + asterisks) |
 | `--no-dedup` | Show all occurrences instead of deduplicating |
@@ -241,7 +241,7 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 | `--decode-url` | URL-decode lines and rescan |
 | `--decode-gzip` | Decompress gzip/zlib content and rescan |
 | `--decode-charcode` | Decode `String.fromCharCode(...)` and rescan |
-| `--js-reconstruct` | Reconstruct JS: constant propagation, concat chains, array joins (arbitrary separators), template literals, ternary expressions, array index access |
+| `--js-reconstruct` | Reconstruct JS: constant propagation, concat chains, array joins (arbitrary separators), template literals, ternary expressions, array index access (default: **on**) |
 
 ### URL Scanning Flags
 
@@ -270,20 +270,67 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 | `--no-juicy-files` | Disable juicy file probing during endpoint scan |
 | `--git-history` | Scan files in git commit history |
 | `--validate` | Validate found secrets against provider APIs (live check) |
-| `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs |
+| `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs and placeholder patterns (default: **on**) |
 | `--ignore-file` | Path to `.syckignore` file for fingerprint or regex pattern suppression |
 | `--rules`, `-r` | Custom rules YAML file |
 | `--pipe` | Scan from stdin |
 | `--fail-on` | CI gate: exit 1 if findings meet severity threshold |
+| `--multiline` | Enable multi-line pattern matching (sliding window) (default: **on**) |
+| `--strip-comments` | Strip comment lines before scanning |
+| `--detect-auth-headers` | Detect hardcoded Authorization headers and API keys (default: **on**) |
+| `--scan-archives` | Extract and scan inside archives (zip, tar, tar.gz, jar, war, ear) |
+| `--scan-binaries` | Extract and scan strings from binary files |
+| `--probe-graphql` | Probe GraphQL endpoints with introspection query |
+| `--parse-openapi` | Parse OpenAPI/Swagger specs and inject discovered endpoints |
+| `--entropy-threshold` | Per-alphabet entropy threshold overrides (e.g. `hex=3.0,base64=4.2`) |
+| `--max-scan-line-len` | Skip per-line scanning on lines exceeding this length (default: 100000) |
+| `--progress` | Show TUI progress bar on stderr |
+
+### Cache & Adaptive Flags
+
+| Flag | Description |
+|------|-------------|
+| `--cache-db` | Path to SQLite cache database for cross-run dedup |
+| `--adaptive` | Enable adaptive confidence learning from past verdicts |
+
+### Webhook / Export Flags
+
+| Flag | Description |
+|------|-------------|
+| `--webhook-url` | Send findings to this webhook URL |
+| `--webhook-style` | Webhook payload style: `slack`, `discord`, or `json` (default: `json`) |
+
+### Bug Bounty Flags
+
+| Flag | Description |
+|------|-------------|
+| `--proxy` | Route all HTTP traffic through a proxy (e.g. Burp Suite at `http://127.0.0.1:8080`) |
+| `--auth-token` | Bearer token for authenticated crawling |
+| `--header` | Custom header (repeatable): `--header "Name: Value"` |
+| `--scope-file` | File with scope regex patterns (one per line, `#` comments) |
+| `--cookie` | Cookie string: `--cookie "session=abc; token=xyz"` |
+| `--no-sitemap` | Disable robots.txt/sitemap.xml discovery |
+| `--diff` | Only show new findings (requires `--cache-db`) |
+| `--http-timeout` | HTTP timeout (default `10s`) |
 
 ### Other Commands
 
 ```bash
 # List all detection rules
-./syck list-rules
+syck list-rules
+
+# Rule quality testing (precision/recall)
+syck ruletest
+
+# Upload SARIF to GitHub Code Scanning
+syck upload-sarif --file results.sarif --repo owner/repo --commit SHA
+
+# Adaptive learning verdicts
+syck verdict <fingerprint> tp|fp --cache-db scan.db
+syck verdict --stats --cache-db scan.db
 
 # Generate shell completion
-./syck completion bash > /etc/bash_completion.d/syck
+syck completion bash > /etc/bash_completion.d/syck
 ```
 
 ## Output Formats
@@ -310,7 +357,7 @@ rules:
 ```
 
 ```bash
-./syck scan . --rules my_rules.yaml
+syck scan . --rules my_rules.yaml
 ```
 
 ## .syckignore
@@ -333,7 +380,7 @@ re:\.example\.(com|org)$         # documentation domains
 
 ```bash
 # Generate an ignore file from current findings (fingerprint mode)
-./syck scan . --format json | python3 -c "
+syck scan . --format json | python3 -c "
 import sys, json, hashlib
 data = json.load(sys.stdin)
 for f in data['findings']:
@@ -342,7 +389,7 @@ for f in data['findings']:
 " > .syckignore
 
 # Re-scan with ignore file — suppressed findings are filtered out
-./syck scan . --ignore-file .syckignore
+syck scan . --ignore-file .syckignore
 ```
 
 **When to use which:**
@@ -354,10 +401,10 @@ for f in data['findings']:
 Validate found secrets against provider APIs to confirm they're active:
 
 ```bash
-./syck scan . --validate
+syck scan . --validate
 ```
 
-Supported providers: GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Twilio, npm, HuggingFace, Slack webhooks, and more.
+Supported providers: GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Twilio, npm, HuggingFace, AWS STS, Slack webhooks, and more.
 
 Validation results downgrade unconfirmed secrets to `INFO` severity.
 
@@ -376,7 +423,7 @@ Validation results downgrade unconfirmed secrets to `INFO` severity.
 ```yaml
 - name: Run syck
   run: |
-    ./syck scan . --severity HIGH --fail-on HIGH --format sarif -o results.sarif --no-color
+    syck scan . --severity HIGH --fail-on HIGH --format sarif -o results.sarif --no-color
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v3
@@ -389,7 +436,7 @@ Validation results downgrade unconfirmed secrets to `INFO` severity.
 
 ```bash
 #!/bin/sh
-./syck scan . --severity CRITICAL --fail-on CRITICAL --quiet --no-color
+syck scan . --severity CRITICAL --fail-on CRITICAL --quiet --no-color
 ```
 
 ## Architecture
@@ -402,18 +449,21 @@ syck scan [paths...]
     ├── Git history (git log → git show → scan per-commit)
     └── Stdin pipe
           │
-          ├── Regex rules (150+ patterns)
-          ├── Entropy token scan
-          ├── Multi-layer decoders (base64/hex/unicode/url/gzip)
+          ├── Regex rules (160+ patterns)
+          ├── Entropy token scan + contextual entropy
+          ├── Multi-layer decoders (base64/hex/unicode/url/gzip/JWT/charcode)
           ├── JSON-aware tree walker
-          ├── JS string reconstruction
+          ├── JS string reconstruction (6 methods)
+          ├── URL secret extraction
+          ├── Auth header detection
           └── Endpoint extraction (21 patterns + risk scoring)
                │
                ├── Deduplication
-              ├── FP downgrade
-              ├── .syckignore filter
-              ├── Live validation (--validate)
-              └── Formatter → stdout/file
+               ├── FP downgrade
+               ├── .syckignore filter
+               ├── Adaptive learning (--adaptive)
+               ├── Live validation (--validate)
+               └── Formatter → stdout/file/webhook
 ```
 
 ### Internal Packages
@@ -455,10 +505,10 @@ cd syck
 git checkout -b feature/my-rule
 
 # Run tests
-go test ./...
+go test -race ./...
 
 # Run rule quality tests
-go run . ruletest
+syck ruletest
 
 # Verify gofmt + vet
 gofmt -l .

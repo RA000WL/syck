@@ -447,6 +447,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// --validate: check if found secrets are live against provider APIs
+	if validate || verify {
+		if proxyURL != "" {
+			validator.InitValidatorClient(proxyURL)
+		}
+	}
+
 	if validate {
 		for i := range findings {
 			if result, ok := validator.Validate(findings[i].RuleName, findings[i].Secret); ok {
@@ -496,7 +502,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	if webhookURL != "" {
 		style := formatters.WebhookStyle(webhookStyle)
-		if err := formatters.PostWebhook(webhookURL, style, findings); err != nil {
+		var webhookOpts []formatters.WebhookOption
+		if proxyURL != "" {
+			webhookOpts = append(webhookOpts, formatters.WithProxy(proxyURL))
+		}
+		if err := formatters.PostWebhook(webhookURL, style, findings, webhookOpts...); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: webhook error: %v\n", err)
 		}
 	}
