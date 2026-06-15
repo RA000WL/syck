@@ -25,57 +25,125 @@ type BannerConfig struct {
 	ExtractLinks bool
 	Endpoints    bool
 	Proxy        string
+	NoColor      bool
 }
 
-// PrintBanner displays a feroxbuster-style startup banner.
+// ANSI color codes
+const (
+	colorReset   = "\033[0m"
+	colorBold    = "\033[1m"
+	colorDim     = "\033[2m"
+
+	// Gradient: green → cyan → blue → purple
+	colorGreen   = "\033[38;2;0;255;136m"
+	colorCyan    = "\033[38;2;0;220;255m"
+	colorBlue    = "\033[38;2;80;120;255m"
+	colorPurple  = "\033[38;2;180;80;255m"
+
+	// Field accent colors
+	colorGold    = "\033[38;2;255;200;0m"
+	colorOrange  = "\033[38;2;255;140;0m"
+	colorPink    = "\033[38;2;255;80;180m"
+	colorLime    = "\033[38;2;160;255;80m"
+	colorSky     = "\033[38;2;80;200;255m"
+	colorMint    = "\033[38;2;80;255;180m"
+	colorLavender = "\033[38;2;200;160;255m"
+)
+
+// PrintBanner displays a feroxbuster-style startup banner with block font and color accents.
 func PrintBanner(w io.Writer, cfg BannerConfig) {
+	// Disable colors if --no-color is set
+	c := func(code string) string {
+		if cfg.NoColor {
+			return ""
+		}
+		return code
+	}
 	target := cfg.Target
-	if len(target) > 50 {
-		target = target[:47] + "..."
+	if len(target) > 48 {
+		target = target[:45] + "..."
 	}
 	scope := cfg.Scope
 	if scope == "" {
 		scope = "(auto)"
 	}
 
-	threads := fmt.Sprintf("%d", cfg.Workers)
-	if cfg.RateLimit > 0 {
-		threads = fmt.Sprintf("%d (rate-limited: %d req/s)", cfg.Workers, cfg.RateLimit)
+	ua := cfg.UserAgent
+	if ua == "" {
+		ua = "syck/1.0"
 	}
 
-	lines := []struct{ label, value string }{
-		{"🎯  Target Url", target},
-		{"🚩  In-Scope Url", scope},
-		{"🚀  Threads", threads},
-		{"📖  Crawl Limit", fmt.Sprintf("%d URLs", cfg.CrawlLimit)},
-		{"🔀  Recursion Depth", fmt.Sprintf("%d", cfg.CrawlDepth)},
-		{"💥  Timeout", cfg.Timeout},
-		{"🦡  User-Agent", cfg.UserAgent},
-		{"🔗  Extract Links", boolStr(cfg.ExtractLinks)},
-		{"🔍  Endpoints", boolStr(cfg.Endpoints)},
+	// Block font ASCII art for "SYCK"
+	ascii := []string{
+		" ███████╗██╗   ██╗ ██████╗██╗  ██╗",
+		" ██╔════╝╚██╗ ██╔╝██╔════╝██║ ██╔╝",
+		" ███████╗ ╚████╔╝ ██║     █████╔╝ ",
+		" ╚════██║  ╚██╔╝  ██║     ██╔═██╗ ",
+		" ███████║   ██║   ╚██████╗██║  ██╗",
+		" ╚══════╝   ╚═╝    ╚═════╝╚═╝  ╚═╝",
+	}
+
+	// Print gradient title line by line
+	gradientColors := []string{colorGreen, colorGreen, colorCyan, colorCyan, colorBlue, colorPurple}
+	fmt.Fprintln(w)
+	for i, line := range ascii {
+		fmt.Fprintf(w, "%s%s%s\n", c(gradientColors[i]), line, c(colorReset))
+	}
+
+	// Subtitle
+	fmt.Fprintf(w, "%s%s%s · %ssecret scanner & recon engine%s · %sver %s%s\n\n",
+		c(colorDim), c(colorBold), "syck",
+		c(colorDim), c(colorReset),
+		c(colorDim), c(colorReset), c(colorReset))
+
+	// Separator
+	sep := strings.Repeat("─", 35)
+	fmt.Fprintf(w, "%s%s%s┬%s%s\n", c(colorDim), sep, c(colorCyan), c(colorReset), sep)
+
+	// Fields with color accents — each row gets a unique color
+	type field struct {
+		icon  string
+		label string
+		value string
+		color string
+	}
+
+	fields := []field{
+		{"◈", "Target Domain", target, colorGold},
+		{"⚡", "Goroutines", fmt.Sprintf("%d", cfg.Workers), colorOrange},
+		{"◎", "Patterns", "188 rules", colorPink},
+		{"◇", "User-Agent", ua, colorLime},
+		{"⊞", "Timeout (secs)", cfg.Timeout, colorSky},
+		{"◉", "Crawl Limit", fmt.Sprintf("%d URLs", cfg.CrawlLimit), colorMint},
+		{"⬡", "Recursion Depth", fmt.Sprintf("%d", cfg.CrawlDepth), colorLavender},
+		{"↺", "Rate Limit", rateLimitStr(cfg.RateLimit), colorGold},
+		{"▸", "Endpoints", boolStr(cfg.Endpoints), colorOrange},
 	}
 
 	if cfg.Headless {
-		lines = append(lines, struct{ label, value string }{"🖥️  Headless Chrome", "enabled"})
+		fields = append(fields, field{"⊞", "Headless Chrome", "enabled", colorPink})
 	}
 	if cfg.Proxy != "" {
-		lines = append(lines, struct{ label, value string }{"🔀  Proxy", cfg.Proxy})
+		fields = append(fields, field{"◎", "Proxy", cfg.Proxy, colorSky})
 	}
 
-	maxLabel := 0
-	for _, l := range lines {
-		if len(l.label) > maxLabel {
-			maxLabel = len(l.label)
-		}
+	for _, f := range fields {
+		fmt.Fprintf(w, "%s%s%s│%s %s%s%s\n",
+			c(f.color), f.icon, c(colorDim), c(colorReset),
+			c(colorBold), f.label, c(colorReset))
+		fmt.Fprintf(w, "%s│%s %s\n", c(colorDim), c(colorReset), f.value)
 	}
 
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "───────────────────────────┬──────────────────────")
-	for _, l := range lines {
-		fmt.Fprintf(w, " %-*s │ %s\n", maxLabel, l.label, l.value)
+	// Bottom separator
+	fmt.Fprintf(w, "%s%s%s┴%s%s\n", c(colorDim), sep, c(colorCyan), c(colorReset), sep)
+	fmt.Fprintf(w, "%s▸ Press [ENTER] to open the Scan Management Menu™%s\n\n", c(colorDim), c(colorReset))
+}
+
+func rateLimitStr(rps int) string {
+	if rps <= 0 {
+		return "unlimited"
 	}
-	fmt.Fprintln(w, "───────────────────────────┴──────────────────────")
-	fmt.Fprintln(w)
+	return fmt.Sprintf("%d req/s", rps)
 }
 
 func boolStr(b bool) string {

@@ -420,6 +420,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 				ExtractLinks: true,
 				Endpoints:    endpoints,
 				Proxy:        proxyURL,
+				NoColor:      noColor,
 			})
 			up := progress.NewURLProgress(os.Stderr, len(allURLs))
 			defer up.Finish()
