@@ -136,6 +136,10 @@ rules:
     severity: HIGH
     pattern: '\bSK[a-z0-9]{32}\b'
     tags: [twilio, sms]
+  - name: twilio_auth_token
+    severity: CRITICAL
+    pattern: '(?i)(?:twilio)[_-]?(?:auth[_-]?)?token\s*[:=]\s*[''"]([a-f0-9]{32})[''"]'
+    tags: [twilio, sms]
 
   # ── SendGrid / Mailgun / Mailchimp / Brevo ──
   - name: sendgrid_api_token
@@ -355,6 +359,10 @@ rules:
   - name: cloudflare_origin_ca_key
     severity: HIGH
     pattern: '\bv-[0-9a-f]{40,}\b'
+    tags: [cloudflare, cdn]
+  - name: cloudflare_global_api_key
+    severity: CRITICAL
+    pattern: '(?i)(?:cloudflare)[_-]?(?:global[_-]?)?(?:api[_-]?)?key\s*[:=]\s*[''"]([0-9a-f]{40})[''"]'
     tags: [cloudflare, cdn]
   - name: doppler_token
     severity: HIGH
