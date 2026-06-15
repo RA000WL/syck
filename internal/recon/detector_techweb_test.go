@@ -3,6 +3,7 @@ package recon
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1159,5 +1160,60 @@ func TestTechFingerprintWeb_UvicornPoweredBy(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected Uvicorn detection from X-Powered-By")
+	}
+}
+
+func TestTechFingerprintWeb_MultipleServers(t *testing.T) {
+	wpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Powered-By", "PHP/8.2")
+		w.Header().Set("Server", "Apache/2.4.57")
+		fmt.Fprint(w, `<html><head><meta name="generator" content="WordPress 6.4"></head><body></body></html>`)
+	}))
+	defer wpServer.Close()
+
+	expressServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Powered-By", "Express")
+		w.Header().Set("Set-Cookie", "connect.sid=s%3Abigsecret")
+		fmt.Fprint(w, `<html><body>Hello</body></html>`)
+	}))
+	defer expressServer.Close()
+
+	nginxServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.24.0")
+		fmt.Fprint(w, `<html><body>Hello</body></html>`)
+	}))
+	defer nginxServer.Close()
+
+	d := NewTechFingerprintWeb(http.DefaultClient)
+	findings := d.Detect([]string{wpServer.URL, expressServer.URL, nginxServer.URL})
+
+	wpFound := false
+	for _, f := range findings {
+		if strings.Contains(f.Source, "wordpress") {
+			wpFound = true
+		}
+	}
+	if !wpFound {
+		t.Error("WordPress not detected")
+	}
+
+	expressFound := false
+	for _, f := range findings {
+		if strings.Contains(f.Source, "express") {
+			expressFound = true
+		}
+	}
+	if !expressFound {
+		t.Error("Express not detected")
+	}
+
+	nginxFound := false
+	for _, f := range findings {
+		if strings.Contains(f.Source, "nginx") {
+			nginxFound = true
+		}
+	}
+	if !nginxFound {
+		t.Error("Nginx not detected")
 	}
 }
