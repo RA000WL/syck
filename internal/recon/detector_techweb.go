@@ -85,6 +85,7 @@ func (d *TechFingerprintWeb) fetchBody(rawURL string) string {
 	if err != nil {
 		return ""
 	}
+	req.Header.Set("Range", "bytes=0-0")
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -110,6 +111,9 @@ func (d *TechFingerprintWeb) doFullRequest(method, rawURL string) (int, http.Hea
 	req, err := http.NewRequest(method, rawURL, nil)
 	if err != nil {
 		return 0, nil, nil, "", err
+	}
+	if method == http.MethodGet {
+		req.Header.Set("Range", "bytes=0-0")
 	}
 
 	resp, err := d.client.Do(req)
