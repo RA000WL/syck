@@ -86,6 +86,7 @@ func (d *TechFingerprintWeb) fetchBody(rawURL string) string {
 		return ""
 	}
 	req.Header.Set("Range", "bytes=0-0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Syck/1.0)")
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -112,6 +113,7 @@ func (d *TechFingerprintWeb) doFullRequest(method, rawURL string) (int, http.Hea
 	if err != nil {
 		return 0, nil, nil, "", err
 	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Syck/1.0)")
 	if method == http.MethodGet {
 		req.Header.Set("Range", "bytes=0-0")
 	}
@@ -194,10 +196,8 @@ var (
 	springBootErrRE  = regexp.MustCompile(`Whitelabel Error Page`)
 	graphqlPathRE    = regexp.MustCompile(`(?i)/graphql[\s"'/>]|/graphiql[\s"'/>]`)
 	schemaRE         = regexp.MustCompile(`__schema`)
-	pythonTraceRE    = regexp.MustCompile(`(?i)(Traceback \(most recent call last\)|File ".+", line \d+)`)
 	reactDevToolsRE  = regexp.MustCompile(`__REACT_DEVTOOLS_GLOBAL_HOOK__`)
 	vueDataRE        = regexp.MustCompile(`data-v-[a-f0-9]+`)
-	angularVerRE     = regexp.MustCompile(`ng-version="[^"]+"`)
 	angularAppRE     = regexp.MustCompile(`ng-app="[^"]+"`)
 	nextDataRE       = regexp.MustCompile(`__NEXT_DATA__`)
 	nuxtDataRE       = regexp.MustCompile(`__NUXT__`)
@@ -410,7 +410,7 @@ func analyzeCloudHeaders(headers http.Header) []TechFindResult {
 			Evidence:   []TechEvidence{{Signal: "X-Amz-Request-Id"}},
 		})
 	}
-	if headers.Get("X-Amz-Cf-Id") != "" || headers.Get("X-Cache") == "cloudfront" {
+	if headers.Get("X-Amz-Cf-Id") != "" || strings.ToLower(headers.Get("X-Cache")) == "cloudfront" {
 		results = append(results, TechFindResult{
 			Technology: "cloudfront",
 			Category:   "infrastructure",
@@ -680,7 +680,7 @@ func analyzeBody(body string) []TechFindResult {
 			Evidence:   []TechEvidence{{Signal: "Werkzeug"}},
 		})
 	}
-	if pythonTraceRE.MatchString(body) {
+	if strings.Contains(body, "Traceback (most recent call last)") && strings.Contains(body, "File \"") {
 		results = append(results, TechFindResult{
 			Technology: "python",
 			Category:   "language",
