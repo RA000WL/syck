@@ -762,6 +762,26 @@ rules:
     severity: CRITICAL
     pattern: '\bdop_[0-9a-zA-Z\-_]{24,}\b'
     tags: [cloud, digitalocean]
+  - name: supabase_service_key
+    severity: CRITICAL
+    pattern: '(?i)sb[-_]?(?:service|anon)[_-]?key\s*[:=]\s*[''"]eyJ[a-zA-Z0-9\-_]{30,}[''"]'
+    tags: [supabase, database]
+  - name: alibaba_access_key
+    severity: HIGH
+    pattern: '\bLTAI[A-Za-z0-9]{12,20}\b'
+    tags: [alibaba, cloud]
+  - name: hetzner_api_token
+    severity: HIGH
+    pattern: '(?i)hetzner[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][A-Za-z0-9]{30,}[''"]'
+    tags: [hetzner, cloud]
+  - name: scaleway_access_key
+    severity: HIGH
+    pattern: '\bSCW[A-Za-z0-9]{17}\b'
+    tags: [scaleway, cloud]
+  - name: linode_personal_access_token
+    severity: HIGH
+    pattern: '(?i)(?:linode|akamai)[_-]?(?:api[_-]?)?(?:token|key)\s*[:=]\s*[''"][a-f0-9]{64}[''"]'
+    tags: [linode, cloud]
   - name: discord_webhook
     severity: HIGH
     pattern: 'https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
