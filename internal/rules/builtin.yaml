@@ -674,6 +674,20 @@ rules:
     severity: MEDIUM
     pattern: 'apiKey:\s*[''"][A-Za-z0-9]{30,}[''"]'
     tags: [firebase, spa]
+  - name: firebase_service_account
+    severity: CRITICAL
+    pattern: '"type"\s*:\s*"service_account"'
+    tags: [firebase, gcp, service-account]
+  - name: firebase_adminsdk_key
+    severity: CRITICAL
+    pattern: 'firebase-adminsdk-[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com'
+    tags: [firebase, gcp, service-account]
+  - name: google_services_json
+    severity: HIGH
+    pattern: '"project_id"\s*:\s*"[a-z0-9-]+"'
+    tags: [firebase, android, spa]
+    requires_context: true
+    context_keywords: [firebase, project_id, api_key, google]
   - name: aws_cognito_config
     severity: LOW
     pattern: 'UserPoolId:\s*[''"][a-zA-Z0-9_]+[''"]'
