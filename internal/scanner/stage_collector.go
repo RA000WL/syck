@@ -5,6 +5,7 @@ import (
 
 	"github.com/RA000WL/syck/internal/endpoints"
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/jsrecon"
 	"github.com/RA000WL/syck/internal/recon"
 	"github.com/RA000WL/syck/internal/rules"
@@ -34,6 +35,11 @@ func NewCollectorStage(cfg Config) *CollectorStage {
 	s.reconReg.Register(recon.StagingDetector{})
 	s.reconReg.Register(recon.StorageDetector{})
 	s.reconReg.Register(recon.AuthDetector{})
+
+	if cfg.HeaderCheck {
+		httpCl := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
+		s.reconReg.Register(recon.NewSecurityHeaderDetector(httpCl))
+	}
 
 	return s
 }

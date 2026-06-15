@@ -68,4 +68,5 @@ type Config struct {
 	Diff          bool                // only output new findings (requires CacheDB)
 	CookieString  string              // cookie string to inject (name=value; name2=value2)
 	NoSitemap     bool                // disable robots/sitemap discovery
+	HeaderCheck   bool                // analyze HTTP security headers on discovered URLs
 }

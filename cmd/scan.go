@@ -114,6 +114,7 @@ var (
 	noSitemap         bool
 	diffMode          bool
 	httpTimeout       string
+	headerCheck       bool
 )
 
 func init() {
@@ -182,6 +183,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&noSitemap, "no-sitemap", false, "disable robots.txt/sitemap.xml discovery")
 	scanCmd.Flags().BoolVar(&diffMode, "diff", false, "only show new findings (requires --cache-db)")
 	scanCmd.Flags().StringVar(&httpTimeout, "http-timeout", "10s", "HTTP client timeout (e.g. 10s, 30s)")
+	scanCmd.Flags().BoolVar(&headerCheck, "header-check", true, "analyze HTTP security headers on discovered URLs (use --no-header-check to disable)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -389,6 +391,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Diff:              diffMode,
 		CookieString:      cookieString,
 		NoSitemap:         noSitemap,
+		HeaderCheck:       headerCheck,
 	}
 
 	if progressFlag && !quiet && !pipe {
