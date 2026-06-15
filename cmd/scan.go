@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -105,6 +106,14 @@ var (
 	webhookStyle      string
 	cacheDB           string
 	adaptiveFlag      bool
+	proxyURL          string
+	authToken         string
+	headerList        []string
+	scopeFile         string
+	cookieString      string
+	noSitemap         bool
+	diffMode          bool
+	httpTimeout       string
 )
 
 func init() {
@@ -124,11 +133,11 @@ func init() {
 	scanCmd.Flags().BoolVar(&decodeUnicode, "decode-unicode", false, "decode \\uXXXX escapes and rescan")
 	scanCmd.Flags().BoolVar(&decodeURL, "decode-url", false, "URL-decode lines and rescan")
 	scanCmd.Flags().BoolVar(&decodeGzip, "decode-gzip", false, "decompress gzip/zlib content and rescan")
-	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", false, "reconstruct JS concatenated strings")
+	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", true, "reconstruct JS concatenated strings")
 	scanCmd.Flags().BoolVar(&endpoints, "endpoints", false, "extract API/graphql/websocket URLs")
 	scanCmd.Flags().BoolVar(&pipe, "pipe", false, "scan from stdin")
 	scanCmd.Flags().StringVar(&failOn, "fail-on", "", "CI gate: exit 1 if findings at or above this severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)")
-	scanCmd.Flags().BoolVar(&downgradeFP, "downgrade-fp", false, "downgrade severity for findings in test/mock/vendor dirs and placeholder patterns")
+	scanCmd.Flags().BoolVar(&downgradeFP, "downgrade-fp", true, "downgrade severity for findings in test/mock/vendor dirs and placeholder patterns")
 
 	scanCmd.Flags().StringArrayVarP(&urlList, "url", "u", nil, "URL to scan (can be repeated)")
 	scanCmd.Flags().StringVarP(&urlFile, "url-file", "l", "", "file containing URLs to scan (one per line)")
@@ -155,9 +164,9 @@ func init() {
 	scanCmd.Flags().BoolVar(&sensitiveOnly, "sensitive-only", false, "deprecated: use --min-endpoint-score 5 (kept for backward compat)")
 	scanCmd.Flags().BoolVar(&scanArchives, "scan-archives", false, "extract and scan inside archives (zip, tar, tar.gz, jar, war, ear)")
 	scanCmd.Flags().BoolVar(&scanBinaries, "scan-binaries", false, "extract and scan strings from binary files")
-	scanCmd.Flags().BoolVar(&multiline, "multiline", false, "enable multi-line pattern matching (sliding window)")
+	scanCmd.Flags().BoolVar(&multiline, "multiline", true, "enable multi-line pattern matching (sliding window)")
 	scanCmd.Flags().BoolVar(&stripComments, "strip-comments", false, "strip comment lines before scanning")
-	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", false, "detect hardcoded Authorization headers and API keys")
+	scanCmd.Flags().BoolVar(&detectAuthHeaders, "detect-auth-headers", true, "detect hardcoded Authorization headers and API keys")
 	scanCmd.Flags().BoolVar(&probeGraphQL, "probe-graphql", false, "probe GraphQL endpoints with introspection query")
 	scanCmd.Flags().BoolVar(&parseOpenAPI, "parse-openapi", false, "parse OpenAPI/Swagger specs and inject discovered endpoints")
 	scanCmd.Flags().StringToStringVar(&entropyThresholds, "entropy-threshold", nil, "per-alphabet entropy threshold (hex=3.0,base64=4.2)")
@@ -165,6 +174,14 @@ func init() {
 	scanCmd.Flags().StringVar(&webhookStyle, "webhook-style", "json", "webhook payload style: slack, discord, or json (default json)")
 	scanCmd.Flags().StringVar(&cacheDB, "cache-db", "", "path to SQLite cache database for cross-run dedup")
 	scanCmd.Flags().BoolVar(&adaptiveFlag, "adaptive", false, "enable adaptive confidence learning from past verdicts")
+	scanCmd.Flags().StringVar(&proxyURL, "proxy", "", "HTTP proxy URL for all requests (e.g. http://127.0.0.1:8080)")
+	scanCmd.Flags().StringVar(&authToken, "auth-token", "", "Bearer token for authenticated crawl requests")
+	scanCmd.Flags().StringArrayVar(&headerList, "header", nil, "custom header in 'Name: Value' format (can be repeated)")
+	scanCmd.Flags().StringVar(&scopeFile, "scope-file", "", "file with scope regex patterns (one per line, # comments)")
+	scanCmd.Flags().StringVar(&cookieString, "cookie", "", "cookie string in 'name=value; name2=value2' format")
+	scanCmd.Flags().BoolVar(&noSitemap, "no-sitemap", false, "disable robots.txt/sitemap.xml discovery")
+	scanCmd.Flags().BoolVar(&diffMode, "diff", false, "only show new findings (requires --cache-db)")
+	scanCmd.Flags().StringVar(&httpTimeout, "http-timeout", "10s", "HTTP client timeout (e.g. 10s, 30s)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -253,6 +270,63 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Parse --scope-file patterns
+	var scopePatterns []*regexp.Regexp
+	if scopeFile != "" {
+		f, err := os.Open(scopeFile)
+		if err != nil {
+			return fmt.Errorf("open scope file: %w", err)
+		}
+		defer f.Close()
+		sfScanner := bufio.NewScanner(f)
+		for sfScanner.Scan() {
+			line := strings.TrimSpace(sfScanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			re, err := regexp.Compile(line)
+			if err != nil {
+				return fmt.Errorf("invalid scope pattern %q: %w", line, err)
+			}
+			scopePatterns = append(scopePatterns, re)
+		}
+		if len(scopePatterns) == 0 {
+			return fmt.Errorf("scope file %q contains no valid patterns", scopeFile)
+		}
+	}
+
+	// Parse headers from --auth-token and --header flags
+	headers := make(map[string][]string)
+	if authToken != "" {
+		headers["Authorization"] = append(headers["Authorization"], "Bearer "+authToken)
+	}
+	for _, h := range headerList {
+		parts := strings.SplitN(h, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid --header format %q: expected 'Name: Value'", h)
+		}
+		name := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if name == "" || value == "" {
+			return fmt.Errorf("invalid --header format %q: name and value required", h)
+		}
+		headers[name] = append(headers[name], value)
+	}
+
+	// Validate --diff requires --cache-db
+	if diffMode && cacheDB == "" {
+		return fmt.Errorf("--diff requires --cache-db for cross-run comparison")
+	}
+
+	// Parse --http-timeout
+	parsedTimeout, err := time.ParseDuration(httpTimeout)
+	if err != nil {
+		return fmt.Errorf("invalid --http-timeout: %w", err)
+	}
+	if parsedTimeout < time.Second {
+		parsedTimeout = time.Second
+	}
+
 	var entropyThresholdsParsed map[string]float64
 	if len(entropyThresholds) > 0 {
 		entropyThresholdsParsed = make(map[string]float64, len(entropyThresholds))
@@ -308,6 +382,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		EntropyThresholds: entropyThresholdsParsed,
 		CacheDB:           cacheDB,
 		Adaptive:          adaptiveFlag,
+		HTTPTimeout:       parsedTimeout,
+		ProxyURL:          proxyURL,
+		Headers:           headers,
+		ScopePatterns:     scopePatterns,
+		Diff:              diffMode,
+		CookieString:      cookieString,
+		NoSitemap:         noSitemap,
 	}
 
 	if progressFlag && !quiet && !pipe {
