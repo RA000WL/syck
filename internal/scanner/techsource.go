@@ -7,17 +7,9 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 )
 
-type sourceTechRule struct {
-	Technology string
-	Category   string
-	Severity   finding.Severity
-	Patterns   []string
-}
-
 func DetectSourceTech(content, path string) []finding.Finding {
 	fileName := filepath.Base(path)
 	ext := strings.ToLower(filepath.Ext(path))
-	dir := filepath.Dir(path)
 	baseName := strings.ToLower(fileName)
 
 	detected := make(map[string]bool)
@@ -51,25 +43,29 @@ func DetectSourceTech(content, path string) []finding.Finding {
 		}
 
 	case baseName == "composer.json":
-		if strings.Contains(lower, `"laravel/framework":`) {
-			addFinding("laravel", "framework", finding.SeverityMedium)
+		for _, r := range phpManifestRules {
+			if strings.Contains(lower, r.Pattern) {
+				addFinding(r.Technology, r.Category, r.Severity)
+			}
 		}
 
 	case baseName == "gemfile":
-		if strings.Contains(lower, "gem 'rails'") || strings.Contains(lower, `gem "rails"`) {
-			addFinding("rails", "framework", finding.SeverityMedium)
+		for _, r := range rubyManifestRules {
+			if strings.Contains(lower, r.Pattern) {
+				addFinding(r.Technology, r.Category, r.Severity)
+			}
 		}
 
 	case baseName == "requirements.txt":
 		for _, r := range pythonManifestRules {
-			if strings.Contains(content, r.Pattern) {
+			if strings.Contains(lower, r.Pattern) {
 				addFinding(r.Technology, r.Category, r.Severity)
 			}
 		}
 
 	case baseName == "go.mod":
 		for _, r := range goManifestRules {
-			if strings.Contains(content, r.Pattern) {
+			if strings.Contains(lower, r.Pattern) {
 				addFinding(r.Technology, r.Category, r.Severity)
 			}
 		}
@@ -94,7 +90,6 @@ func DetectSourceTech(content, path string) []finding.Finding {
 
 	// --- Config file detection ---
 	configBase := strings.ToLower(fileName)
-	configDir := strings.ToLower(dir)
 
 	switch {
 	case configBase == "next.config.js" || configBase == "next.config.mjs" || configBase == "next.config.ts":
@@ -109,7 +104,7 @@ func DetectSourceTech(content, path string) []finding.Finding {
 	case configBase == "wp-config.php":
 		addFinding("wordpress", "cms", finding.SeverityHigh)
 
-	case configBase == "settings.py" && strings.Contains(configDir, "django"):
+	case configBase == "settings.py" && (strings.Contains(lower, "installed_apps") || strings.Contains(lower, "django.conf.settings")):
 		addFinding("django", "framework", finding.SeverityMedium)
 	}
 
@@ -144,13 +139,22 @@ var packageManifestRules = []manifestRule{
 }
 
 var pythonManifestRules = []manifestRule{
-	{`Django`, "django", "framework", finding.SeverityMedium},
-	{`Flask`, "flask", "framework", finding.SeverityMedium},
+	{`django`, "django", "framework", finding.SeverityMedium},
+	{`flask`, "flask", "framework", finding.SeverityMedium},
 }
 
 var goManifestRules = []manifestRule{
 	{`gin-gonic/gin`, "gin", "framework", finding.SeverityMedium},
 	{`gorilla/mux`, "gorilla", "framework", finding.SeverityMedium},
+}
+
+var phpManifestRules = []manifestRule{
+	{`"laravel/framework":`, "laravel", "framework", finding.SeverityMedium},
+}
+
+var rubyManifestRules = []manifestRule{
+	{"gem 'rails'", "rails", "framework", finding.SeverityMedium},
+	{`gem "rails"`, "rails", "framework", finding.SeverityMedium},
 }
 
 var rustManifestRules = []manifestRule{
