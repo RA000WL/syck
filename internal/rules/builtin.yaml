@@ -797,7 +797,7 @@ rules:
 
   - name: env_aws_secret
     severity: critical
-    pattern: '(?:^|\s)AWS_SECRET_ACCESS_KEY=(?![\s]*$)(\S+)'
+    pattern: '(?:^|\s)AWS_SECRET_ACCESS_KEY=(\S+)'
     description: 'AWS Secret Access Key in environment variable'
     tags: [env, aws, cloud]
 
