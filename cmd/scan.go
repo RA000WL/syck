@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/RA000WL/syck/config"
 	"github.com/RA000WL/syck/internal/correlator"
+	"github.com/RA000WL/syck/internal/discovery"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/formatters"
 	"github.com/RA000WL/syck/internal/gitscan"
+	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/ignore"
 	"github.com/RA000WL/syck/internal/progress"
 	"github.com/RA000WL/syck/internal/rules"
@@ -119,6 +122,9 @@ var (
 	headerCheck       bool
 	techDetect        bool
 	urlCacheDB        string
+	scanRecon         bool
+	scanReconWayback  bool
+	scanReconLive     bool
 )
 
 func init() {
@@ -190,6 +196,9 @@ func init() {
 	scanCmd.Flags().BoolVar(&headerCheck, "header-check", true, "analyze HTTP security headers on discovered URLs (use --no-header-check to disable)")
 	scanCmd.Flags().BoolVar(&techDetect, "tech-detect", true, "detect technologies from HTTP responses and source code (use --no-tech-detect to disable)")
 	scanCmd.Flags().StringVar(&urlCacheDB, "url-cache-db", "", "path to SQLite URL cache database for cross-run crawl dedup")
+	scanCmd.Flags().BoolVar(&scanRecon, "recon", false, "auto-discover subdomains before scanning (crt.sh)")
+	scanCmd.Flags().BoolVar(&scanReconWayback, "recon-wayback", false, "include Wayback Machine URLs in recon")
+	scanCmd.Flags().BoolVar(&scanReconLive, "recon-live", false, "only scan live hosts from recon")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -218,6 +227,82 @@ func runScan(cmd *cobra.Command, args []string) error {
 			if line != "" && !strings.HasPrefix(line, "#") {
 				allURLs = append(allURLs, line)
 			}
+		}
+	}
+
+	// --recon: auto-discover subdomains before scanning
+	if scanRecon {
+		domain := ""
+		if len(allURLs) > 0 {
+			if u, err := url.Parse(allURLs[0]); err == nil {
+				domain = u.Hostname()
+			}
+		} else if len(args) > 0 {
+			domain = args[0]
+		}
+		if domain != "" {
+			timeout, _ := time.ParseDuration(httpTimeout)
+			client := httpclient.NewClient(timeout, proxyURL, false)
+
+			fmt.Fprintf(os.Stderr, "[*] Recon: discovering subdomains for %s...\n", domain)
+			subs, err := discovery.EnumerateSubdomains(domain, client, false)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  [!] crt.sh error: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "  [+] Found %d subdomains\n", len(subs))
+				for _, s := range subs {
+					allURLs = append(allURLs, "https://"+s.Subdomain)
+					fmt.Fprintf(os.Stderr, "      %s\n", s.Subdomain)
+				}
+			}
+
+			if scanReconWayback {
+				fmt.Fprintf(os.Stderr, "[*] Recon: fetching Wayback Machine URLs...\n")
+				wayback, err := discovery.FetchWaybackURLs(domain, client, 500)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "  [!] Wayback error: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "  [+] Found %d historical URLs\n", len(wayback))
+					for _, w := range wayback {
+						allURLs = append(allURLs, w.URL)
+					}
+				}
+			}
+
+			if scanReconLive {
+				fmt.Fprintf(os.Stderr, "[*] Recon: checking live hosts...\n")
+				hosts := discovery.HostsFromSubdomains(subs)
+				hostResults := discovery.CheckLiveHosts(hosts, client, timeout)
+				alive := discovery.FilterAliveHosts(hostResults)
+				fmt.Fprintf(os.Stderr, "  [+] %d/%d hosts alive\n", len(alive), len(hosts))
+
+				aliveSet := make(map[string]bool)
+				for _, h := range alive {
+					aliveSet[h] = true
+				}
+				var filtered []string
+				for _, u := range allURLs {
+					if parsed, err := url.Parse(u); err == nil {
+						if aliveSet[parsed.Hostname()] {
+							filtered = append(filtered, u)
+						}
+					}
+				}
+				allURLs = filtered
+			}
+
+			// Deduplicate
+			seen := make(map[string]bool)
+			var unique []string
+			for _, u := range allURLs {
+				if !seen[u] {
+					seen[u] = true
+					unique = append(unique, u)
+				}
+			}
+			allURLs = unique
+
+			fmt.Fprintf(os.Stderr, "[*] Recon complete: %d URLs to scan\n\n", len(allURLs))
 		}
 	}
 
