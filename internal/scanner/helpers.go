@@ -407,17 +407,39 @@ func analyzeSourceMaps(httpClient *http.Client, crawled []crawler.CrawledURL, cf
 				Context:  fmt.Sprintf("source map exposes %d original files: %s", len(files), truncateStrings(sourceFiles, 3)),
 			})
 
-			// Check for sensitive filenames
+			// Extract secrets from source map content
 			secrets := sm.ExtractSecrets()
 			for _, secret := range secrets {
+				severity := finding.SeverityMedium
+				if secret.Line > 0 {
+					severity = finding.SeverityHigh
+				}
+
+				context := secret.Reason
+				if secret.Content != "" {
+					context = fmt.Sprintf("%s: %s", secret.Reason, truncateStr(secret.Content, 100))
+				}
+
 				findings = append(findings, finding.Finding{
-					File:     c.URL,
-					Line:     1,
-					RuleName: "source_map_sensitive_file",
-					Severity: finding.SeverityHigh,
-					Secret:   secret.SourceFile,
-					Context:  secret.Reason,
+					File:     secret.SourceFile,
+					Line:     secret.Line,
+					RuleName: "source_map_secret",
+					Severity: severity,
+					Secret:   secret.Pattern,
+					Context:  context,
 				})
+			}
+
+			// Scan source map content for additional secrets using rules
+			for _, f := range files {
+				if f.HasContent && cfg.Rules != nil {
+					contentFindings := ScanContent(f.Content, f.FullPath, cfg)
+					for i := range contentFindings {
+						contentFindings[i].File = fmt.Sprintf("%s (source map: %s)", c.URL, f.OriginalPath)
+						contentFindings[i].RuleName = "source_map_" + contentFindings[i].RuleName
+					}
+					findings = append(findings, contentFindings...)
+				}
 			}
 		}
 	}
@@ -431,6 +453,14 @@ func truncateStrings(strs []string, maxItems int) string {
 		return strings.Join(strs, ", ")
 	}
 	return strings.Join(strs[:maxItems], ", ") + fmt.Sprintf("... and %d more", len(strs)-maxItems)
+}
+
+// truncateStr truncates a string to maxLen with "..." suffix
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // scanLineForRegexRules scans a single line against all regex rules

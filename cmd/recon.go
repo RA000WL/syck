@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RA000WL/syck/internal/discovery"
+	"github.com/RA000WL/syck/internal/externaltools"
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +25,10 @@ var (
 	reconTimeout      string
 	reconProxy        string
 	reconSubfinderFile string
+	reconUseSubfinder bool
+	reconUseAmass     bool
+	reconUseHttpx     bool
+	reconExternalTimeout int
 )
 
 var reconCmd = &cobra.Command{
@@ -56,6 +61,10 @@ func init() {
 	reconCmd.Flags().StringVar(&reconTimeout, "timeout", "10s", "HTTP timeout")
 	reconCmd.Flags().StringVar(&reconProxy, "proxy", "", "HTTP proxy URL")
 	reconCmd.Flags().StringVar(&reconSubfinderFile, "subfinder-file", "", "import subdomains from subfinder/amass output file (one per line)")
+	reconCmd.Flags().BoolVar(&reconUseSubfinder, "subfinder", false, "use subfinder for subdomain enumeration")
+	reconCmd.Flags().BoolVar(&reconUseAmass, "amass", false, "use amass for subdomain enumeration")
+	reconCmd.Flags().BoolVar(&reconUseHttpx, "httpx", false, "use httpx for live host detection")
+	reconCmd.Flags().IntVar(&reconExternalTimeout, "external-timeout", 300, "timeout for external tools in seconds")
 
 	rootCmd.AddCommand(reconCmd)
 }
@@ -107,6 +116,57 @@ func runRecon(domain string) error {
 				continue
 			}
 			allURLs = append(allURLs, url)
+		}
+	}
+
+	// Phase 1c: External tool integration (subfinder, amass)
+	if reconUseSubfinder || reconUseAmass {
+		fmt.Fprintf(os.Stderr, "\n[*] Running external enumeration tools...\n")
+		extConfig := externaltools.ToolConfig{
+			Timeout:    reconExternalTimeout,
+			MaxResults: 1000,
+		}
+
+		if reconUseSubfinder {
+			fmt.Fprintf(os.Stderr, "  [*] Running subfinder...\n")
+			if externaltools.CheckToolInstallation(externaltools.ToolSubfinder) {
+				subs, err := externaltools.RunSubfinder(domain, extConfig)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "  [!] subfinder error: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "  [+] subfinder found %d subdomains\n", len(subs))
+					for _, sub := range subs {
+						url := "https://" + sub
+						if scopeRegex != nil && !scopeRegex.MatchString(url) {
+							continue
+						}
+						allURLs = append(allURLs, url)
+					}
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "  [!] subfinder not installed, skipping\n")
+			}
+		}
+
+		if reconUseAmass {
+			fmt.Fprintf(os.Stderr, "  [*] Running amass...\n")
+			if externaltools.CheckToolInstallation(externaltools.ToolAmass) {
+				subs, err := externaltools.RunAmass(domain, extConfig)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "  [!] amass error: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "  [+] amass found %d subdomains\n", len(subs))
+					for _, sub := range subs {
+						url := "https://" + sub
+						if scopeRegex != nil && !scopeRegex.MatchString(url) {
+							continue
+						}
+						allURLs = append(allURLs, url)
+					}
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "  [!] amass not installed, skipping\n")
+			}
 		}
 	}
 
