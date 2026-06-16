@@ -13,6 +13,41 @@ import (
 	"time"
 )
 
+// RateLimiter provides per-host rate limiting
+type RateLimiter struct {
+	mu       sync.Mutex
+	lastTime map[string]time.Time
+	minGap   time.Duration
+}
+
+// NewRateLimiter creates a rate limiter with requests per second limit
+func NewRateLimiter(rps int) *RateLimiter {
+	if rps <= 0 {
+		return nil
+	}
+	return &RateLimiter{
+		lastTime: make(map[string]time.Time),
+		minGap:   time.Second / time.Duration(rps),
+	}
+}
+
+// Wait blocks until a request can be made for the given host
+func (r *RateLimiter) Wait(host string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if last, ok := r.lastTime[host]; ok {
+		wait := r.minGap - time.Since(last)
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+	}
+	r.lastTime[host] = time.Now()
+}
+
 // Common parameter wordlist for brute-force discovery
 var commonParams = []string{
 	// Authentication & Authorization
@@ -95,6 +130,9 @@ type Config struct {
 	Timeout     time.Duration
 	Wordlist    []string
 	MaxParams   int
+	RateLimit   int  // requests per second per host (0 = unlimited)
+	RetryCount  int  // number of retries on 429
+	RetryDelay  time.Duration // delay between retries
 }
 
 // DefaultConfig returns a default configuration
@@ -105,6 +143,9 @@ func DefaultConfig(client *http.Client) Config {
 		Timeout:     10 * time.Second,
 		Wordlist:    commonParams,
 		MaxParams:   500,
+		RateLimit:   10,
+		RetryCount:  3,
+		RetryDelay:  1 * time.Second,
 	}
 }
 
@@ -135,6 +176,12 @@ func BruteForce(rawURL string, cfg Config) []ParamFinding {
 		return nil
 	}
 
+	// Create rate limiter
+	var rateLimiter *RateLimiter
+	if cfg.RateLimit > 0 {
+		rateLimiter = NewRateLimiter(cfg.RateLimit)
+	}
+
 	var (
 		mu      sync.Mutex
 		wg      sync.WaitGroup
@@ -149,7 +196,7 @@ func BruteForce(rawURL string, cfg Config) []ParamFinding {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			finding := testParameter(cfg.Client, parsed, p, baseline)
+			finding := testParameter(cfg.Client, parsed, p, baseline, rateLimiter, cfg.RetryCount, cfg.RetryDelay)
 			if finding != nil {
 				mu.Lock()
 				results = append(results, *finding)
@@ -200,47 +247,78 @@ func getBaseline(client *http.Client, rawURL string) *baseline {
 	}
 }
 
-func testParameter(client *http.Client, base *url.URL, param string, bl *baseline) *ParamFinding {
+func testParameter(client *http.Client, base *url.URL, param string, bl *baseline, rateLimiter *RateLimiter, retryCount int, retryDelay time.Duration) *ParamFinding {
+	// Wait for rate limiter
+	if rateLimiter != nil {
+		rateLimiter.Wait(base.Hostname())
+	}
+
 	// Test with GET parameter
 	testURL := *base
 	q := testURL.Query()
 	q.Set(param, "test123")
 	testURL.RawQuery = q.Encode()
 
-	req, err := http.NewRequest("GET", testURL.String(), nil)
-	if err != nil {
-		return nil
+	var lastErr error
+	for attempt := 0; attempt <= retryCount; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelay * time.Duration(attempt))
+			if rateLimiter != nil {
+				rateLimiter.Wait(base.Hostname())
+			}
+		}
+
+		req, err := http.NewRequest("GET", testURL.String(), nil)
+		if err != nil {
+			return nil
+		}
+		req.Header.Set("User-Agent", "syck-parambrute/1.0")
+		req.Header.Set("Accept", "*/*")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Handle rate limiting (429)
+		if resp.StatusCode == 429 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("rate limited (429)")
+			continue
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		resp.Body.Close()
+
+		bodyStr := string(body)
+
+		finding := &ParamFinding{
+			URL:          base.String(),
+			Parameter:    param,
+			StatusCode:   resp.StatusCode,
+			ResponseSize: len(body),
+		}
+
+		// Check if parameter is reflected in response
+		finding.Reflected = strings.Contains(bodyStr, "test123")
+
+		// Determine if finding is interesting
+		finding.Interesting, finding.Reason = isInteresting(resp.StatusCode, len(body), bl, finding.Reflected)
+
+		if !finding.Interesting {
+			return nil
+		}
+
+		return finding
 	}
-	req.Header.Set("User-Agent", "syck-parambrute/1.0")
-	req.Header.Set("Accept", "*/*")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-	bodyStr := string(body)
-
-	finding := &ParamFinding{
-		URL:          base.String(),
-		Parameter:    param,
-		StatusCode:   resp.StatusCode,
-		ResponseSize: len(body),
+	// All retries failed
+	if lastErr != nil && retryCount > 0 {
+		// Silently ignore after retries
 	}
 
-	// Check if parameter is reflected in response
-	finding.Reflected = strings.Contains(bodyStr, "test123")
-
-	// Determine if finding is interesting
-	finding.Interesting, finding.Reason = isInteresting(resp.StatusCode, len(body), bl, finding.Reflected)
-
-	if !finding.Interesting {
-		return nil
-	}
-
-	return finding
+	return nil
 }
 
 func isInteresting(statusCode, responseSize int, bl *baseline, reflected bool) (bool, string) {

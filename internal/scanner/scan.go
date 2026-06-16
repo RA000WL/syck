@@ -884,6 +884,9 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		allFindings = append(allFindings, detectWAF(httpClient, crawled)...)
 	}
 
+	// Analyze source maps for exposed files
+	allFindings = append(allFindings, analyzeSourceMaps(httpClient, crawled, cfg)...)
+
 	// Post-processing
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)

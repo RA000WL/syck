@@ -14,6 +14,7 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/recon"
+	"github.com/RA000WL/syck/internal/sourcemap"
 )
 
 // buildHTTPClient creates an HTTP client with custom headers and cookies
@@ -349,6 +350,87 @@ func detectWAF(httpClient *http.Client, crawled []crawler.CrawledURL) []finding.
 	}
 
 	return findings
+}
+
+// analyzeSourceMaps analyzes JavaScript files for source maps and extracts secrets
+func analyzeSourceMaps(httpClient *http.Client, crawled []crawler.CrawledURL, cfg Config) []finding.Finding {
+	var findings []finding.Finding
+
+	for _, c := range crawled {
+		if c.Content == "" {
+			continue
+		}
+
+		// Check if this is a JavaScript file
+		if !strings.HasSuffix(c.URL, ".js") && !strings.HasSuffix(c.URL, ".mjs") && !strings.HasSuffix(c.URL, ".cjs") {
+			continue
+		}
+
+		// Look for sourceMappingURL
+		mapURL := sourcemap.GetMapURL(c.Content)
+		if mapURL == "" {
+			continue
+		}
+
+		// Resolve relative URLs
+		if !strings.HasPrefix(mapURL, "http://") && !strings.HasPrefix(mapURL, "https://") {
+			baseURL := c.URL
+			if idx := strings.LastIndex(baseURL, "/"); idx > 0 {
+				baseURL = baseURL[:idx+1]
+			}
+			mapURL = baseURL + mapURL
+		}
+
+		// Fetch and parse source map
+		sm, err := sourcemap.FetchAndParseSourceMap(httpClient, mapURL)
+		if err != nil {
+			if cfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] source map fetch %s: %v\n", mapURL, err)
+			}
+			continue
+		}
+
+		// Report source map found
+		files := sm.ExtractFiles()
+		if len(files) > 0 {
+			sourceFiles := make([]string, 0, len(files))
+			for _, f := range files {
+				sourceFiles = append(sourceFiles, f.OriginalPath)
+			}
+
+			findings = append(findings, finding.Finding{
+				File:     c.URL,
+				Line:     1,
+				RuleName: "source_map_exposed",
+				Severity: finding.SeverityMedium,
+				Secret:   mapURL,
+				Context:  fmt.Sprintf("source map exposes %d original files: %s", len(files), truncateStrings(sourceFiles, 3)),
+			})
+
+			// Check for sensitive filenames
+			secrets := sm.ExtractSecrets()
+			for _, secret := range secrets {
+				findings = append(findings, finding.Finding{
+					File:     c.URL,
+					Line:     1,
+					RuleName: "source_map_sensitive_file",
+					Severity: finding.SeverityHigh,
+					Secret:   secret.SourceFile,
+					Context:  secret.Reason,
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// truncateStrings truncates a slice of strings to maxItems with "..." suffix
+func truncateStrings(strs []string, maxItems int) string {
+	if len(strs) <= maxItems {
+		return strings.Join(strs, ", ")
+	}
+	return strings.Join(strs[:maxItems], ", ") + fmt.Sprintf("... and %d more", len(strs)-maxItems)
 }
 
 // scanLineForRegexRules scans a single line against all regex rules
