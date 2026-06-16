@@ -29,6 +29,8 @@ import (
 // the process to exit with code 1. Using a returned error (instead of
 // os.Exit(1) inline) lets deferred cleanup (e.g. progress bar Finish) run.
 var errExitCode = errors.New("syck: findings present")
+var errExitCritical = errors.New("syck: critical findings present")
+var errScanError = errors.New("syck: scan error")
 
 var scanCmd = &cobra.Command{
 	Use:   "scan [paths...]",
@@ -552,7 +554,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// --fail-on: CI gate — exit 1 only if findings meet severity threshold
+	// --fail-on: CI gate — exit based on severity threshold
 	if failOn != "" {
 		if _, ok := finding.SeverityFromName[failOn]; !ok {
 			return fmt.Errorf("invalid --fail-on %q: must be one of INFO, LOW, MEDIUM, HIGH, CRITICAL", failOn)
@@ -560,14 +562,22 @@ func runScan(cmd *cobra.Command, args []string) error {
 		threshold := finding.ParseSeverity(failOn)
 		for _, f := range findings {
 			if f.Severity >= threshold {
+				if f.Severity == finding.SeverityCritical {
+					return errExitCritical
+				}
 				return errExitCode
 			}
 		}
 		return nil
 	}
 
-	// default: exit 1 if any findings
+	// default: exit 1 if any findings, exit 2 if CRITICAL
 	if len(findings) > 0 {
+		for _, f := range findings {
+			if f.Severity == finding.SeverityCritical {
+				return errExitCritical
+			}
+		}
 		return errExitCode
 	}
 	return nil

@@ -49,8 +49,14 @@ func Execute() {
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "debug logging")
 
 	if err := rootCmd.Execute(); err != nil {
+		if errors.Is(err, errExitCritical) {
+			os.Exit(2) // CRITICAL findings
+		}
 		if errors.Is(err, errExitCode) {
-			os.Exit(1)
+			os.Exit(1) // findings present
+		}
+		if errors.Is(err, errScanError) {
+			os.Exit(3) // scan error
 		}
 		os.Exit(1)
 	}
