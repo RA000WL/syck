@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/RA000WL/syck/internal/adaptive"
 	"github.com/RA000WL/syck/internal/correlator"
@@ -19,11 +18,9 @@ import (
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/fileutil"
 	"github.com/RA000WL/syck/internal/finding"
-	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/jsanalysis"
 	"github.com/RA000WL/syck/internal/jsrecon"
-	"github.com/RA000WL/syck/internal/recon"
 )
 
 const maxEndpointBuf = 10 << 20
@@ -664,13 +661,13 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 func scanContent(content string, path string, cfg Config, tagPrefix string,
 	skipSecrets map[string]bool, hasDecoders bool) []finding.Finding {
 	var findings []finding.Finding
-	var longLineCount int
 
 	if cfg.StripComments {
 		content = StripLineComments(content)
 	}
 	lines := strings.Split(content, "\n")
 
+	// Prepare decoders
 	df := decoder.Flags{
 		Base64:   cfg.DecodeBase64,
 		Hex:      cfg.DecodeHex,
@@ -684,100 +681,33 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		activeDec = decoder.PrecomputeDecoders(df)
 	}
 
+	// Prepare multi-line scanner
 	var mlScanner *MultiLineScanner
 	if cfg.MultiLine {
 		mlScanner = NewMultiLineScanner(cfg.Rules, cfg.MinSeverity)
 	}
 	mlSeen := map[string]bool{}
 
+	// Scan each line
 	for lineNum, line := range lines {
 		lineNum++
 
+		// Skip long lines
 		if cfg.MaxScanLineLen > 0 && len(line) > cfg.MaxScanLineLen {
 			if cfg.Debug {
-				longLineCount++
-				if longLineCount <= 10 {
-					fmt.Fprintf(os.Stderr, "[debug] skipping long line (%d bytes) in %s:%d\n",
-						len(line), path, lineNum)
-				}
+				fmt.Fprintf(os.Stderr, "[debug] skipping long line (%d bytes) in %s:%d\n",
+					len(line), path, lineNum)
 			}
 			continue
 		}
 
-		// ContextBefore/After
-		var ctxBefore, ctxAfter string
-		if lineNum > 1 {
-			ctxBefore = finding.Truncate(strings.TrimSpace(lines[lineNum-2]))
-		}
-		if lineNum < len(lines) {
-			ctxAfter = finding.Truncate(strings.TrimSpace(lines[lineNum]))
-		}
+		// Get context
+		ctxBefore, ctxAfter := getLineContext(lines, lineNum)
 
-		for _, rule := range cfg.Rules.Rules {
-			matches := rule.MatchAll(line)
-			for _, m := range matches {
-				if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) {
-					continue
-				}
-				var secret string
-				if m[1] <= len(line) {
-					secret = line[m[0]:m[1]]
-				} else {
-					secret = line[m[0]:]
-				}
+		// Regex rule matching
+		findings = append(findings, scanLineForRegexRules(line, lineNum, path, cfg, tagPrefix, skipSecrets)...)
 
-				if skipSecrets != nil {
-					key := secret
-					if len(key) > 60 {
-						key = key[:60]
-					}
-					if skipSecrets[key] {
-						continue
-					}
-				}
-
-				sev := rule.SeverityInt
-				if sev < cfg.MinSeverity {
-					continue
-				}
-
-				e := entropy.Shannon(secret)
-				if e < 2.0 {
-					continue
-				}
-
-				ruleName := rule.Name
-				ctx := strings.TrimSpace(line)
-				if tagPrefix != "" {
-					ruleName = tagPrefix + ruleName
-					ctx = contextLabel(tagPrefix) + ctx
-				}
-				ctx = finding.Truncate(ctx)
-
-				conf := finding.ConfidenceRegex
-				method := "regex"
-				if tagPrefix != "" {
-					conf += finding.ConfidenceDecoded
-					method = "decoded_regex"
-				}
-
-				findings = append(findings, finding.Finding{
-					File:            path,
-					Line:            lineNum,
-					Column:          m[0],
-					RuleName:        ruleName,
-					Severity:        sev,
-					Secret:          secret,
-					Context:         ctx,
-					ContextBefore:   ctxBefore,
-					ContextAfter:    ctxAfter,
-					Entropy:         e,
-					Confidence:      conf,
-					DetectionMethod: method,
-				})
-			}
-		}
-		// Multi-line pattern matching (sliding window)
+		// Multi-line pattern matching
 		if cfg.MultiLine && lineNum >= 2 {
 			windowStart := lineNum - maxMultiLineWindow
 			if windowStart < 0 {
@@ -792,100 +722,25 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 				}
 			}
 		}
-		// Entropy token scan — only on lines with secret-context keywords
 
-		if entropy.HasSecretContext(line) {
-			for _, tok := range entropy.EntropyTokenRe.FindAllString(line, -1) {
-				ok, tokEntropy := checkEntropyToken(tok, cfg.EntropyThresholds)
-				if !ok {
-					continue
-				}
-				if skipSecrets != nil {
-					key := tok
-					if len(key) > 60 {
-						key = key[:60]
-					}
-					if skipSecrets[key] {
-						continue
-					}
-				}
-				if entropy.IsMediaToken(tok) {
-					continue
-				}
-				col := strings.Index(line, tok)
-				if col < 0 {
-					col = 0
-				}
-				ctx := strings.TrimSpace(line)
-				if tagPrefix != "" {
-					ctx = contextLabel(tagPrefix) + ctx
-				}
-				ctx = finding.Truncate(ctx)
-				findings = append(findings, finding.Finding{
-					File:            path,
-					Line:            lineNum,
-					Column:          col,
-					RuleName:        "high_entropy_token",
-					Severity:        finding.SeverityMedium,
-					Secret:          tok,
-					Context:         ctx,
-					ContextBefore:   ctxBefore,
-					ContextAfter:    ctxAfter,
-					Entropy:         tokEntropy,
-					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
-					DetectionMethod: "entropy+context",
-				})
-			}
-		}
+		// Entropy token scan
+		findings = append(findings, scanLineForEntropyTokens(line, lineNum, path, cfg, tagPrefix, skipSecrets, ctxBefore, ctxAfter)...)
 
-		for _, cs := range entropy.ExtractContextualSecrets(line, 4.5) {
-			if entropy.IsMediaToken(cs.Token) {
-				continue
-			}
-			findings = append(findings, finding.Finding{
-				File:            path,
-				Line:            lineNum,
-				Column:          strings.Index(line, cs.Token),
-				RuleName:        "contextual_entropy_secret",
-				Severity:        finding.SeverityHigh,
-				Secret:          cs.Token,
-				Context:         finding.Truncate(strings.TrimSpace(line)),
-				Entropy:         cs.Entropy,
-				Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
-				DetectionMethod: "entropy+context",
-			})
-		}
+		// Contextual secrets
+		findings = append(findings, scanLineForContextualSecrets(line, lineNum, path)...)
 
+		// Decoded content scan
 		if hasDecoders {
-			decodedFindings := decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
-				cfg.Rules, cfg.MinSeverity, activeDec)
-			if tagPrefix != "" {
-				for i := range decodedFindings {
-					decodedFindings[i].RuleName = tagPrefix + decodedFindings[i].RuleName
-				}
-			}
-			if skipSecrets != nil {
-				var filtered []finding.Finding
-				for _, f := range decodedFindings {
-					key := f.Secret
-					if len(key) > 60 {
-						key = key[:60]
-					}
-					if !skipSecrets[key] {
-						filtered = append(filtered, f)
-					}
-				}
-				decodedFindings = filtered
-			}
-			findings = append(findings, decodedFindings...)
+			findings = append(findings, scanLineForDecodedContent(line, lineNum, path, cfg, tagPrefix, skipSecrets, activeDec)...)
 		}
 
+		// Auth header detection
 		if cfg.DetectAuthHeaders {
-			findings = append(findings, DetectAuthHeaders(line, path, lineNum)...)
+			findings = append(findings, scanLineForAuthHeaders(line, lineNum, path)...)
 		}
 
-		urlFindings := ExtractURLSecrets(line, path, lineNum)
-		findings = append(findings, urlFindings...)
+		// URL secret extraction
+		findings = append(findings, scanLineForURLSecrets(line, lineNum, path)...)
 	}
 
 	// Source technology fingerprinting
@@ -977,42 +832,11 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 }
 
 func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
-	httpClient := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
+	// Build HTTP client with custom headers
+	httpClient := buildHTTPClient(cfg)
 
-	// Wire custom headers and cookies into crawl transport
-	if len(cfg.Headers) > 0 || cfg.CookieString != "" {
-		effectiveHeaders := make(map[string][]string)
-		for k, vals := range cfg.Headers {
-			effectiveHeaders[k] = vals
-		}
-		if cfg.CookieString != "" {
-			for _, c := range ParseCookies(cfg.CookieString) {
-				effectiveHeaders["Cookie"] = append(effectiveHeaders["Cookie"], c.String())
-			}
-		}
-		httpClient.Transport = &headerTransport{
-			base:    httpClient.Transport,
-			headers: effectiveHeaders,
-		}
-	}
-
-	crawlCfg := crawler.CrawlConfig{
-		Scope:           cfg.Scope,
-		Limit:           cfg.CrawlLimit,
-		MaxDepth:        cfg.CrawlDepth,
-		Debug:           cfg.Debug,
-		Endpoints:       cfg.Endpoints,
-		Headless:        cfg.Headless,
-		RateLimit:       cfg.RateLimit,
-		UserAgent:       cfg.UserAgent,
-		Cookies:         cfg.Cookies,
-		CookieFile:      cfg.CookieFile,
-		Concurrency:     cfg.Concurrency,
-		HostConcurrency: cfg.HostConcurrency,
-		RespectRobots:   cfg.RespectRobots,
-		SameDomainOnly:  true,
-		HTTPClient:      httpClient,
-	}
+	// Build crawl config
+	crawlCfg := buildCrawlConfig(cfg, httpClient)
 
 	// Open URL cache if configured
 	if cfg.URLCacheDB != "" {
@@ -1022,215 +846,45 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// Crawl URLs
 	crawled := crawler.Crawl(urls, crawlCfg)
 
 	var (
 		allFindings   []finding.Finding
-		urlsScanned   atomic.Int64
-		totalFindings atomic.Int64
+		urlsScanned   int64
+		totalFindings int64
 	)
 
-	// V1.1: juicy file probing after BFS
-	if cfg.ProbeJuicyFiles && len(crawled) > 0 {
-		firstURL := crawled[0].URL
-		baseURL := baseOf(firstURL)
-		if baseURL != "" {
-			juicyCfg := crawler.JuicyConfig{
-				Client:    httpClient,
-				BaseURL:   baseURL,
-				UserAgent: cfg.UserAgent,
-			}
-			for _, jf := range crawler.ProbeJuicy(juicyCfg) {
-				allFindings = append(allFindings, jf.ToFinding())
-			}
-		}
+	// Probe juicy files
+	allFindings = append(allFindings, probeJuicyFiles(httpClient, crawled, cfg)...)
+
+	// Scan crawled content
+	allFindings = append(allFindings, scanCrawledContent(crawled, cfg, &urlsScanned, &totalFindings)...)
+
+	// Extract endpoints
+	allFindings = append(allFindings, extractEndpointsFromCrawl(crawled, cfg)...)
+
+	// Detect cloud storage
+	allFindings = append(allFindings, detectCloudStorage(crawled)...)
+
+	// Probe GraphQL
+	allFindings = append(allFindings, probeGraphQLEndpoints(httpClient, crawled, cfg)...)
+
+	// Parse OpenAPI specs
+	allFindings = append(allFindings, parseOpenAPISpecs(crawled, cfg)...)
+
+	// Analyze security headers
+	if cfg.HeaderCheck {
+		allFindings = append(allFindings, analyzeSecurityHeaders(httpClient, crawled)...)
 	}
 
-	for _, c := range crawled {
-		if cfg.URLProgress != nil {
-			cfg.URLProgress(c.URL, nil, false)
-		}
-
-		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
-		findings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
-		allFindings = append(allFindings, findings...)
-		urlsScanned.Add(1)
-		totalFindings.Add(int64(len(findings)))
-
-		// Endpoint extraction for crawled URLs
-		if cfg.Endpoints && c.Content != "" {
-			eps := endpoints.ExtractEndpoints(c.URL, c.Content)
-			for _, ep := range eps {
-				score := endpoints.ComputeRiskScore(ep.Endpoint)
-				if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
-					continue
-				}
-				allFindings = append(allFindings, finding.Finding{
-					File:      ep.File,
-					Line:      ep.Line,
-					Column:    0,
-					RuleName:  "endpoint",
-					Severity:  finding.SeverityInfo,
-					RiskScore: score,
-					Secret:    ep.Endpoint,
-					Context:   ep.Context,
-					Entropy:   0.0,
-				})
-			}
-		}
-
-		// V1.1: emit source_map finding for harvested .js.map files
-		if cfg.Endpoints && strings.HasSuffix(c.URL, ".js.map") {
-			allFindings = append(allFindings, finding.Finding{
-				File:     c.URL,
-				Line:     1,
-				Column:   0,
-				RuleName: "source_map",
-				Severity: finding.SeverityInfo,
-				Secret:   c.URL,
-				Context:  "source map harvested from " + strings.TrimSuffix(c.URL, ".map"),
-				Entropy:  0.0,
-			})
-		}
-
-		if cfg.Progress != nil {
-			cfg.Progress(int(urlsScanned.Load()), int(totalFindings.Load()))
-		}
-		if cfg.URLProgress != nil {
-			cfg.URLProgress(c.URL, findings, false)
-		}
+	// Detect technologies
+	if cfg.TechDetect {
+		allFindings = append(allFindings, detectTechnologies(httpClient, crawled)...)
+		allFindings = append(allFindings, detectWAF(httpClient, crawled)...)
 	}
 
-	// V1.2: cloud storage URL detection
-	for _, c := range crawled {
-		if c.Content == "" {
-			continue
-		}
-		for _, ref := range crawler.ExtractCloudStorage(c.Content) {
-			allFindings = append(allFindings, finding.Finding{
-				File:     c.URL,
-				Line:     1,
-				RuleName: "cloud_storage_" + ref.Provider,
-				Severity: finding.SeverityMedium,
-				Secret:   ref.URL,
-				Context:  fmt.Sprintf("cloud storage reference: %s", ref.URL),
-			})
-		}
-	}
-
-	// V1.2: GraphQL introspection probe
-	if cfg.ProbeGraphQL && len(crawled) > 0 {
-		for _, c := range crawled {
-			if !strings.Contains(c.Content, "graphql") {
-				continue
-			}
-			result, err := crawler.ProbeGraphQLIntrospection(httpClient, c.URL, 10*time.Second)
-			if err != nil {
-				if cfg.Debug {
-					fmt.Fprintf(os.Stderr, "[debug] graphql introspection %s: %v\n", c.URL, err)
-				}
-				continue
-			}
-			allFindings = append(allFindings, finding.Finding{
-				File:     c.URL,
-				Line:     1,
-				RuleName: "graphql_introspection",
-				Severity: finding.SeverityHigh,
-				Secret:   c.URL,
-				Context:  fmt.Sprintf("introspection enabled: %d types, queries=%v, mutations=%v", len(result.Types), result.Queries, result.Mutations),
-			})
-		}
-	}
-
-	// V1.2: OpenAPI spec parsing
-	if cfg.ParseOpenAPI {
-		for _, c := range crawled {
-			if c.Content == "" {
-				continue
-			}
-			if !strings.HasSuffix(c.URL, ".json") && !strings.HasSuffix(c.URL, ".yaml") && !strings.HasSuffix(c.URL, ".yml") {
-				continue
-			}
-			spec, err := crawler.ParseOpenAPI(c.Content)
-			if err != nil {
-				continue
-			}
-			paths := spec.ExtractEndpointURLs(c.URL)
-			for _, ep := range paths {
-				score := endpoints.ComputeRiskScore(ep)
-				if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
-					continue
-				}
-				allFindings = append(allFindings, finding.Finding{
-					File:      c.URL,
-					Line:      1,
-					RuleName:  "openapi_endpoint",
-					Severity:  finding.SeverityMedium,
-					RiskScore: score,
-					Secret:    ep,
-					Context:   fmt.Sprintf("OpenAPI spec: %s %s", spec.Info.Title, spec.Info.Version),
-				})
-			}
-		}
-	}
-
-	// Security header analysis on crawled URLs
-	if cfg.HeaderCheck && len(crawled) > 0 {
-		headerDetector := recon.NewSecurityHeaderDetector(httpClient)
-		crawledURLs := make([]string, 0, len(crawled))
-		for _, c := range crawled {
-			crawledURLs = append(crawledURLs, c.URL)
-		}
-		for _, sf := range headerDetector.Detect(crawledURLs) {
-			allFindings = append(allFindings, finding.Finding{
-				File:           sf.URL,
-				Line:           1,
-				RuleName:       "attack_surface_" + sf.Category,
-				Severity:       sf.Severity,
-				ConfidenceBand: "HIGH",
-				Context:        sf.Category + ": " + sf.URL,
-			})
-		}
-	}
-
-	// Technology fingerprinting on crawled URLs
-	if cfg.TechDetect && len(crawled) > 0 {
-		techDetector := recon.NewTechFingerprintWeb(httpClient)
-		crawledURLs := make([]string, 0, len(crawled))
-		for _, c := range crawled {
-			crawledURLs = append(crawledURLs, c.URL)
-		}
-		for _, sf := range techDetector.Detect(crawledURLs) {
-			allFindings = append(allFindings, finding.Finding{
-				File:           sf.URL,
-				Line:           1,
-				RuleName:       sf.Source,
-				Severity:       sf.Severity,
-				ConfidenceBand: confidenceBandFromScore(sf.Confidence),
-				Context:        fmt.Sprintf("%s: %s (confidence=%d)", sf.Category, sf.URL, sf.Confidence),
-				Confidence:     sf.Confidence,
-			})
-		}
-	}
-
-	// WAF/CDN detection on crawled URLs
-	if cfg.TechDetect && len(crawled) > 0 {
-		wafDetector := recon.NewWAFDetector(httpClient)
-		crawledURLs := make([]string, 0, len(crawled))
-		for _, c := range crawled {
-			crawledURLs = append(crawledURLs, c.URL)
-		}
-		for _, sf := range wafDetector.Detect(crawledURLs) {
-			allFindings = append(allFindings, finding.Finding{
-				File:     sf.URL,
-				Line:     1,
-				RuleName: sf.Source,
-				Severity: sf.Severity,
-				Context:  sf.Category + ": " + sf.URL,
-			})
-		}
-	}
-
+	// Post-processing
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
 	}
@@ -1238,6 +892,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		allFindings = DowngradeFP(allFindings)
 	}
 
+	// Cache and adaptive learning
 	if cfg.CacheDB != "" {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
 			for i := range allFindings {
