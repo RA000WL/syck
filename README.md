@@ -1,46 +1,51 @@
-# SYCK(SecretsYouCantKeep)
+# SYCK (SecretsYouCantKeep)
 
 [![CI](https://github.com/RA000WL/syck/actions/workflows/ci.yml/badge.svg)](https://github.com/RA000WL/syck/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/RA000WL/syck)](https://github.com/RA000WL/syck/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner written in Go. 200+ detection rules, multi-layer decoding, entropy analysis, URL crawling, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
+A fast, modular secret scanner and recon engine written in Go. 200+ detection rules, multi-layer decoding, entropy analysis, URL crawling, JavaScript analysis, endpoint extraction, subdomain discovery, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
 
 ## Features
 
+### Core Scanning
 - **200+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
 - **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
-- **Security header analysis** — CSP, HSTS, X-Frame-Options, CORS misconfigurations, cookie security, server version disclosure, and more (18 finding types)
-- **Technology fingerprinting** — detects CMS (WordPress, Drupal, Shopify), frameworks (Express, Rails, Django, Spring Boot, Laravel, Next.js), languages, libraries, CDNs, and exposed services (GraphQL, Kubernetes API) from HTTP responses and source code
-- **7 output formats** — text, JSON, JSONL/NDJSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
+- **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
+
+### JavaScript & Source Analysis
+- **JS string reconstruction** — constant propagation, concatenation chains, array joins, template literals, ternary expressions, array index access
+- **Environment variable detection** — `process.env.*`, `import.meta.env.*`, `$ENV_VAR` patterns
+- **Dynamic import extraction** — `import()`, `require()`, lazy loading patterns
+- **Hidden secret detection** — config secrets, base64 encoded values, TODO/FIXME leaks
+- **Debug artifact detection** — development URLs, debug endpoints, localhost references
+- **Sensitive file references** — `.env`, `.key`, `.pem`, credentials files
+
+### Reconnaissance & Discovery
+- **Subdomain enumeration** — Certificate Transparency (crt.sh + CertSpotter) + DNS bruteforce wordlist
+- **Internal link detection** — private IPs (10.x, 172.16-31.x, 192.168.x), cloud metadata (169.254.169.254), Kubernetes/Docker services, localhost, sensitive ports
+- **Endpoint extraction** — 30+ patterns: API versioning, REST, GraphQL, gRPC, webhooks, debug/admin, internal paths, frontend routers
+- **Juicy file probing** — 150+ high-value paths: `.env`, `admin`, `actuator/*`, `.well-known/*`, source maps, backup files, CI/CD configs, database dumps
+- **GraphQL introspection** — schema analysis for sensitive queries and mutations
+
+### Security Analysis
+- **Security header analysis** — CSP, HSTS, X-Frame-Options, CORS misconfigurations, cookie security, server version disclosure (18 finding types)
+- **Technology fingerprinting** — CMS, frameworks, languages, libraries, CDNs from HTTP responses and source code
+- **WAF/CDN detection** — Cloudflare, Akamai, AWS CloudFront, and more
+- **Cloud storage detection** — S3, GCS, Azure Blob URL patterns
+
+### Output & Integration
+- **7 output formats** — text (professional with severity icons), JSON, JSONL/NDJSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
 - **URL crawling** — BFS crawler with goquery HTML extraction, per-host rate limiting, scope filtering, sitemap discovery
 - **Headless Chrome** — SPA/JS-rendered page support via go-rod
 - **Git history scanning** — walk all commits, scan deleted/modified files
 - **Live validation** — confirm found secrets are active against 13 provider APIs
-- **.syckignore** — fingerprint + regex pattern suppression of known false positives
-- **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
-- **JS string reconstruction** — constant propagation, concatenation chains, array joins (arbitrary separators), template literals, ternary expressions, array index access
-- **JSON-aware scanning** — walks parsed JSON tree under known secret-key names
-- **CI gate mode** — `--fail-on` exits non-zero when findings meet severity threshold
-- **Zero runtime dependencies** — single static binary, no pip/npm required
-- **Endpoint detection** — JS-aware crawl extracts API endpoints from fetch/axios/XHR, 6 frontend router patterns (React/Vue/Angular), 4 GraphQL variants, 3 OpenAPI/Swagger patterns
-- **Risk scoring** — 19-rule risk engine assigns 0-10 score per endpoint with FP-safe prefix checking
-- **Source map harvesting** — crawler fetches `.js.map` alongside `.js` files, extracts endpoints from map content
-- **Juicy file probing** — detects 65 high-value paths: `.env`, `admin`, `actuator/*`, `metrics`, `swagger.json`, backup files, database dumps, terraform state, and more
-- **URL secret extraction** — detects `access_token`, `api_key`, `token` etc. leaked in URL query parameters
 - **Webhook/SIEM export** — send findings to Slack, Discord, or generic JSON webhooks
 - **SQLite cross-run cache** — fingerprint-based dedup across scan runs for progressive triage
-- **URL cross-run cache** — SQLite-backed crawl dedup, skips previously fetched URLs across runs
 - **Adaptive confidence learning** — learns from user verdicts to reduce false positives over time
-- **Archive scanning** — extracts and scans zip, tar, tar.gz, jar files with Zip Slip protection
-- **Multi-line detection** — matches secrets spanning multiple lines (PEM keys, JSON configs)
-- **Auth header detection** — Bearer tokens, Basic auth, API key headers
-- **Proxy support** — route all traffic through Burp Suite or any HTTP proxy
-- **Diff mode** — only show new findings since last scan
-- **Cookie + auth injection** — inject cookies and auth headers for authenticated scanning
 
 ## Install
 
@@ -70,8 +75,12 @@ syck scan path/to/config.js
 # Scan a URL (auto-crawl with default settings)
 syck scan -u https://example.com/app.js
 
-# Scan from stdin
-cat .env | syck scan --pipe
+# Scan from stdin (auto-detects URLs vs raw content)
+cat urls.txt | syck scan --pipe
+echo "const API_KEY = 'sk_live_...'" | syck scan --pipe
+
+# Scan URLs from file
+syck scan -l urls.txt --scope "example.com"
 
 # Critical findings only, redacted output for CI logs
 syck scan . --severity CRITICAL --redact --no-color
@@ -81,23 +90,35 @@ syck scan . --format json -o results.json
 
 # SARIF for GitHub Code Scanning
 syck scan . --format sarif -o results.sarif
+
+# Full recon with endpoints
+syck scan -u https://example.com --endpoints --crawl-limit 100
 ```
 
 **Sample output:**
 
 ```
-[HIGH]  [stripe_api_key]  config.js:42:18  entropy=4.81
-       secret : sk_xxxxxxxxxxxxxxxx
-       context: const apiKey = "sk_xxxxxxxxxxxxxxxx";
+╔════════════════════════════════════════════════════════════╗
+║  syck v1.1.0                                              ║
+║  Secret Scanner & Recon Engine                             ║
+╚════════════════════════════════════════════════════════════╝
 
-[HIGH]  [aws_access_key]  env.bak:3:1  entropy=3.92
-       secret : AKIAxxxxxxxxxxxxxxxx
-       context: AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxxxxxxxx
+⚠  WARNING: Secrets are shown in full. Do not share this output.
 
-── Summary ──
-  Files with findings : 2
-  Total findings      : 2
-    HIGH      2
+┌─ config.js
+│ 🔴 CRITICAL │ CRITICAL │ aws_access_key_id             │ AKIAIOSFODNN7EXAMPLE
+│   AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+│ 🟠 HIGH     │ HIGH     │ stripe_api_key                │ sk_live_xxxxxxxxxxxxxxxx
+│   const apiKey = "sk_live_xxxxxxxxxxxxxxxx";
+
+─── Scan Complete ────────────────────────────────────────────
+
+  Files scanned    : 1
+  Total findings   : 2
+
+  Severity Distribution:
+    CRITICAL  ████████████████████████████░░ 1
+    HIGH      ████████████████████████████░░ 1
 ```
 
 ## Common Workflows
@@ -128,18 +149,12 @@ export SYCK_SCAN_OUTPUT=results.sarif
 syck scan . --no-color
 ```
 
-Useful in Dockerfile / GitHub Actions / Kubernetes containers where CLI
-flag escaping is awkward.
-
 ### Long-running scans with progress
 
 ```bash
 # Show a live TUI bar on stderr (auto-disabled by --quiet or --pipe)
 syck scan ./very-large-repo --progress
 ```
-
-The bar reports files scanned, rate, and ETA. Final line shows total
-files, elapsed time, and findings count.
 
 ### GitHub Action
 
@@ -155,24 +170,20 @@ files, elapsed time, and findings count.
     sarif_file: results.sarif
 ```
 
-Or use the built-in `syck upload-sarif` (no `codeql-action` dependency):
-
-```yaml
-- name: Upload SARIF
-  if: always()
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  run: syck upload-sarif --file results.sarif --repo ${{ github.repository }} --commit ${{ github.sha }}
-```
-
-### Generate `.syckignore` from existing findings
+### Bug Bounty Recon
 
 ```bash
-syck scan . --format json | jq -r '.findings[] | "\(.rule):\(.secret):\(.file)"' | \
-  while read line; do
-    fp=$(echo -n "$line" | sha256sum | cut -d' ' -f1)
-    echo "$fp  # $line"
-  done > .syckignore
+# Full recon with subdomain discovery
+syck scan -u https://target.com --endpoints --crawl-limit 500
+
+# Scan with proxy (Burp Suite)
+syck scan -u https://target.com --proxy http://127.0.0.1:8080
+
+# Pipe URLs from other tools
+cat subdomains.txt | syck scan --pipe --scope "target.com"
+
+# Scan JS files for secrets
+syck scan ./downloaded_js/ --endpoints --decode-base64
 ```
 
 ### Validate live secrets
@@ -181,8 +192,6 @@ syck scan . --format json | jq -r '.findings[] | "\(.rule):\(.secret):\(.file)"'
 # Confirm found secrets are still active (slower, hits provider APIs)
 syck scan . --validate
 ```
-
-Validation downgrades unconfirmed secrets to `INFO`.
 
 ### Adaptive Learning
 
@@ -202,8 +211,6 @@ syck verdict --stats --cache-db scan.db
 # 4. Scan with adaptive learning enabled
 syck scan . --cache-db scan.db --adaptive
 ```
-
-The system uses Bayesian smoothing with a 90-day decay to gradually learn which rules produce false positives in your codebase. Findings in test/mock/vendor directories are tracked separately. High-certainty rules (AWS keys, GitHub PATs, Stripe keys, private keys) are capped to prevent accidental suppression.
 
 ## CLI Reference
 
@@ -233,8 +240,7 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 | `--decode-unicode` | Decode `\uXXXX` escapes and rescan |
 | `--decode-url` | URL-decode lines and rescan |
 | `--decode-gzip` | Decompress gzip/zlib content and rescan |
-| `--decode-charcode` | Decode `String.fromCharCode(...)` and rescan |
-| `--js-reconstruct` | Reconstruct JS: constant propagation, concat chains, array joins (arbitrary separators), template literals, ternary expressions, array index access (default: **on**) |
+| `--js-reconstruct` | Reconstruct JS strings (default: **on**) |
 
 ### URL Scanning Flags
 
@@ -258,28 +264,33 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 
 | Flag | Description |
 |------|-------------|
-| `--endpoints` | Extract API, GraphQL, and WebSocket URLs |
+| `--endpoints` | Extract API, GraphQL, WebSocket, and internal URLs |
 | `--min-endpoint-score` | Only show endpoints with risk score >= N (default: 0) |
 | `--no-juicy-files` | Disable juicy file probing during endpoint scan |
 | `--git-history` | Scan files in git commit history |
 | `--validate` | Validate found secrets against provider APIs (live check) |
-| `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs and placeholder patterns (default: **on**) |
-| `--ignore-file` | Path to `.syckignore` file for fingerprint or regex pattern suppression |
+| `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs (default: **on**) |
+| `--ignore-file` | Path to `.syckignore` file |
 | `--rules`, `-r` | Custom rules YAML file |
-| `--pipe` | Scan from stdin |
+| `--pipe` | Scan from stdin (auto-detects URLs vs raw content) |
 | `--fail-on` | CI gate: exit 1 if findings meet severity threshold |
-| `--multiline` | Enable multi-line pattern matching (sliding window) (default: **on**) |
+| `--multiline` | Enable multi-line pattern matching (default: **on**) |
 | `--strip-comments` | Strip comment lines before scanning |
-| `--detect-auth-headers` | Detect hardcoded Authorization headers and API keys (default: **on**) |
-| `--scan-archives` | Extract and scan inside archives (zip, tar, tar.gz, jar, war, ear) |
+| `--detect-auth-headers` | Detect hardcoded Authorization headers (default: **on**) |
+| `--scan-archives` | Extract and scan inside archives (zip, tar, jar, war, ear) |
 | `--scan-binaries` | Extract and scan strings from binary files |
 | `--probe-graphql` | Probe GraphQL endpoints with introspection query |
 | `--parse-openapi` | Parse OpenAPI/Swagger specs and inject discovered endpoints |
-| `--entropy-threshold` | Per-alphabet entropy threshold overrides (e.g. `hex=3.0,base64=4.2`) |
-| `--max-scan-line-len` | Skip per-line scanning on lines exceeding this length (default: 100000) |
-| `--progress` | Show TUI progress bar on stderr |
-| `--header-check` | Analyze HTTP security headers (CSP, HSTS, CORS, cookies) (default: **on**) |
+| `--header-check` | Analyze HTTP security headers (default: **on**) |
 | `--tech-detect` | Detect technologies from HTTP responses and source code (default: **on**) |
+
+### Recon Flags
+
+| Flag | Description |
+|------|-------------|
+| `--recon` | Auto-discover subdomains before scanning (crt.sh + CertSpotter) |
+| `--recon-wayback` | Include Wayback Machine URLs in recon |
+| `--recon-live` | Only scan live hosts from recon |
 
 ### Cache & Adaptive Flags
 
@@ -287,154 +298,32 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 |------|-------------|
 | `--cache-db` | Path to SQLite cache database for cross-run dedup |
 | `--adaptive` | Enable adaptive confidence learning from past verdicts |
-| `--url-cache-db` | Path to SQLite URL cache for cross-run crawl dedup (skips previously fetched URLs) |
-
-### Webhook / Export Flags
-
-| Flag | Description |
-|------|-------------|
-| `--webhook-url` | Send findings to this webhook URL |
-| `--webhook-style` | Webhook payload style: `slack`, `discord`, or `json` (default: `json`) |
+| `--url-cache-db` | Path to SQLite URL cache for cross-run crawl dedup |
 
 ### Bug Bounty Flags
 
 | Flag | Description |
 |------|-------------|
-| `--proxy` | Route all HTTP traffic through a proxy (e.g. Burp Suite at `http://127.0.0.1:8080`) |
+| `--proxy` | Route all HTTP traffic through a proxy (e.g. Burp Suite) |
 | `--auth-token` | Bearer token for authenticated crawling |
 | `--header` | Custom header (repeatable): `--header "Name: Value"` |
-| `--scope-file` | File with scope regex patterns (one per line, `#` comments) |
+| `--scope-file` | File with scope regex patterns (one per line) |
 | `--cookie` | Cookie string: `--cookie "session=abc; token=xyz"` |
 | `--no-sitemap` | Disable robots.txt/sitemap.xml discovery |
 | `--diff` | Only show new findings (requires `--cache-db`) |
 | `--http-timeout` | HTTP timeout (default `10s`) |
 
-### Other Commands
-
-```bash
-# List all detection rules
-syck list-rules
-
-# Rule quality testing (precision/recall)
-syck ruletest
-
-# Upload SARIF to GitHub Code Scanning
-syck upload-sarif --file results.sarif --repo owner/repo --commit SHA
-
-# Adaptive learning verdicts
-syck verdict <fingerprint> tp|fp --cache-db scan.db
-syck verdict --stats --cache-db scan.db
-
-# Generate shell completion
-syck completion bash > /etc/bash_completion.d/syck
-```
-
 ## Output Formats
 
 | Format | Command | Best For |
 |--------|---------|----------|
-| Text | `--format text` | Terminal (default, colorized) |
+| Text | `--format text` | Terminal (default, colorized with severity icons) |
 | JSON | `--format json` | Machine parsing, dashboards |
 | JSONL | `--format jsonl` | Streaming/piping, one finding per line |
 | SARIF | `--format sarif` | GitHub Code Scanning upload |
 | Markdown | `--format markdown` | PR comments, reports |
 | CSV | `--format csv` | Spreadsheets, data analysis |
 | HTML | `--format html` | Browser viewing, dark theme |
-
-## Custom Rules
-
-Create a YAML file and pass it with `--rules`:
-
-```yaml
-rules:
-  - name: my_internal_api_key
-    severity: CRITICAL
-    pattern: 'my_internal_key_[a-zA-Z0-9]{32}'
-    tags: [internal]
-```
-
-```bash
-syck scan . --rules my_rules.yaml
-```
-
-## .syckignore
-
-Suppress known false positives via two formats: sha256 **fingerprints**
-(precise) and `re:`-prefixed **regex patterns** (broad). Patterns match
-against the finding's `secret` or `file` field.
-
-```text
-# syck .syckignore — one rule per line, # comments ignored
-
-# Fingerprint: sha256("rule:secret:file") — exact-match suppression
-a3c12406e369cd1e60910d005904fa526797d2997b523e0b40e8f5347eaf8739
-
-# Pattern: regex matched against secret OR file
-re:fonts\.googleapis\.com        # public CDN, no secret value
-re:^vendor/                       # all third-party vendor paths
-re:\.example\.(com|org)$         # documentation domains
-```
-
-```bash
-# Generate an ignore file from current findings (fingerprint mode)
-syck scan . --format json | python3 -c "
-import sys, json, hashlib
-data = json.load(sys.stdin)
-for f in data['findings']:
-    fp = hashlib.sha256(f'{f[\"rule\"]}:{f[\"secret\"]}:{f[\"file\"]}'.encode()).hexdigest()
-    print(f'{fp}  # {f[\"rule\"]} in {f[\"file\"]}:{f[\"line\"]}')
-" > .syckignore
-
-# Re-scan with ignore file — suppressed findings are filtered out
-syck scan . --ignore-file .syckignore
-```
-
-**When to use which:**
-- **Fingerprint** — known single false positive, never want to see it
-- **Pattern** — entire class of FPs (CDN, vendor, mock data, test domains)
-
-## Live Validation
-
-Validate found secrets against provider APIs to confirm they're active:
-
-```bash
-syck scan . --validate
-```
-
-Supported providers: GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Twilio, npm, HuggingFace, AWS STS, Slack webhooks, and more.
-
-Validation results downgrade unconfirmed secrets to `INFO` severity.
-
-## CI Integration
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | No findings |
-| 1 | Findings found (or `--fail-on` threshold met) |
-| 2 | Bad arguments |
-
-### GitHub Actions Example
-
-```yaml
-- name: Run syck
-  run: |
-    syck scan . --severity HIGH --fail-on HIGH --format sarif -o results.sarif --no-color
-
-- name: Upload SARIF
-  uses: github/codeql-action/upload-sarif@v3
-  if: always()
-  with:
-    sarif_file: results.sarif
-```
-
-### Pre-commit Hook
-
-```bash
-#!/bin/sh
-syck scan . --severity CRITICAL --fail-on CRITICAL --quiet --no-color
-```
 
 ## Architecture
 
@@ -443,19 +332,22 @@ syck scan [paths...]
     │
     ├── File scanning (parallel workers, streaming >1MB)
     ├── URL scanning (goquery → BFS crawl → fetch → scan)
-    ├── Git history (git log → git show → scan per-commit)
-    └── Stdin pipe
+    ├── Stdin pipe (auto-detects URLs vs raw content)
+    └── Git history (git log → git show → scan per-commit)
           │
           ├── Regex rules (200+ patterns)
           ├── Entropy token scan + contextual entropy
           ├── Multi-layer decoders (base64/hex/unicode/url/gzip/JWT/charcode)
           ├── JSON-aware tree walker
           ├── JS string reconstruction (6 methods)
+          ├── JS/Source analysis (env vars, secrets, internal URLs)
           ├── URL secret extraction
           ├── Auth header detection
-          ├── Endpoint extraction (21 patterns + risk scoring)
+          ├── Endpoint extraction (30+ patterns + risk scoring)
           ├── Security header analysis (18 finding types)
-          └── Technology fingerprinting (30+ signals, source + web)
+          ├── Technology fingerprinting (40+ signals)
+          ├── WAF/CDN detection
+          └── Cloud storage detection
                │
                ├── Deduplication
                ├── FP downgrade
@@ -476,21 +368,21 @@ syck scan [paths...]
 | `decoder` | Base64, base64url, hex, Unicode, URL, gzip, JWT, double-base64, charcode decoding |
 | `entropy` | Shannon entropy, per-alphabet thresholds, media token filtering, contextual secrets |
 | `formatters` | Text, JSON, JSONL, SARIF, Markdown, CSV, HTML, webhook/SIEM output |
-| `endpoints` | API/GraphQL/WebSocket URL extraction |
+| `endpoints` | API/GraphQL/WebSocket/internal URL extraction (30+ patterns) |
 | `crawler` | BFS URL crawler with goquery, cookies, rate limiting, archive extraction |
+| `jsanalysis` | JavaScript/source analysis (env vars, secrets, internal URLs, debug artifacts) |
+| `jsrecon` | JS constant propagation, concat/join/template/ternary/array reconstruction |
+| `discovery` | Subdomain enumeration (crt.sh, CertSpotter, DNS bruteforce) |
+| `recon` | Attack surface detection (admin, auth, debug, GraphQL, internal, metrics, staging, headers, tech, WAF) |
 | `gitscan` | Git commit history walking |
 | `ignore` | .syckignore fingerprint loading and filtering |
 | `validator` | Live secret validation against 13 providers |
 | `json_scanner` | JSON tree walking for secret-key values |
-| `jsrecon` | JS constant propagation, concat/join/template/ternary/array reconstruction |
 | `correlator` | SQLite cross-run finding cache with fingerprint dedup |
 | `adaptive` | Adaptive confidence learning engine (Bayesian smoothing, tier classification, weight store) |
 | `correlation` | Multi-finding correlation (AWS key+secret pairs, OAuth, Stripe, etc.) |
-| `confidence` | Confidence scoring engine (regex/entropy/context/decoded/URL param sources) |
-| `recon` | HTTP response recon — admin panels, debug endpoints, GraphQL, staging, metrics, security headers, technology fingerprinting (11 detectors) |
-| `httpclient` | Shared HTTP client factory with proxy, TLS, timeout support |
-| `url_secrets` | URL query parameter secret extraction |
-
+| `confidence` | Confidence scoring engine |
+| `httpclient` | Shared HTTP client factory with connection pooling, proxy, TLS support |
 
 ## Contributing
 
@@ -516,10 +408,6 @@ go vet ./...
 git commit -m "feat(rules): add my_internal_api_key pattern"
 git push origin feature/my-rule
 ```
-
-**Adding a new rule:** Edit `internal/rules/builtin.yaml`, then add positive + negative test fixtures under `internal/ruletest/testdata/`. Run `go run . ruletest` to verify precision/recall before pushing.
-
-**Code style:** `gofmt` + `go vet` + `go test -race ./...` must all pass. No new top-level dependencies without discussion.
 
 ## License
 
