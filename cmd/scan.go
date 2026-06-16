@@ -22,6 +22,7 @@ import (
 	"github.com/RA000WL/syck/internal/gitscan"
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/ignore"
+	"github.com/RA000WL/syck/internal/parambrute"
 	"github.com/RA000WL/syck/internal/progress"
 	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/scanner"
@@ -106,6 +107,8 @@ var (
 	detectAuthHeaders bool
 	probeGraphQL      bool
 	parseOpenAPI      bool
+	paramBrute        bool
+	paramBruteWordlist string
 	entropyThresholds map[string]string
 	webhookURL        string
 	webhookStyle      string
@@ -199,6 +202,8 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanRecon, "recon", false, "auto-discover subdomains before scanning (crt.sh)")
 	scanCmd.Flags().BoolVar(&scanReconWayback, "recon-wayback", false, "include Wayback Machine URLs in recon")
 	scanCmd.Flags().BoolVar(&scanReconLive, "recon-live", false, "only scan live hosts from recon")
+	scanCmd.Flags().BoolVar(&paramBrute, "param-brute", false, "brute-force hidden parameters on discovered endpoints")
+	scanCmd.Flags().StringVar(&paramBruteWordlist, "param-wordlist", "", "custom wordlist for parameter brute-force (one per line)")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -599,6 +604,48 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --param-brute: brute-force hidden parameters on discovered URLs
+	if paramBrute && len(allURLs) > 0 {
+		fmt.Fprintf(os.Stderr, "[*] Parameter brute-force: testing %d URLs...\n", len(allURLs))
+		httpClient := httpclient.NewClient(scanCfg.HTTPTimeout, scanCfg.ProxyURL, false)
+		paramCfg := parambrute.DefaultConfig(httpClient)
+
+		// Load custom wordlist if provided
+		if paramBruteWordlist != "" {
+			wl, wlErr := loadWordlist(paramBruteWordlist)
+			if wlErr != nil {
+				fmt.Fprintf(os.Stderr, "  [!] wordlist error: %v\n", wlErr)
+			} else {
+				paramCfg.Wordlist = wl
+				fmt.Fprintf(os.Stderr, "  [+] Loaded %d parameters from wordlist\n", len(wl))
+			}
+		}
+
+		for _, u := range allURLs {
+			paramFindings := parambrute.BruteForce(u, paramCfg)
+			for _, pf := range paramFindings {
+				severity := finding.SeverityInfo
+				if pf.Reflected {
+					severity = finding.SeverityMedium
+				}
+				if pf.Interesting {
+					severity = finding.SeverityHigh
+				}
+				findings = append(findings, finding.Finding{
+					File:     u,
+					Line:     1,
+					RuleName: "hidden_parameter",
+					Severity: severity,
+					Secret:   pf.Parameter,
+					Context:  pf.Reason,
+				})
+			}
+			if len(paramFindings) > 0 {
+				fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))
+			}
+		}
+	}
+
 	// --ignore-file: filter out known false positives by fingerprint
 	if ignoreFile != "" {
 		ignoreSet, iErr := ignore.LoadIgnoreFile(ignoreFile)
@@ -734,4 +781,28 @@ func parseSize(s string) int64 {
 		return 5 * 1024 * 1024
 	}
 	return n * multiplier
+}
+
+// loadWordlist loads a wordlist from a file (one word per line)
+func loadWordlist(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var words []string
+	seen := make(map[string]bool)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		word := strings.TrimSpace(scanner.Text())
+		if word == "" || strings.HasPrefix(word, "#") {
+			continue
+		}
+		if !seen[word] {
+			seen[word] = true
+			words = append(words, word)
+		}
+	}
+	return words, scanner.Err()
 }
