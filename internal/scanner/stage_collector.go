@@ -26,7 +26,7 @@ func NewCollectorStage(cfg Config) *CollectorStage {
 		minSev:   cfg.MinSeverity,
 	}
 
-	s.reconReg.Register(recon.GraphQLDetector{})
+	s.reconReg.Register(recon.NewGraphQLDetector(httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)))
 	s.reconReg.Register(recon.SwaggerDetector{})
 	s.reconReg.Register(recon.AdminDetector{})
 	s.reconReg.Register(recon.DebugDetector{})

@@ -32,7 +32,7 @@ func (stubDetector) Detect(urls []string) []SurfaceFinding {
 
 func TestRegistryAllDetectors(t *testing.T) {
 	r := NewRegistry()
-	r.Register(GraphQLDetector{})
+	r.Register(NewGraphQLDetector(nil))
 	r.Register(SwaggerDetector{})
 	r.Register(AdminDetector{})
 	r.Register(DebugDetector{})
