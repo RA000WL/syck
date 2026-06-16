@@ -1118,6 +1118,24 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// WAF/CDN detection on crawled URLs
+	if cfg.TechDetect && len(crawled) > 0 {
+		wafDetector := recon.NewWAFDetector(httpClient)
+		crawledURLs := make([]string, 0, len(crawled))
+		for _, c := range crawled {
+			crawledURLs = append(crawledURLs, c.URL)
+		}
+		for _, sf := range wafDetector.Detect(crawledURLs) {
+			allFindings = append(allFindings, finding.Finding{
+				File:     sf.URL,
+				Line:     1,
+				RuleName: sf.Source,
+				Severity: sf.Severity,
+				Context:  sf.Category + ": " + sf.URL,
+			})
+		}
+	}
+
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
 	}

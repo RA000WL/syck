@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/RA000WL/syck/internal/discovery"
@@ -12,15 +14,16 @@ import (
 )
 
 var (
-	reconDomain     string
-	reconOutput     string
-	reconResolve    bool
-	reconLiveCheck  bool
-	reconWayback    bool
-	reconWaybackLim int
-	reconScope      string
-	reconTimeout    string
-	reconProxy      string
+	reconDomain       string
+	reconOutput       string
+	reconResolve      bool
+	reconLiveCheck    bool
+	reconWayback      bool
+	reconWaybackLim   int
+	reconScope        string
+	reconTimeout      string
+	reconProxy        string
+	reconSubfinderFile string
 )
 
 var reconCmd = &cobra.Command{
@@ -52,6 +55,7 @@ func init() {
 	reconCmd.Flags().StringVar(&reconScope, "scope", "", "regex to filter results by domain/path")
 	reconCmd.Flags().StringVar(&reconTimeout, "timeout", "10s", "HTTP timeout")
 	reconCmd.Flags().StringVar(&reconProxy, "proxy", "", "HTTP proxy URL")
+	reconCmd.Flags().StringVar(&reconSubfinderFile, "subfinder-file", "", "import subdomains from subfinder/amass output file (one per line)")
 
 	rootCmd.AddCommand(reconCmd)
 }
@@ -83,13 +87,26 @@ func runRecon(domain string) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "  [+] Found %d subdomains\n", len(subs))
 		for _, s := range subs {
-			// Convert subdomain to URL
 			url := "https://" + s.Subdomain
 			if scopeRegex != nil && !scopeRegex.MatchString(url) {
 				continue
 			}
 			allURLs = append(allURLs, url)
 			fmt.Fprintf(os.Stderr, "      %s (%s)\n", s.Subdomain, s.Source)
+		}
+	}
+
+	// Phase 1b: Import from subfinder/amass output file
+	if reconSubfinderFile != "" {
+		fmt.Fprintf(os.Stderr, "\n[*] Importing subdomains from %s...\n", reconSubfinderFile)
+		imported := importSubdomainsFromFile(reconSubfinderFile, domain)
+		fmt.Fprintf(os.Stderr, "  [+] Imported %d subdomains\n", len(imported))
+		for _, sub := range imported {
+			url := "https://" + sub
+			if scopeRegex != nil && !scopeRegex.MatchString(url) {
+				continue
+			}
+			allURLs = append(allURLs, url)
 		}
 	}
 
@@ -159,4 +176,48 @@ func runRecon(domain string) error {
 	}
 
 	return nil
+}
+
+// importSubdomainsFromFile reads subdomains from a file (one per line).
+// Compatible with subfinder, amass, httpx, and similar tool outputs.
+func importSubdomainsFromFile(path string, domain string) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  [!] Error opening file: %v\n", err)
+		return nil
+	}
+	defer f.Close()
+
+	domainLower := strings.ToLower(domain)
+	seen := make(map[string]bool)
+	var subs []string
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Strip protocol if present
+		line = strings.TrimPrefix(line, "https://")
+		line = strings.TrimPrefix(line, "http://")
+		// Strip path
+		if idx := strings.Index(line, "/"); idx > 0 {
+			line = line[:idx]
+		}
+		line = strings.ToLower(line)
+		if line == "" {
+			continue
+		}
+		// Must be subdomain of target
+		if line != domainLower && !strings.HasSuffix(line, "."+domainLower) {
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			subs = append(subs, line)
+		}
+	}
+
+	return subs
 }
