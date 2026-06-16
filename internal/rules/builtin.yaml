@@ -822,18 +822,21 @@ rules:
     pattern: '169\.254\.169\.254(?:/latest/meta-data/|/latest/user-data/|/latest/dynamic/instance-identity/)'
     description: 'AWS EC2 Instance Metadata Service endpoint'
     tags: [cloud, aws, ssrf, metadata]
+    context_keywords: [fetch, curl, wget, requests, http, axios, proxy, redirect, ssrf]
 
   - name: cloud_metadata_gcp
     severity: high
     pattern: 'metadata\.google\.internal'
     description: 'GCP Compute Engine metadata endpoint'
     tags: [cloud, gcp, ssrf, metadata]
+    context_keywords: [fetch, curl, wget, requests, http, axios, proxy, redirect, ssrf]
 
   - name: cloud_metadata_azure
     severity: high
     pattern: '169\.254\.169\.254/metadata/instance'
     description: 'Azure Instance Metadata Service endpoint'
     tags: [cloud, azure, ssrf, metadata]
+    context_keywords: [fetch, curl, wget, requests, http, axios, proxy, redirect, ssrf]
 
   # --- Environment Variable Secrets ---
   - name: env_sensitive_var
