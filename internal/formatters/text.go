@@ -98,8 +98,8 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 					ansi.cyan, rule, riskMarker, ansi.reset,
 					ansi.gray, f.Entropy, ansi.reset,
 					confColor, f.ConfidenceBand, ansi.reset, verStr, adaptStr))
-				b.WriteString(fmt.Sprintf("       secret : %s%s%s\n", ansi.yellow, f.Secret, ansi.reset))
-				b.WriteString(fmt.Sprintf("       context: %s%s%s\n", ansi.gray, f.Context, ansi.reset))
+				b.WriteString(fmt.Sprintf("       secret : %s%s%s\n", sevColor, f.Secret, ansi.reset))
+				b.WriteString(fmt.Sprintf("       context: %s%s%s\n", ansi.dim, f.Context, ansi.reset))
 			} else {
 				b.WriteString(fmt.Sprintf("  %d:%d  [%s] [%s%s]  entropy=%.3f  confidence=%s%s%s\n", line, col, sevName, rule, riskMarker, f.Entropy, f.ConfidenceBand, verStr, adaptStr))
 				b.WriteString(fmt.Sprintf("       secret : %s\n", f.Secret))
@@ -142,11 +142,11 @@ func severityColor(s finding.Severity, noColor bool) string {
 	case finding.SeverityHigh:
 		return ansi.yellow + ansi.bold
 	case finding.SeverityMedium:
-		return ""
+		return ansi.cyan
 	case finding.SeverityLow:
-		return ""
+		return ansi.green
 	default:
-		return ""
+		return ansi.gray
 	}
 }
 
