@@ -264,6 +264,7 @@ SYCK uses a **multi-layer detection approach** where each layer catches differen
 - Each rule: name, severity, regex pattern, tags, optional entropy threshold, context keywords
 - Compiled once at startup with thread-safe caching (`internal/rules/compile.go`)
 - All rules matched against every line of every file
+- **Context gating enforced**: rules with `requires_context: true` only fire when the line contains one of their `context_keywords` (checked in `stage_rule.go`, `scanFileStreaming`, and `scanContent`)
 
 ### Layer 2: Entropy Analysis
 - Shannon entropy calculation (`entropy.Shannon()`)

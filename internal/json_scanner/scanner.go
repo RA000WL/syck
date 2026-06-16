@@ -84,7 +84,7 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 
 		// Run all rules against the value
 		for _, rule := range rs.Rules {
-			sev := finding.ParseSeverity(rule.Severity)
+			sev := rule.SeverityInt
 			if sev < minSev {
 				continue
 			}

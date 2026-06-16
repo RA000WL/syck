@@ -33,6 +33,7 @@ A fast, modular secret scanner written in Go. 200+ detection rules, multi-layer 
 - **URL secret extraction** — detects `access_token`, `api_key`, `token` etc. leaked in URL query parameters
 - **Webhook/SIEM export** — send findings to Slack, Discord, or generic JSON webhooks
 - **SQLite cross-run cache** — fingerprint-based dedup across scan runs for progressive triage
+- **URL cross-run cache** — SQLite-backed crawl dedup, skips previously fetched URLs across runs
 - **Adaptive confidence learning** — learns from user verdicts to reduce false positives over time
 - **Archive scanning** — extracts and scans zip, tar, tar.gz, jar files with Zip Slip protection
 - **Multi-line detection** — matches secrets spanning multiple lines (PEM keys, JSON configs)
@@ -286,6 +287,7 @@ The system uses Bayesian smoothing with a 90-day decay to gradually learn which 
 |------|-------------|
 | `--cache-db` | Path to SQLite cache database for cross-run dedup |
 | `--adaptive` | Enable adaptive confidence learning from past verdicts |
+| `--url-cache-db` | Path to SQLite URL cache for cross-run crawl dedup (skips previously fetched URLs) |
 
 ### Webhook / Export Flags
 

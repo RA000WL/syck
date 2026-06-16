@@ -28,7 +28,7 @@ func (s *MultiLineScanner) ScanMultiLine(lines []string, path string, startLine 
 		if !rule.MultiLine || rule.Compiled() == nil {
 			continue
 		}
-		sev := finding.ParseSeverity(rule.Severity)
+		sev := rule.SeverityInt
 		if sev < s.min {
 			continue
 		}

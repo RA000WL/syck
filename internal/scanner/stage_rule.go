@@ -19,7 +19,7 @@ func NewRuleStage(rs *rules.RuleSet, min finding.Severity) *RuleStage {
 func (s *RuleStage) Process(line, path string, lineno int) []finding.Finding {
 	var out []finding.Finding
 	for _, r := range s.rs.Rules {
-		sev := finding.ParseSeverity(r.Severity)
+		sev := r.SeverityInt
 		if sev < s.min || r.Compiled() == nil {
 			continue
 		}

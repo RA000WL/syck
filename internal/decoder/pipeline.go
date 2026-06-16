@@ -121,7 +121,7 @@ func scanDecodedChunk(
 	context := sourceTag + " decoded: " + decodedText
 
 	for _, rule := range rs.Rules {
-		sev := finding.ParseSeverity(rule.Severity)
+		sev := rule.SeverityInt
 		if sev < minSev {
 			continue
 		}
