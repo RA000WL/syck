@@ -54,7 +54,9 @@ func TestRegistryAllDetectors(t *testing.T) {
 		"https://example.com/oauth/token",
 	}
 	got := r.Detect(urls)
-	if len(got) != 9 {
-		t.Errorf("Detect returned %d, want 9 (one per URL)", len(got))
+	// Note: InternalDetector now matches /admin and /debug paths in addition to their
+	// specific detectors, so we get 11 findings (9 base + 2 extra internal matches)
+	if len(got) != 11 {
+		t.Errorf("Detect returned %d, want 11 (some URLs match multiple detectors)", len(got))
 	}
 }

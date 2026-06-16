@@ -21,6 +21,7 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/json_scanner"
+	"github.com/RA000WL/syck/internal/jsanalysis"
 	"github.com/RA000WL/syck/internal/jsrecon"
 	"github.com/RA000WL/syck/internal/recon"
 )
@@ -337,6 +338,80 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		}
 	}
 
+	// V1.3: Enhanced JS/source analysis for hidden exposures
+	ext := strings.ToLower(filepath.Ext(path))
+	if (ext == ".js" || ext == ".jsx" || ext == ".ts" || ext == ".tsx" || ext == ".mjs" || ext == ".cjs") && content != "" {
+		jsResult := jsanalysis.AnalyzeJS(content, path)
+
+		// Emit findings for discovered secrets
+		for _, secret := range jsResult.Secrets {
+			severity := finding.SeverityMedium
+			if secret.Type == "config_secret" || secret.Type == "base64" {
+				severity = finding.SeverityHigh
+			}
+			findings = append(findings, finding.Finding{
+				File:      path,
+				Line:      secret.Line,
+				RuleName:  "js_secret_" + secret.Type,
+				Severity:  severity,
+				Secret:    secret.Value,
+				Context:   finding.Truncate(secret.Context),
+			})
+		}
+
+		// Emit findings for internal URLs (potential SSRF)
+		for _, internalURL := range jsResult.InternalURLs {
+			findings = append(findings, finding.Finding{
+				File:     path,
+				Line:     1,
+				RuleName: "internal_url",
+				Severity: finding.SeverityMedium,
+				Secret:   internalURL,
+				Context:  fmt.Sprintf("internal/hidden URL found in %s", filepath.Base(path)),
+			})
+		}
+
+		// Emit findings for debug artifacts
+		for _, debug := range jsResult.DebugArtifacts {
+			findings = append(findings, finding.Finding{
+				File:     path,
+				Line:     1,
+				RuleName: "debug_artifact",
+				Severity: finding.SeverityLow,
+				Secret:   debug,
+				Context:  fmt.Sprintf("debug/development artifact in %s", filepath.Base(path)),
+			})
+		}
+
+		// Emit findings for sensitive files
+		for _, sf := range jsResult.SensitiveFiles {
+			findings = append(findings, finding.Finding{
+				File:     path,
+				Line:     1,
+				RuleName: "sensitive_file_ref",
+				Severity: finding.SeverityMedium,
+				Secret:   sf,
+				Context:  fmt.Sprintf("sensitive file reference in %s", filepath.Base(path)),
+			})
+		}
+
+		// Emit findings for leaked comments
+		for _, comment := range jsResult.LeakedComments {
+			if strings.Contains(comment, "api") || strings.Contains(comment, "key") ||
+				strings.Contains(comment, "token") || strings.Contains(comment, "secret") ||
+				strings.Contains(comment, "internal") {
+				findings = append(findings, finding.Finding{
+					File:     path,
+					Line:     1,
+					RuleName: "comment_leak",
+					Severity: finding.SeverityMedium,
+					Secret:   comment,
+					Context:  fmt.Sprintf("URL found in comment in %s", filepath.Base(path)),
+				})
+			}
+		}
+	}
+
 	return findings, nil
 }
 
@@ -374,6 +449,26 @@ func ScanContent(content string, path string, cfg Config) []finding.Finding {
 				Secret:    ep.Endpoint,
 				Context:   ep.Context,
 				Entropy:   0.0,
+			})
+		}
+	}
+
+	// V1.3: Enhanced JS/source analysis
+	ext := strings.ToLower(filepath.Ext(path))
+	if (ext == ".js" || ext == ".jsx" || ext == ".ts" || ext == ".tsx" || ext == ".mjs" || ext == ".cjs") && content != "" {
+		jsResult := jsanalysis.AnalyzeJS(content, path)
+		for _, secret := range jsResult.Secrets {
+			severity := finding.SeverityMedium
+			if secret.Type == "config_secret" || secret.Type == "base64" {
+				severity = finding.SeverityHigh
+			}
+			findings = append(findings, finding.Finding{
+				File:      path,
+				Line:      secret.Line,
+				RuleName:  "js_secret_" + secret.Type,
+				Severity:  severity,
+				Secret:    secret.Value,
+				Context:   finding.Truncate(secret.Context),
 			})
 		}
 	}

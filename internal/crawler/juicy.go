@@ -14,31 +14,127 @@ import (
 )
 
 var defaultJuicyPaths = []string{
+	// Environment files
 	"/.env", "/.env.local", "/.env.production", "/.env.development",
-	"/config.json", "/config.yaml", "/config.yml",
-	"/swagger.json", "/openapi.json", "/openapi.yaml",
-	"/api-docs", "/v3/api-docs", "/v2/api-docs",
-	"/actuator", "/actuator/env", "/actuator/configprops", "/actuator/beans", "/actuator/mappings",
-	"/metrics", "/prometheus", "/health", "/info",
-	"/server-status", "/server-info",
-	"/crossdomain.xml", "/.htaccess", "/.git/HEAD", "/.git/config",
-	"/robots.txt", "/sitemap.xml",
-	"/phpinfo.php", "/info.php", "/test.php",
-	"/admin", "/administrator", "/wp-admin", "/wp-login.php",
-	"/elmah.axd", "/trace.axd",
+	"/.env.staging", "/.env.test", "/.env.backup", "/.env.old",
+	"/env.json", "/env.yaml", "/env.yml",
+
+	// Configuration files
+	"/config.json", "/config.yaml", "/config.yml", "/config.js",
+	"/config.ts", "/config.php", "/config.py", "/config.rb",
+	"/settings.json", "/settings.yaml", "/settings.yml",
+	"/application.yml", "/application.yaml", "/application.properties",
+
+	// API documentation (high value for recon)
+	"/swagger.json", "/swagger.yaml", "/swagger-ui.html",
+	"/openapi.json", "/openapi.yaml", "/openapi.yml",
+	"/api-docs", "/v3/api-docs", "/v2/api-docs", "/v1/api-docs",
+	"/docs", "/api/docs", "/api/swagger",
+	"/redoc", "/rapidoc",
+
+	// Spring Boot Actuator endpoints
+	"/actuator", "/actuator/env", "/actuator/configprops", "/actuator/beans",
+	"/actuator/mappings", "/actuator/health", "/actuator/info",
+	"/actuator/metrics", "/actuator/trace", "/actuator/httptrace",
+	"/actuator/threaddump", "/actuator/heapdump", "/actuator/loggers",
+	"/actuator/conditions", "/actuator/scheduledtasks", "/actuator/caches",
+	"/actuator/sessions", "/actuator/shutdown",
+
+	// Monitoring & metrics
+	"/metrics", "/prometheus", "/prometheus/metrics",
+	"/health", "/healthcheck", "/health/check", "/healthz", "/ready",
+	"/info", "/version", "/status",
+
+	// Server info
+	"/server-status", "/server-info", "/server-info.php",
+
+	// Cross-domain & security files
+	"/crossdomain.xml", "/clientaccesspolicy.xml",
+	"/.htaccess", "/.htpasswd",
+
+	// Version control exposure (high severity)
+	"/.git/HEAD", "/.git/config", "/.gitignore", "/.gitmodules",
+	"/.gitattributes", "/.git/logs/HEAD",
+	"/.svn/entries", "/.svn/wc.db",
+	"/.hg/store/00manifest.i",
+
+	// robots.txt & sitemaps
+	"/robots.txt", "/sitemap.xml", "/sitemap_index.xml",
+
+	// PHP info/test files
+	"/phpinfo.php", "/info.php", "/test.php", "/debug.php",
+	"/php.php", "/test-info.php", "/test.php",
+
+	// Admin panels
+	"/admin", "/administrator", "/admin/login", "/admin/dashboard",
+	"/wp-admin", "/wp-login.php", "/wp-config.php.bak",
+	"/phpmyadmin", "/pma", "/adminer.php",
+
+	// Debug/trace endpoints
+	"/elmah.axd", "/trace.axd", "/debug/vars", "/debug/pprof/",
+	"/debug/requests", "/debug/events",
+
+	// .well-known paths (important for recon)
+	"/.well-known/security.txt", "/.well-known/openid-configuration",
+	"/.well-known/jwks.json", "/.well-known/change-password",
+	"/.well-known/host-meta", "/.well-known/apple-app-site-association",
 
 	// Backup / archive discovery
 	"/backup", "/backup.sql", "/backup.zip", "/backup.tar.gz",
+	"/backup.tar.bz2", "/backup.tgz", "/backup.rar",
 	"/db", "/db.sql", "/database.sql", "/dump.sql", "/dump.zip",
-	"/data", "/data.sql", "/data.zip",
-	"/exports", "/export.sql",
-	"/uploads", "/uploads.zip",
+	"/data", "/data.sql", "/data.zip", "/data.tar.gz",
+	"/exports", "/export.sql", "/export.zip",
+	"/uploads", "/uploads.zip", "/uploads.tar.gz",
 	"/site.zip", "/source.zip", "/src.zip", "/code.zip",
-	"/.DS_Store",
-	"/package.json", "/composer.json", "/Gemfile", "/go.mod", "/requirements.txt",
+	"/app.zip", "/www.zip", "/web.zip", "/public.zip",
+
+	// System files
+	"/.DS_Store", "/Thumbs.db", "/.env.swp", "/.env.swo",
+
+	// Package manager files
+	"/package.json", "/package-lock.json", "/yarn.lock",
+	"/composer.json", "/composer.lock",
+	"/Gemfile", "/Gemfile.lock",
+	"/go.mod", "/go.sum",
+	"/requirements.txt", "/Pipfile", "/poetry.lock",
+	"/Cargo.toml", "/Cargo.lock",
+	"/pom.xml", "/build.gradle",
+
+	// Docker & Kubernetes
 	"/Dockerfile", "/docker-compose.yml", "/docker-compose.yaml",
+	"/docker-compose.override.yml", "/.dockerignore",
+	"/.docker/config.json",
+
+	// CI/CD & DevOps
+	"/Jenkinsfile", "/.gitlab-ci.yml", "/.github/workflows/",
+	"/.circleci/config.yml", "/.travis.yml", "/bitbucket-pipelines.yml",
+
+	// Terraform & Infrastructure
 	"/.terraform", "/.terraform.lock.hcl", "/terraform.tfstate",
-	"/secrets.yml", "/secrets.yaml", "/credentials", "/.htpasswd",
+	"/terraform.tfstate.backup", "/.terraform.tfstate",
+	"/variables.tf", "/main.tf", "/outputs.tf",
+
+	// Secrets & credentials (high severity)
+	"/secrets.yml", "/secrets.yaml", "/secrets.json",
+	"/credentials", "/credentials.json", "/credentials.yaml",
+	"/.htpasswd", "/.netrc", "/.ssh/id_rsa",
+	"/service-account.json", "/sa-key.json",
+
+	// Source maps (expose original source code)
+	"/js/app.js.map", "/js/main.js.map", "/static/js/*.js.map",
+	"/assets/*.js.map", "/dist/*.js.map",
+
+	// Common sensitive paths
+	"/server.log", "/app.log", "/error.log", "/access.log",
+	"/debug.log", "/application.log",
+	"/php_errors.log", "/wp-content/debug.log",
+
+	// GraphQL endpoints
+	"/graphql", "/graphiql", "/graphql/console", "/playground",
+
+	// Database admin interfaces
+	"/adminer", "/adminer.php", "/dbadmin", "/sql",
 }
 
 const maxJuicyBodyBytes = 1 << 20

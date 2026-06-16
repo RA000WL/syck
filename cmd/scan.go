@@ -539,7 +539,46 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if urlMode {
 		findings, err = scanner.ScanURLs(allURLs, scanCfg)
 	} else if pipe {
-		findings, err = scanner.ScanReader(os.Stdin, scanCfg)
+		// Read stdin and detect if it's URLs or raw content
+		var pipeContent strings.Builder
+		stdScanner := bufio.NewScanner(os.Stdin)
+		buf := make([]byte, 1024*1024)
+		stdScanner.Buffer(buf, len(buf))
+		for stdScanner.Scan() {
+			line := strings.TrimSpace(stdScanner.Text())
+			if line != "" {
+				pipeContent.WriteString(line)
+				pipeContent.WriteString("\n")
+			}
+		}
+		if err := stdScanner.Err(); err != nil {
+			return fmt.Errorf("stdin read error: %w", err)
+		}
+
+		content := pipeContent.String()
+		// Check if content is URLs (one per line)
+		lines := strings.Split(content, "\n")
+		var pipeURLs []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+				pipeURLs = append(pipeURLs, line)
+			}
+		}
+
+		if len(pipeURLs) > 0 {
+			// Pipe contains URLs - fetch and scan them
+			if scanCfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] pipe mode: detected %d URLs\n", len(pipeURLs))
+			}
+			findings, err = scanner.ScanURLs(pipeURLs, scanCfg)
+		} else {
+			// Pipe contains raw content - scan as text
+			if scanCfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] pipe mode: scanning raw content (%d bytes)\n", len(content))
+			}
+			findings = scanner.ScanContent(content, "stdin", scanCfg)
+		}
 	} else {
 		findings, err = scanner.ScanPaths(args, scanCfg)
 	}

@@ -55,6 +55,44 @@ var endpointPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:baseURL|baseUrl|apiUrl|apiURL|endpoint)\s*\+\s*['"]\s*((?:/api|/v\d+|/internal|/admin|/auth)[^'"]+)['"]`),
 	// _.template or template literal with path constant
 	regexp.MustCompile(`(?i)['"]\s*\+\s*['"]((?:/api|/v\d+|/admin|/[a-z]+/[a-z]+))['"]`),
+
+	// V1.3: Enhanced endpoint patterns for bug bounty recon
+
+	// API versioning with path segments (/v1/, /v2/, /api/v1/, /api/v2/, etc.)
+	regexp.MustCompile(`['"]([^'"]*/(?:v\d+|api/v\d+|version/\d+)(?:/[a-zA-Z0-9_\-{}:]+){0,6})['"]`),
+
+	// RESTful resource endpoints (CRUD patterns)
+	regexp.MustCompile(`['"]((?:/api)?/[a-z]+(?:/[a-z]+){0,4})['"]`),
+
+	// Internal service communication URLs (microservices, service mesh)
+	regexp.MustCompile(`(?i)['"]?(?:service|svc|upstream|backend|gateway)\s*[:=]\s*['"]([^'"]+)['"]`),
+
+	// gRPC endpoints
+	regexp.MustCompile(`(?:grpc|gRPC)\s*[:=]\s*['"](https?://[^'"]+)['"]`),
+
+	// File upload endpoints
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:upload|import|multipart)[^'"]*)['"]`),
+
+	// Webhook endpoints
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:webhook|callback|notify|hook)[^'"]*)['"]`),
+
+	// Common API gateway paths
+	regexp.MustCompile(`['"]((?:/gateway|/proxy|/edge|/cdn|/assets|/static|/media|/files|/attachments)(?:/[a-zA-Z0-9_\-]+){0,4})['"]`),
+
+	// Debug/admin endpoints (valuable for bounty)
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:debug|trace|profile|monitor|stats|status|health|readiness|liveness)[^'"]*)['"]`),
+
+	// Config/settings endpoints
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:config|settings|preferences|options|flags|feature|toggle)[^'"]*)['"]`),
+
+	// Migration/database endpoints
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:migrate|migration|schema|seed|database|db|sql|dump)[^'"]*)['"]`),
+
+	// CI/CD and deployment endpoints
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:deploy|release|publish|rollback|build|pipeline)[^'"]*)['"]`),
+
+	// Internal/hidden paths (high value for recon)
+	regexp.MustCompile(`(?i)['"]([^'"]*(?:internal|private|hidden|secret|legacy|deprecated|old|v0|beta|alpha|canary|preview|experimental)[^'"]*)['"]`),
 }
 
 var staticAssetExts = map[string]bool{
