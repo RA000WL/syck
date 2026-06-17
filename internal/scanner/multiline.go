@@ -7,7 +7,7 @@ import (
 	"github.com/RA000WL/syck/internal/rules"
 )
 
-const maxMultiLineWindow = 10
+const maxMultiLineWindow = 100
 
 type MultiLineScanner struct {
 	rs  *rules.RuleSet

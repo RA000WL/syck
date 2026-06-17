@@ -638,24 +638,41 @@ rules:
   # ── Private Keys ─────────────────────────
   - name: rsa_private_key
     severity: CRITICAL
-    pattern: '-----BEGIN RSA PRIVATE KEY-----'
+    pattern: '-----BEGIN RSA PRIVATE KEY-----[\s\S]*?-----END RSA PRIVATE KEY-----'
+    multi_line: true
     tags: [crypto, private-key]
   - name: dsa_private_key
     severity: CRITICAL
-    pattern: '-----BEGIN DSA PRIVATE KEY-----'
+    pattern: '-----BEGIN DSA PRIVATE KEY-----[\s\S]*?-----END DSA PRIVATE KEY-----'
+    multi_line: true
     tags: [crypto, private-key]
   - name: ec_private_key
     severity: CRITICAL
-    pattern: '-----BEGIN EC PRIVATE KEY-----'
+    pattern: '-----BEGIN EC PRIVATE KEY-----[\s\S]*?-----END EC PRIVATE KEY-----'
+    multi_line: true
     tags: [crypto, private-key]
   - name: openssh_private_key
     severity: CRITICAL
-    pattern: '-----BEGIN OPENSSH PRIVATE KEY-----'
+    pattern: '-----BEGIN OPENSSH PRIVATE KEY-----[\s\S]*?-----END OPENSSH PRIVATE KEY-----'
+    multi_line: true
     tags: [crypto, private-key]
   - name: pgp_private_key
     severity: HIGH
-    pattern: '-----BEGIN PGP PRIVATE KEY BLOCK-----'
+    pattern: '-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----'
+    multi_line: true
     tags: [crypto, private-key]
+
+  # ── Public Keys (potential exposure) ─────
+  - name: rsa_public_key
+    severity: MEDIUM
+    pattern: '-----BEGIN PUBLIC KEY-----[\s\S]*?-----END PUBLIC KEY-----'
+    multi_line: true
+    tags: [crypto, public-key]
+  - name: pgp_public_key
+    severity: LOW
+    pattern: '-----BEGIN PGP PUBLIC KEY BLOCK-----[\s\S]*?-----END PGP PUBLIC KEY BLOCK-----'
+    multi_line: true
+    tags: [crypto, public-key]
   - name: age_private_key
     severity: CRITICAL
     pattern: 'AGE-SECRET-KEY-[A-Z0-9]+'
