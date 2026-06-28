@@ -171,7 +171,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&verify, "verify", false, "verify secrets against provider APIs (V1 state path)")
 	scanCmd.Flags().IntVar(&verifyRate, "verify-rate", 5, "max verification requests per second per host")
 	scanCmd.Flags().StringVar(&ignoreFile, "ignore-file", "", "path to .syckignore file for fingerprint-based suppression")
-	scanCmd.Flags().IntVar(&maxScanLineLen, "max-scan-line-len", 100000, "skip per-line scanning on lines exceeding this length (0=unlimited)")
+	scanCmd.Flags().IntVar(&maxScanLineLen, "max-scan-line-len", 0, "skip per-line scanning on lines exceeding this length (0=unlimited)")
 	scanCmd.Flags().BoolVar(&progressFlag, "progress", false, "show TUI progress bar on stderr (auto-disabled by --quiet or --pipe)")
 	scanCmd.Flags().IntVar(&minEndpointScore, "min-endpoint-score", 0, "minimum endpoint risk score (0-10); endpoints below are omitted")
 	scanCmd.Flags().BoolVar(&noJuicyFiles, "no-juicy-files", false, "disable juicy file probing (default: enabled with --endpoints)")
