@@ -27,7 +27,7 @@ const maxEndpointBuf = 10 << 20
 
 var streamingBufPool = sync.Pool{
 	New: func() interface{} {
-		b := make([]byte, 1024*1024)
+		b := make([]byte, 10<<20)
 		return &b
 	},
 }
@@ -79,6 +79,11 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				defer func() { <-sem }()
 				findings, err := ScanFile(path, cfg)
 				filesScanned.Add(1)
+				if err != nil {
+					if cfg.Debug {
+						fmt.Fprintf(os.Stderr, "[debug] scan %s: %v\n", path, err)
+					}
+				}
 				if err == nil && len(findings) > 0 {
 					mu.Lock()
 					allFindings = append(allFindings, findings...)
@@ -140,6 +145,11 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				defer func() { <-sem }()
 				findings, err := ScanFile(fp, cfg)
 				filesScanned.Add(1)
+				if err != nil {
+					if cfg.Debug {
+						fmt.Fprintf(os.Stderr, "[debug] scan %s: %v\n", fp, err)
+					}
+				}
 				if err == nil && len(findings) > 0 {
 					mu.Lock()
 					allFindings = append(allFindings, findings...)
@@ -630,12 +640,62 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		if err == bufio.ErrTooLong {
+			if cfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] %s: line exceeds scanner buffer, falling back to full read\n", path)
+			}
+			return scanFileFallback(path, cfg)
+		}
 		return findings, fmt.Errorf("%s: scanner error: %w", path, err)
 	}
 
 	if needsEndpoint && contentBuf.Len() > 0 {
 		fullContent := contentBuf.String()
 		eps := endpoints.ExtractEndpoints(path, fullContent)
+		for _, ep := range eps {
+			score := endpoints.ComputeRiskScore(ep.Endpoint)
+			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
+				continue
+			}
+			findings = append(findings, finding.Finding{
+				File:      ep.File,
+				Line:      ep.Line,
+				Column:    0,
+				RuleName:  "endpoint",
+				Severity:  finding.SeverityInfo,
+				RiskScore: score,
+				Secret:    ep.Endpoint,
+				Context:   ep.Context,
+				Entropy:   0.0,
+			})
+		}
+	}
+
+	return findings, nil
+}
+
+func scanFileFallback(path string, cfg Config) ([]finding.Finding, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: fallback read: %w", path, err)
+	}
+
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	content := string(raw)
+
+	var findings []finding.Finding
+
+	if cfg.DecodeGzip && len(raw) > 64 {
+		if decompressed, ok := decoder.DecodeFileContent(raw); ok {
+			gzipFindings := scanContent(string(decompressed), path, cfg, "gzip_", nil, hasDecoders)
+			findings = append(findings, gzipFindings...)
+		}
+	}
+
+	findings = append(findings, scanContent(content, path, cfg, "", nil, hasDecoders)...)
+
+	if cfg.Endpoints {
+		eps := endpoints.ExtractEndpoints(path, content)
 		for _, ep := range eps {
 			score := endpoints.ComputeRiskScore(ep.Endpoint)
 			if cfg.MinEndpointScore > 0 && score < cfg.MinEndpointScore {
@@ -753,7 +813,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	scanner := bufio.NewScanner(r)
-	buf := make([]byte, 1024*1024)
+	buf := make([]byte, 10<<20)
 	scanner.Buffer(buf, len(buf))
 
 	var linesBuf strings.Builder
