@@ -635,7 +635,7 @@ rules:
     pattern: '\beyJ[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{5,}\.[A-Za-z0-9\-_]{3,}\b'
     tags: [jwt, auth]
 
-  # ── Private Keys ─────────────────────────
+  # ── Private Keys (multiline: full PEM block) ──
   - name: rsa_private_key
     severity: CRITICAL
     pattern: '-----BEGIN RSA PRIVATE KEY-----[\s\S]*?-----END RSA PRIVATE KEY-----'
@@ -660,6 +660,27 @@ rules:
     severity: HIGH
     pattern: '-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----'
     multi_line: true
+    tags: [crypto, private-key]
+  # ── Private Key Headers (single-line: for base64-decoded content) ──
+  - name: rsa_private_key_header
+    severity: CRITICAL
+    pattern: '-----BEGIN RSA PRIVATE KEY-----'
+    tags: [crypto, private-key]
+  - name: dsa_private_key_header
+    severity: CRITICAL
+    pattern: '-----BEGIN DSA PRIVATE KEY-----'
+    tags: [crypto, private-key]
+  - name: ec_private_key_header
+    severity: CRITICAL
+    pattern: '-----BEGIN EC PRIVATE KEY-----'
+    tags: [crypto, private-key]
+  - name: openssh_private_key_header
+    severity: CRITICAL
+    pattern: '-----BEGIN OPENSSH PRIVATE KEY-----'
+    tags: [crypto, private-key]
+  - name: pgp_private_key_header
+    severity: HIGH
+    pattern: '-----BEGIN PGP PRIVATE KEY BLOCK-----'
     tags: [crypto, private-key]
 
   # ── Public Keys (potential exposure) ─────
