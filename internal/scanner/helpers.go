@@ -548,6 +548,9 @@ func scanLineForEntropyTokens(line string, lineNum int, path string, cfg Config,
 		if !ok {
 			continue
 		}
+		if entropy.IsFalsePositiveToken(tok) {
+			continue
+		}
 		if skipSecrets != nil {
 			key := tok
 			if len(key) > 60 {

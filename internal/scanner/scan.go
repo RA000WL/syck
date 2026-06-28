@@ -541,6 +541,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 			ctxBefore = strings.TrimSpace(prevLine)
 		}
 
+		var lineFindings []finding.Finding
+
 		for _, rule := range cfg.Rules.Rules {
 			matches := rule.MatchAll(line)
 			for _, m := range matches {
@@ -564,7 +566,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					continue
 				}
 
-				findings = append(findings, finding.Finding{
+				f := finding.Finding{
 					File:            path,
 					Line:            lineNum,
 					Column:          m[0],
@@ -576,7 +578,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Entropy:         e,
 					Confidence:      finding.ConfidenceRegex,
 					DetectionMethod: "regex",
-				})
+				}
+				lineFindings = append(lineFindings, f)
+				findings = append(findings, f)
 			}
 		}
 		// Entropy token scan
@@ -590,11 +594,14 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				if entropy.IsMediaToken(tok) {
 					continue
 				}
+				if entropy.IsFalsePositiveToken(tok) {
+					continue
+				}
 				col := strings.Index(line, tok)
 				if col < 0 {
 					col = 0
 				}
-				findings = append(findings, finding.Finding{
+				f := finding.Finding{
 					File:            path,
 					Line:            lineNum,
 					Column:          col,
@@ -606,7 +613,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Entropy:         tokEntropy,
 					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 					DetectionMethod: "entropy+context",
-				})
+				}
+				lineFindings = append(lineFindings, f)
+				findings = append(findings, f)
 			}
 		}
 
@@ -614,7 +623,10 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 			if entropy.IsMediaToken(cs.Token) {
 				continue
 			}
-			findings = append(findings, finding.Finding{
+			if entropy.IsFalsePositiveToken(cs.Token) {
+				continue
+			}
+			f := finding.Finding{
 				File:            path,
 				Line:            lineNum,
 				Column:          strings.Index(line, cs.Token),
@@ -625,10 +637,32 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				Entropy:         cs.Entropy,
 				Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
 				DetectionMethod: "entropy+context",
-			})
+			}
+			lineFindings = append(lineFindings, f)
+			findings = append(findings, f)
 		}
 
-		if hasDecoders {
+		if hasDecoders && len(lineFindings) > 0 {
+			lineSkipSecrets := make(map[string]bool, len(lineFindings))
+			for _, lf := range lineFindings {
+				key := lf.Secret
+				if len(key) > 60 {
+					key = key[:60]
+				}
+				lineSkipSecrets[key] = true
+			}
+			decodedFindings := decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
+				cfg.Rules, cfg.MinSeverity, activeDec)
+			for _, df := range decodedFindings {
+				key := df.Secret
+				if len(key) > 60 {
+					key = key[:60]
+				}
+				if !lineSkipSecrets[key] {
+					findings = append(findings, df)
+				}
+			}
+		} else if hasDecoders {
 			findings = append(findings, decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
 				cfg.Rules, cfg.MinSeverity, activeDec)...)
 		}
@@ -765,7 +799,8 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		ctxBefore, ctxAfter := getLineContext(lines, lineNum)
 
 		// Regex rule matching
-		findings = append(findings, scanLineForRegexRules(line, lineNum, path, cfg, tagPrefix, skipSecrets)...)
+		lineFindings := scanLineForRegexRules(line, lineNum, path, cfg, tagPrefix, skipSecrets)
+		findings = append(findings, lineFindings...)
 
 		// Multi-line pattern matching
 		if cfg.MultiLine && lineNum >= 2 {
@@ -784,14 +819,38 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 		}
 
 		// Entropy token scan
-		findings = append(findings, scanLineForEntropyTokens(line, lineNum, path, cfg, tagPrefix, skipSecrets, ctxBefore, ctxAfter)...)
+		entropyFindings := scanLineForEntropyTokens(line, lineNum, path, cfg, tagPrefix, skipSecrets, ctxBefore, ctxAfter)
+		lineFindings = append(lineFindings, entropyFindings...)
+		findings = append(findings, entropyFindings...)
 
 		// Contextual secrets
-		findings = append(findings, scanLineForContextualSecrets(line, lineNum, path)...)
+		ctxFindings := scanLineForContextualSecrets(line, lineNum, path)
+		lineFindings = append(lineFindings, ctxFindings...)
+		findings = append(findings, ctxFindings...)
+
+		// Build decoder skip list from secrets already found on this line
+		lineSkipSecrets := skipSecrets
+		if hasDecoders && len(lineFindings) > 0 {
+			if lineSkipSecrets == nil {
+				lineSkipSecrets = make(map[string]bool, len(lineFindings))
+			} else {
+				lineSkipSecrets = make(map[string]bool, len(skipSecrets)+len(lineFindings))
+				for k, v := range skipSecrets {
+					lineSkipSecrets[k] = v
+				}
+			}
+			for _, f := range lineFindings {
+				key := f.Secret
+				if len(key) > 60 {
+					key = key[:60]
+				}
+				lineSkipSecrets[key] = true
+			}
+		}
 
 		// Decoded content scan
 		if hasDecoders {
-			findings = append(findings, scanLineForDecodedContent(line, lineNum, path, cfg, tagPrefix, skipSecrets, activeDec)...)
+			findings = append(findings, scanLineForDecodedContent(line, lineNum, path, cfg, tagPrefix, lineSkipSecrets, activeDec)...)
 		}
 
 		// Auth header detection

@@ -424,7 +424,7 @@ rules:
     tags: [pagerduty, monitoring]
   - name: sumo_logic_access_id
     severity: MEDIUM
-    pattern: '\bsus[a-zA-Z0-9]{12,}\b'
+    pattern: '\bsusAccessId=[A-Za-z0-9]{12,}\b'
     tags: [sumologic, monitoring]
 
   # ── HashiCorp Vault / Infra ──────────────
@@ -837,6 +837,7 @@ rules:
     severity: LOW
     pattern: '\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b'
     tags: [pii, email, gdpr]
+    context_keywords: [contact, support, admin, mail, notify, newsletter, signup, login, register]
 
   # ── Password Hashes ──────────────────────
   - name: password_hash_bcrypt

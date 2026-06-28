@@ -142,6 +142,17 @@ func scanDecodedChunk(
 				continue
 			}
 
+			isDuplicate := false
+			for _, f := range *findings {
+				if f.Secret == secret {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+
 			*findings = append(*findings, finding.Finding{
 				File:     path,
 				Line:     lineno,

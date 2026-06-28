@@ -288,6 +288,65 @@ func IsMediaToken(tok string) bool {
 	return false
 }
 
+// isFalsePositiveToken rejects tokens that look like secrets but aren't.
+func IsFalsePositiveToken(tok string) bool {
+	lower := strings.ToLower(tok)
+
+	// Base alphabets (base58, base62, sequential chars)
+	if strings.Contains(lower, "abcdefghijkmnopqrstuvwxyz") ||
+		strings.Contains(lower, "0123456789abcdef") ||
+		strings.Contains(lower, "abcdefghijklmnop") {
+		return true
+	}
+
+	// CSS variables and UI state flags
+	if strings.HasPrefix(tok, "--") || strings.HasSuffix(tok, "=") {
+		return true
+	}
+
+	// Hyphenated experiment/feature-flag names (e.g. cowork-activation-checklist-v2-fired-completed)
+	hyphens := strings.Count(tok, "-")
+	if hyphens >= 3 && len(tok) > 20 {
+		return true
+	}
+
+	// Swift/ObjC function names
+	if strings.Contains(lower, "swift_") || strings.Contains(lower, "unboxfrom") {
+		return true
+	}
+
+	// Internal naming patterns (snake_case with only letters/digits/hyphens/underscores, no mixed case transitions suggesting real secrets)
+	if strings.Contains(tok, "_") && !strings.ContainsAny(tok, "+/=") {
+		// Count case transitions — internal names have many, real secrets few
+		transitions := 0
+		for i := 1; i < len(tok); i++ {
+			if tok[i] != tok[i-1] && ((tok[i] >= 'a' && tok[i] <= 'z') != (tok[i-1] >= 'a' && tok[i-1] <= 'z')) {
+				transitions++
+			}
+		}
+		if transitions > 5 {
+			return true
+		}
+	}
+
+	// Common placeholder/example tokens
+	lowerNoSep := strings.ReplaceAll(lower, "-", "")
+	lowerNoSep = strings.ReplaceAll(lowerNoSep, "_", "")
+	if strings.Contains(lowerNoSep, "baretoken") || strings.Contains(lowerNoSep, "exampletoken") ||
+		strings.Contains(lowerNoSep, "placeholder") || strings.Contains(lowerNoSep, "testtoken") {
+		return true
+	}
+
+	// URL path segments (contain @ for images like opengraph-image@2x.png)
+	if strings.Count(tok, "@") == 1 && strings.Contains(tok, ".") &&
+		(strings.HasSuffix(tok, ".png") || strings.HasSuffix(tok, ".jpg") || strings.HasSuffix(tok, ".svg") ||
+			strings.HasSuffix(tok, ".js") || strings.HasSuffix(tok, ".css") || strings.HasSuffix(tok, ".woff")) {
+		return true
+	}
+
+	return false
+}
+
 func HasContextKeyword(line string) bool {
 	lower := strings.ToLower(line)
 	keywords := []string{
@@ -315,6 +374,9 @@ func ExtractContextualSecrets(line string, minEntropy float64) []ContextualSecre
 	tokens := EntropyTokenRe.FindAllString(line, -1)
 	for _, tok := range tokens {
 		if len(tok) < 20 {
+			continue
+		}
+		if IsFalsePositiveToken(tok) {
 			continue
 		}
 		e := Shannon(tok)
