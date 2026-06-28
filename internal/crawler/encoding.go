@@ -5,9 +5,18 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 var charsetRe = regexp.MustCompile(`charset=([^\s;]+)`)
+
+// BodyPool reuses response body buffers to reduce GC pressure
+var BodyPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 0, 64*1024) // 64KB initial capacity
+		return &b
+	},
+}
 
 // DetectEncoding checks the Content-Type header and HTML meta tags
 // for charset declarations. Returns the charset name or "" if not found.

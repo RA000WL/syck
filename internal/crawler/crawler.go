@@ -407,7 +407,8 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
+	req.Header.Set("Connection", "keep-alive")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -418,6 +419,11 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 	if resp.StatusCode != 200 {
 		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+
+	// Use pooled buffer for reading
+	bufPtr := BodyPool.Get().(*[]byte)
+	defer BodyPool.Put(bufPtr)
+	buf := (*bufPtr)[:0]
 
 	var reader io.Reader = resp.Body
 	if resp.Header.Get("Content-Encoding") == "gzip" {
@@ -430,9 +436,22 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 		}
 	}
 
-	body, err := io.ReadAll(reader)
-	if err != nil {
-		return "", "", err
+	// Read with growing buffer
+	for {
+		if len(buf) == cap(buf) {
+			// Grow buffer
+			newBuf := make([]byte, len(buf), cap(buf)*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+		n, err := reader.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		if err != nil {
+			break
+		}
+		if len(buf) > 10*1024*1024 { // 10MB limit
+			break
+		}
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -441,8 +460,8 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 	}
 
 	// Auto-detect encoding and convert to UTF-8
-	charset := DetectEncoding(contentType, body)
-	utf8Body, _ := ConvertToUTF8(body, charset)
+	charset := DetectEncoding(contentType, buf)
+	utf8Body, _ := ConvertToUTF8(buf, charset)
 
 	return string(utf8Body), contentType, nil
 }
