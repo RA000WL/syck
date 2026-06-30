@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/RA000WL/syck/internal/crawler"
@@ -14,6 +16,7 @@ import (
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/httpclient"
 	"github.com/RA000WL/syck/internal/recon"
+	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/sourcemap"
 )
 
@@ -463,11 +466,55 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// scanLineForRegexRules scans a single line against all regex rules
+// scanLineForRegexRules scans a single line against all regex rules.
+// For large rule sets, splits rules across goroutine workers for parallel matching.
 func scanLineForRegexRules(line string, lineNum int, path string, cfg Config, tagPrefix string, skipSecrets map[string]bool) []finding.Finding {
+	allRules := cfg.Rules.Rules
+	if len(allRules) == 0 {
+		return nil
+	}
+
+	numWorkers := runtime.NumCPU()
+	if numWorkers < 2 || len(allRules) < 64 {
+		return scanLineForRegexRulesChunk(line, lineNum, path, cfg, tagPrefix, skipSecrets, allRules, 0)
+	}
+
+	chunkSize := (len(allRules) + numWorkers - 1) / numWorkers
+	type chunkResult struct {
+		findings []finding.Finding
+	}
+	results := make([]chunkResult, numWorkers)
+	var wg sync.WaitGroup
+
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := start + chunkSize
+		if end > len(allRules) {
+			end = len(allRules)
+		}
+		if start >= len(allRules) {
+			break
+		}
+		wg.Add(1)
+		go func(chunk []rules.Rule, idx int) {
+			defer wg.Done()
+			results[idx].findings = scanLineForRegexRulesChunk(line, lineNum, path, cfg, tagPrefix, skipSecrets, chunk, start)
+		}(allRules[start:end], w)
+	}
+	wg.Wait()
+
+	var findings []finding.Finding
+	for _, r := range results {
+		findings = append(findings, r.findings...)
+	}
+	return findings
+}
+
+// scanLineForRegexRulesChunk scans a line against a subset of rules (a chunk).
+func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Config, tagPrefix string, skipSecrets map[string]bool, chunk []rules.Rule, offset int) []finding.Finding {
 	var findings []finding.Finding
 
-	for _, rule := range cfg.Rules.Rules {
+	for _, rule := range chunk {
 		matches := rule.MatchAll(line)
 		for _, m := range matches {
 			if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) {
