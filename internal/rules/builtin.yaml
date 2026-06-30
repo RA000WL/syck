@@ -449,6 +449,24 @@ rules:
     pattern: '(?i)apiVersion:\s*v1\s*\nkind:\s*Secret\s*\n'
     tags: [kubernetes, container]
     multi_line: true
+  - name: kubernetes_kubeconfig_token
+    severity: CRITICAL
+    pattern: '(?i)token:\s*[A-Za-z0-9._\-]{20,}'
+    tags: [kubernetes, kubeconfig, token]
+    requires_context: true
+    context_keywords: [users, user, token, kubeconfig, apiVersion, kind]
+  - name: kubernetes_kubeconfig_cert
+    severity: CRITICAL
+    pattern: '(?i)certificate-authority-data:\s*[A-Za-z0-9+/=]{40,}'
+    tags: [kubernetes, kubeconfig, cert]
+    requires_context: true
+    context_keywords: [clusters, cluster, certificate-authority-data, apiVersion]
+  - name: kubernetes_kubeconfig_client_cert
+    severity: CRITICAL
+    pattern: '(?i)client-certificate-data:\s*[A-Za-z0-9+/=]{40,}'
+    tags: [kubernetes, kubeconfig, cert]
+    requires_context: true
+    context_keywords: [users, client-certificate-data, apiVersion]
   - name: docker_compose_secret
     severity: HIGH
     pattern: '(?i)(?:environment|env):\s*\n\s+(?:.*(?:password|secret|token|api_key|access_key)\s*[:=]\s*[''"][^''"]{8,}[''"]){1}'
