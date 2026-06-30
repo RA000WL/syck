@@ -60,11 +60,11 @@ rules:
   # ── GitHub ───────────────────────────────
   - name: github_personal_access_token
     severity: CRITICAL
-    pattern: '\bghp_[0-9a-zA-Z]{36}\b'
+    pattern: '\bghp_[0-9a-zA-Z]{36,}\b'
     tags: [github, vcs]
   - name: github_oauth_access_token
     severity: CRITICAL
-    pattern: '\bgho_[0-9a-zA-Z]{36}\b'
+    pattern: '\bgho_[0-9a-zA-Z]{36,}\b'
     tags: [github, vcs]
   - name: github_app_token
     severity: CRITICAL
@@ -72,7 +72,7 @@ rules:
     tags: [github, vcs]
   - name: github_refresh_token
     severity: CRITICAL
-    pattern: '\bghr_[0-9a-zA-Z]{36}\b'
+    pattern: '\bghr_[0-9a-zA-Z]{36,}\b'
     tags: [github, vcs]
   - name: github_fine_grained_token
     severity: CRITICAL
