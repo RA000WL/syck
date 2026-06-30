@@ -126,6 +126,9 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				if skipDirs[info.Name()] {
 					return filepath.SkipDir
 				}
+				if cfg.ExcludeDir != nil && cfg.ExcludeDir.MatchString(info.Name()) {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if cfg.Exclude != nil && cfg.Exclude.MatchString(path) {
@@ -561,6 +564,10 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		line := scanner.Text()
 		lineNum++
 
+		if cfg.Debug && lineNum%10000 == 0 {
+			fmt.Fprintf(os.Stderr, "\r[debug] streaming %s: %d lines scanned...", path, lineNum)
+		}
+
 		if needsEndpoint && contentBuf.Len() < maxEndpointBuf {
 			if contentBuf.Len() > 0 {
 				contentBuf.WriteString("\n")
@@ -720,6 +727,10 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		findings = append(findings, jwtFindings...)
 
 		prevLine = line
+	}
+
+	if cfg.Debug && lineNum > 10000 {
+		fmt.Fprintf(os.Stderr, "\r[debug] streaming %s: %d lines scanned done.\n", path, lineNum)
 	}
 
 	if err := scanner.Err(); err != nil {

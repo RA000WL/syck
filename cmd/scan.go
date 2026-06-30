@@ -128,6 +128,7 @@ var (
 	scanRecon         bool
 	scanReconWayback  bool
 	scanReconLive     bool
+	excludeDir        string
 )
 
 func init() {
@@ -204,6 +205,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanReconLive, "recon-live", false, "only scan live hosts from recon")
 	scanCmd.Flags().BoolVar(&paramBrute, "param-brute", false, "brute-force hidden parameters on discovered endpoints")
 	scanCmd.Flags().StringVar(&paramBruteWordlist, "param-wordlist", "", "custom wordlist for parameter brute-force (one per line)")
+	scanCmd.Flags().StringVar(&excludeDir, "exclude-dir", "", "regex pattern to exclude directories (e.g. 'node_modules|vendor')")
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
@@ -490,6 +492,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		HeaderCheck:       headerCheck,
 		TechDetect:        techDetect,
 		URLCacheDB:        urlCacheDB,
+		ExcludeDir:        parseExcludeDir(excludeDir),
 	}
 
 	if progressFlag && !quiet && !pipe {
@@ -805,4 +808,15 @@ func loadWordlist(path string) ([]string, error) {
 		}
 	}
 	return words, scanner.Err()
+}
+
+func parseExcludeDir(pattern string) *regexp.Regexp {
+	if pattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+	return re
 }
