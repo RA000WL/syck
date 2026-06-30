@@ -82,6 +82,16 @@ rules:
     severity: CRITICAL
     pattern: 'github_pat_[0-9a-zA-Z_]{82,}\b'
     tags: [github, vcs]
+  - name: github_actions_secret_ref
+    severity: HIGH
+    pattern: 'secrets\.\w+'
+    tags: [github, actions, secrets]
+    requires_context: true
+    context_keywords: [uses, run, env, with, steps, secrets]
+  - name: github_actions_env_token
+    severity: MEDIUM
+    pattern: '\b(?:GITHUB_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_RUNTIME_URL)\b'
+    tags: [github, actions, env]
 
   # ── GitLab ───────────────────────────────
   - name: gitlab_personal_token
