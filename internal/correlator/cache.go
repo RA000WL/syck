@@ -61,6 +61,14 @@ func OpenCache(path string) (*Cache, error) {
 	} {
 		db.Exec(col) // ignore errors for existing columns
 	}
+	// File mtime cache for incremental scanning
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS file_mtimes (
+		file_path TEXT PRIMARY KEY,
+		mtime     INTEGER NOT NULL
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create file_mtimes table: %w", err)
+	}
 	return &Cache{db: db}, nil
 }
 
@@ -210,6 +218,21 @@ func (c *Cache) LoadWeights() (*adaptive.LearnedWeightStore, error) {
 		store.Set(ruleName, filePattern, tpW, fpW, sampleCount)
 	}
 	return store, nil
+}
+
+// ShouldSkipFile returns true if the file hasn't changed since last scan.
+func (c *Cache) ShouldSkipFile(path string, mtime int64) bool {
+	var cachedMtime int64
+	err := c.db.QueryRow("SELECT mtime FROM file_mtimes WHERE file_path = ?", path).Scan(&cachedMtime)
+	if err != nil {
+		return false
+	}
+	return cachedMtime == mtime
+}
+
+// RecordFileMtime stores a file's modification time for incremental scanning.
+func (c *Cache) RecordFileMtime(path string, mtime int64) {
+	c.db.Exec("INSERT OR REPLACE INTO file_mtimes (file_path, mtime) VALUES (?, ?)", path, mtime)
 }
 
 // WeightedStatRow is a row from the stats query.

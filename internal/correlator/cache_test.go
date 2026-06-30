@@ -266,3 +266,38 @@ func TestAdaptiveBatchVerdicts(t *testing.T) {
 		t.Errorf("expected Learning tier at 20 samples, got %v", w.Tier)
 	}
 }
+
+func TestMtimeCache(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "mtime.db")
+
+	c, err := OpenCache(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer c.Close()
+
+	// File not yet tracked → should not skip
+	if c.ShouldSkipFile("/test/file.js", 1000) {
+		t.Fatal("expected ShouldSkipFile=false for untracked file")
+	}
+
+	// Record mtime
+	c.RecordFileMtime("/test/file.js", 1000)
+
+	// Same mtime → should skip
+	if !c.ShouldSkipFile("/test/file.js", 1000) {
+		t.Fatal("expected ShouldSkipFile=true for same mtime")
+	}
+
+	// Different mtime → should not skip
+	if c.ShouldSkipFile("/test/file.js", 2000) {
+		t.Fatal("expected ShouldSkipFile=false for changed mtime")
+	}
+
+	// Update mtime
+	c.RecordFileMtime("/test/file.js", 2000)
+	if !c.ShouldSkipFile("/test/file.js", 2000) {
+		t.Fatal("expected ShouldSkipFile=true after mtime update")
+	}
+}

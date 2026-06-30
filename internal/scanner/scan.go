@@ -64,6 +64,15 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 		totalFindings atomic.Int64
 	)
 
+	// Open mtime cache once for the entire scan (if enabled)
+	var mtimeCache *correlator.Cache
+	if cfg.CacheDB != "" {
+		if c, err := correlator.OpenCache(cfg.CacheDB); err == nil {
+			mtimeCache = c
+			defer mtimeCache.Close()
+		}
+	}
+
 	for _, root := range paths {
 		info, err := os.Stat(root)
 		if err != nil {
@@ -73,12 +82,25 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 			continue
 		}
 		if !info.IsDir() {
+			// Mtime skip: skip unchanged files
+			if mtimeCache != nil && mtimeCache.ShouldSkipFile(root, info.ModTime().Unix()) {
+				if cfg.Debug {
+					fmt.Fprintf(os.Stderr, "[debug] skip (unchanged): %s\n", root)
+				}
+				continue
+			}
 			sem <- struct{}{}
 			wg.Add(1)
 			go func(path string) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				findings, err := ScanFile(path, cfg)
+				// Record mtime after scan
+				if mtimeCache != nil {
+					if fi, ferr := os.Stat(path); ferr == nil {
+						mtimeCache.RecordFileMtime(path, fi.ModTime().Unix())
+					}
+				}
 				filesScanned.Add(1)
 				if err != nil {
 					if cfg.Debug {
@@ -138,6 +160,13 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 			if info.Size() > cfg.MaxFileSize {
 				return nil
 			}
+			// Mtime skip: skip unchanged files
+			if mtimeCache != nil && mtimeCache.ShouldSkipFile(path, info.ModTime().Unix()) {
+				if cfg.Debug {
+					fmt.Fprintf(os.Stderr, "[debug] skip (unchanged): %s\n", path)
+				}
+				return nil
+			}
 
 			sem <- struct{}{}
 			wg.Add(1)
@@ -145,6 +174,12 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				defer wg.Done()
 				defer func() { <-sem }()
 				findings, err := ScanFile(fp, cfg)
+				// Record mtime after scan
+				if mtimeCache != nil {
+					if fi, ferr := os.Stat(fp); ferr == nil {
+						mtimeCache.RecordFileMtime(fp, fi.ModTime().Unix())
+					}
+				}
 				filesScanned.Add(1)
 				if err != nil {
 					if cfg.Debug {
