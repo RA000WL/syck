@@ -1,6 +1,9 @@
 package finding
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 const MaxContextLen = 500
 
@@ -124,5 +127,62 @@ func Deduplicate(findings []Finding) []Finding {
 		seen[key] = true
 		result = append(result, f)
 	}
+	return result
+}
+
+func severityRank(s Severity) int {
+	switch s {
+	case SeverityCritical:
+		return 4
+	case SeverityHigh:
+		return 3
+	case SeverityMedium:
+		return 2
+	case SeverityLow:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func DeduplicateBySecret(findings []Finding) []Finding {
+	type entry struct {
+		rules    []string
+		severity Severity
+		idx      int
+	}
+	byKey := make(map[string]*entry)
+	var order []string
+	var result []Finding
+
+	for _, f := range findings {
+		key := f.Secret + "\x00" + f.File
+		if e, ok := byKey[key]; ok {
+			e.rules = append(e.rules, f.RuleName)
+			if severityRank(f.Severity) > severityRank(e.severity) {
+				e.severity = f.Severity
+			}
+		} else {
+			byKey[key] = &entry{
+				rules:    []string{f.RuleName},
+				severity: f.Severity,
+				idx:      len(result),
+			}
+			order = append(order, key)
+			result = append(result, f)
+		}
+	}
+
+	for _, key := range order {
+		e := byKey[key]
+		idx := e.idx
+		result[idx].RuleName = strings.Join(e.rules, ",")
+		result[idx].Severity = e.severity
+	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		return severityRank(result[i].Severity) > severityRank(result[j].Severity)
+	})
+
 	return result
 }

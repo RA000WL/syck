@@ -169,6 +169,7 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
+		allFindings = finding.DeduplicateBySecret(allFindings)
 	}
 
 	if cfg.DowngradeFP {
@@ -1009,6 +1010,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	// Post-processing
 	if !cfg.NoDedup {
 		allFindings = finding.Deduplicate(allFindings)
+		allFindings = finding.DeduplicateBySecret(allFindings)
 	}
 	if cfg.DowngradeFP {
 		allFindings = DowngradeFP(allFindings)
