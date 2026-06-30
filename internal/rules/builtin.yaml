@@ -4,6 +4,10 @@ rules:
     severity: CRITICAL
     pattern: '\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b'
     tags: [aws, cloud]
+  - name: aws_session_token_long
+    severity: HIGH
+    pattern: '(?i)\bASIA[A-Za-z0-9]{20,}\b'
+    tags: [aws, cloud, session-token]
   - name: aws_cognito_pool_id
     severity: MEDIUM
     pattern: '\b(?:us|eu|ap|sa|ca|me|af)-(?:east|west|south|north|central|southeast|northeast)-[0-9]:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
