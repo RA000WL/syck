@@ -572,6 +572,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				if entropy.IsFalsePositiveToken(secret) {
 					continue
 				}
+				if entropy.IsFalsePositiveEmail(secret) {
+					continue
+				}
 
 				f := finding.Finding{
 					File:            path,

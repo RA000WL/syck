@@ -505,6 +505,9 @@ func scanLineForRegexRules(line string, lineNum int, path string, cfg Config, ta
 			if entropy.IsFalsePositiveToken(secret) {
 				continue
 			}
+			if entropy.IsFalsePositiveEmail(secret) {
+				continue
+			}
 
 			ruleName := rule.Name
 			ctx := strings.TrimSpace(line)

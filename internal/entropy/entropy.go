@@ -447,6 +447,10 @@ var knownPlaceholderRe = regexp.MustCompile(`(?i)^(?:bare[-_]?token|your[-_]?(?:
 // kvPlaceholderRe matches key=value patterns where the value is a placeholder.
 var kvPlaceholderRe = regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9]*[-_]?){1,4}\s*[:=]\s*['"](.+?)['"]$`)
 
+// imageFileRe matches image filenames that would falsely match email regex.
+// E.g. opengraph-image@2x.png, og-image@1x.jpg, icon@2x.svg
+var imageFileRe = regexp.MustCompile(`(?i)^[\w.\-]+@\d+x?\.\w{2,5}$`)
+
 // IsFalsePositiveSecret checks a key=value matched string for placeholder values.
 // E.g. Token="bare-token" → extracts "bare-token" → checks placeholderRe.
 func IsFalsePositiveSecret(s string) bool {
@@ -459,6 +463,25 @@ func IsFalsePositiveSecret(s string) bool {
 		if knownPlaceholderRe.MatchString(lowerVal) {
 			return true
 		}
+	}
+	return false
+}
+
+// IsFalsePositiveEmail checks if an email address match is a false positive
+// (e.g. image filenames like opengraph-image@2x.png).
+func IsFalsePositiveEmail(s string) bool {
+	if imageFileRe.MatchString(s) {
+		return true
+	}
+	// Reject emails with image extensions as domain
+	lower := strings.ToLower(s)
+	if strings.HasSuffix(lower, ".png") || strings.HasSuffix(lower, ".jpg") ||
+		strings.HasSuffix(lower, ".jpeg") || strings.HasSuffix(lower, ".gif") ||
+		strings.HasSuffix(lower, ".svg") || strings.HasSuffix(lower, ".webp") ||
+		strings.HasSuffix(lower, ".ico") || strings.HasSuffix(lower, ".woff") ||
+		strings.HasSuffix(lower, ".woff2") || strings.HasSuffix(lower, ".js") ||
+		strings.HasSuffix(lower, ".css") || strings.HasSuffix(lower, ".ttf") {
+		return true
 	}
 	return false
 }

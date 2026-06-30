@@ -290,3 +290,32 @@ func TestIsFalsePositiveSecret_RealNotFP(t *testing.T) {
 		}
 	}
 }
+
+func TestIsFalsePositiveEmail_ImageFilenames(t *testing.T) {
+	fps := []string{
+		"opengraph-image@2x.png",
+		"og-image@1x.jpg",
+		"hero-banner@2x.webp",
+		"icon@3x.svg",
+		"logo@2x.png",
+	}
+	for _, fp := range fps {
+		if !IsFalsePositiveEmail(fp) {
+			t.Errorf("expected %q to be false positive email", fp)
+		}
+	}
+}
+
+func TestIsFalsePositiveEmail_RealEmails(t *testing.T) {
+	reals := []string{
+		"user@example.com",
+		"test@gmail.com",
+		"admin@company.org",
+		"m4d31nh34v3n@wearehackerone.com",
+	}
+	for _, r := range reals {
+		if IsFalsePositiveEmail(r) {
+			t.Errorf("expected %q to NOT be false positive email", r)
+		}
+	}
+}

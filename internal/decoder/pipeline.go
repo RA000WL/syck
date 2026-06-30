@@ -144,6 +144,9 @@ func scanDecodedChunk(
 			if entropy.IsFalsePositiveToken(secret) {
 				continue
 			}
+			if entropy.IsFalsePositiveEmail(secret) {
+				continue
+			}
 
 			isDuplicate := false
 			for _, f := range *findings {
