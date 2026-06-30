@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -680,6 +681,9 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 		urlFindings := ExtractURLSecrets(line, path, lineNum)
 		findings = append(findings, urlFindings...)
 
+		jwtFindings := ScanExpiredJWTs(line, lineNum, path)
+		findings = append(findings, jwtFindings...)
+
 		prevLine = line
 	}
 
@@ -870,6 +874,9 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 		// URL secret extraction
 		findings = append(findings, scanLineForURLSecrets(line, lineNum, path)...)
+
+		// Expired JWT detection
+		findings = append(findings, ScanExpiredJWTs(line, lineNum, path)...)
 	}
 
 	// Source technology fingerprinting
@@ -1135,4 +1142,32 @@ func contextLabel(tagPrefix string) string {
 	default:
 		return "gzip decoded: "
 	}
+}
+
+var jwtRe = regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b`)
+
+// ScanExpiredJWTs finds expired JWTs in text and returns findings.
+func ScanExpiredJWTs(line string, lineNum int, path string) []finding.Finding {
+	var findings []finding.Finding
+	for _, m := range jwtRe.FindAllString(line, -1) {
+		if decoder.IsJWTExpired(m) {
+			col := strings.Index(line, m)
+			if col < 0 {
+				col = 0
+			}
+			findings = append(findings, finding.Finding{
+				File:            path,
+				Line:            lineNum,
+				Column:          col,
+				RuleName:        "expired_jwt_token",
+				Severity:        finding.SeverityHigh,
+				Secret:          m,
+				Context:         finding.Truncate(strings.TrimSpace(line)),
+				Entropy:         0,
+				Confidence:      finding.ConfidenceRegex,
+				DetectionMethod: "regex+expiry",
+			})
+		}
+	}
+	return findings
 }

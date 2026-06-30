@@ -2,8 +2,10 @@ package decoder
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var jwtCandidateRE = regexp.MustCompile(`\b[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b`)
@@ -32,4 +34,30 @@ func tryJWT(line string) []DecodeResult {
 		results = append(results, DecodeResult{SourceTag: "jwt", Text: string(decoded)})
 	}
 	return results
+}
+
+// IsJWTExpired checks if a JWT token's exp claim has passed.
+func IsJWTExpired(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload := parts[1]
+	decoded, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		decoded, err = base64.URLEncoding.DecodeString(payload)
+		if err != nil {
+			return false
+		}
+	}
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return false
+	}
+	if claims.Exp == 0 {
+		return false
+	}
+	return time.Now().Unix() > claims.Exp
 }
