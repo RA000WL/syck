@@ -148,7 +148,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&decodeURL, "decode-url", false, "URL-decode lines and rescan")
 	scanCmd.Flags().BoolVar(&decodeGzip, "decode-gzip", false, "decompress gzip/zlib content and rescan")
 	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", true, "reconstruct JS concatenated strings")
-	scanCmd.Flags().BoolVar(&endpoints, "endpoints", false, "extract API/graphql/websocket URLs")
+	scanCmd.Flags().BoolVar(&endpoints, "endpoints", true, "extract API/graphql/websocket URLs")
 	scanCmd.Flags().BoolVar(&pipe, "pipe", false, "scan from stdin")
 	scanCmd.Flags().StringVar(&failOn, "fail-on", "", "CI gate: exit 1 if findings at or above this severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)")
 	scanCmd.Flags().BoolVar(&downgradeFP, "downgrade-fp", true, "downgrade severity for findings in test/mock/vendor dirs and placeholder patterns")
