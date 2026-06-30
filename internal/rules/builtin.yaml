@@ -602,6 +602,12 @@ rules:
     tags: [terraform, iac, backend]
     requires_context: true
     context_keywords: [backend, credential, aws_secret, aws_access, s3, dynamodb]
+  - name: terraform_state_secret
+    severity: CRITICAL
+    pattern: '"value"\s*:\s*"[^"]{20,}"'
+    tags: [terraform, state, iac, tfstate]
+    requires_context: true
+    context_keywords: ["sensitive", "attributes", "resources"]
 
   # ── Productivity / Design ────────────────
   - name: figma_api_token
