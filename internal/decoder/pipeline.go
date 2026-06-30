@@ -141,6 +141,9 @@ func scanDecodedChunk(
 			if e < 2.0 {
 				continue
 			}
+			if entropy.IsFalsePositiveToken(secret) {
+				continue
+			}
 
 			isDuplicate := false
 			for _, f := range *findings {

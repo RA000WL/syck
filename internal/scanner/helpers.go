@@ -499,6 +499,12 @@ func scanLineForRegexRules(line string, lineNum int, path string, cfg Config, ta
 			if e < 2.0 {
 				continue
 			}
+			if entropy.IsFalsePositiveSecret(secret) {
+				continue
+			}
+			if entropy.IsFalsePositiveToken(secret) {
+				continue
+			}
 
 			ruleName := rule.Name
 			ctx := strings.TrimSpace(line)

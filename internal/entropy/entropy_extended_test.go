@@ -182,3 +182,111 @@ func TestIsEntropyTokenMatchUsesAlphabet(t *testing.T) {
 		t.Error("expected all-zero hex token to be rejected (entropy=0, below hex threshold)")
 	}
 }
+
+func TestIsFalsePositiveToken_Placeholders(t *testing.T) {
+	placeholds := []string{
+		"bare-token",
+		"your-token",
+		"your_token",
+		"yourToken",
+		"test-token",
+		"test_token",
+		"testToken",
+		"example-token",
+		"example_token",
+		"exampleToken",
+		"placeholder-token",
+		"placeholder_token",
+		"placeholderToken",
+		"xxx",
+		"xxxxx",
+		"changeme",
+		"change_me",
+		"CHANGEME",
+		"dummy",
+		"sample",
+		"fake-secret",
+		"fake_secret",
+		"temp-key",
+		"temp_key",
+		"not-a-secret",
+		"not_a_secret",
+		"token-here",
+		"token_here",
+		"secret-here",
+		"secret_here",
+		"key-here",
+		"key_here",
+		"insert-key",
+		"insert_key",
+		"your-api-key",
+		"your_api_key",
+		"your-api-key-here",
+		"your_api_key_here",
+		"REPLACE_ME",
+		"REPLACE-ME",
+		"TODO_SECRET",
+		"FIXME_SECRET",
+		"FIXME_TOKEN",
+	}
+	for _, ph := range placeholds {
+		if !IsFalsePositiveToken(ph) {
+			t.Errorf("expected %q to be detected as placeholder", ph)
+		}
+	}
+}
+
+func TestIsFalsePositiveToken_RealSecretsNotFP(t *testing.T) {
+	reals := []string{
+		"AIzaSyDu88493oN_Xq4PNVr_x8GUZPZhe-byS4U",
+		"sk_live_abcdefghijklmnopqrstuvwxyz123456",
+		"AKIAIOSFODNN7EXAMPLE",
+		"ghp_abcdefghijklmnopqrstuvwxyz0123456789abcd",
+		"dGhpcyBpcyBhIHJlYWwgc2VjcmV0IGtleQ==",
+		"1062961139910-l2m55cb9h51u5cuc9c56eb3fevouidh9",
+	}
+	for _, r := range reals {
+		if IsFalsePositiveToken(r) {
+			t.Errorf("expected %q to NOT be a false positive", r)
+		}
+	}
+}
+
+func TestIsFalsePositiveSecret_KeyValuePatterns(t *testing.T) {
+	patterns := []string{
+		`Token="bare-token"`,
+		`Token:"bare-token"`,
+		`token="your-token"`,
+		`token:"your_token"`,
+		`api_key="placeholder"`,
+		`api_key:"changeme"`,
+		`password="test_value"`,
+		`secret="dummy"`,
+		`secret_key="xxx"`,
+		`access_key="sample"`,
+		`secret="fake-secret"`,
+		`token="token-here"`,
+		`token="insert-key"`,
+		`secret="NOT_A_REAL_SECRET"`,
+	}
+	for _, p := range patterns {
+		if !IsFalsePositiveSecret(p) {
+			t.Errorf("expected %q to be detected as false positive secret", p)
+		}
+	}
+}
+
+func TestIsFalsePositiveSecret_RealNotFP(t *testing.T) {
+	patterns := []string{
+		`Token="AIzaSyDu88493oN_Xq4PNVr_x8GUZPZhe-byS4U"`,
+		`password="dGhpcyBpcyBhIHJlYWwgc2VjcmV0IGtleQ=="`,
+		`secret="sk_live_abcdefghijklmnopqrstuvwxyz123456"`,
+		`token="1062961139910-l2m55cb9h51u5cuc9c56eb3fevouidh9"`,
+		`api_key="AKIAIOSFODNN7EXAMPLE"`,
+	}
+	for _, p := range patterns {
+		if IsFalsePositiveSecret(p) {
+			t.Errorf("expected %q to NOT be false positive", p)
+		}
+	}
+}

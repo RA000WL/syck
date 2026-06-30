@@ -288,20 +288,107 @@ func IsMediaToken(tok string) bool {
 	return false
 }
 
+// isMostlyAlphabet checks if a token is >70% composed of a sequential alphabet.
+// This catches tokens like "abcdefghijklmnopqrstuvwxyz0123456789" (test values)
+// but NOT "sk_live_abcdefghijklmnopqrstuvwxyz123456" (real key with prefix).
+func isMostlyAlphabet(tok, alphabet string) bool {
+	if len(tok) < 16 {
+		return false
+	}
+	seqMatches := 0
+	seqIdx := 0
+	for i := 0; i < len(tok); i++ {
+		if seqIdx < len(alphabet) && tok[i] == alphabet[seqIdx] {
+			seqMatches++
+			seqIdx++
+		}
+	}
+	ratio := float64(seqMatches) / float64(len(tok))
+	return ratio > 0.7
+}
+
+// isBase58Alphabet checks if a token is a full or near-full base58 alphabet string.
+// Base58 = 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz (no 0/I/O/l)
+func isBase58Alphabet(tok string) bool {
+	if len(tok) < 40 {
+		return false
+	}
+	const b58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	lower := strings.ToLower(tok)
+	matchCount := 0
+	bi := 0
+	for i := 0; i < len(lower) && bi < len(b58); i++ {
+		if lower[i] == b58[bi] {
+			matchCount++
+			bi++
+		}
+	}
+	return float64(matchCount)/float64(len(b58)) > 0.85
+}
+
+// isSortedSequence checks if a token's characters are in ascending order.
+// Alphabet/charset strings are sorted; real secrets are randomly ordered.
+// Allows trailing special chars (base64 padding, hyphens).
+func isSortedSequence(tok string) bool {
+	if len(tok) < 30 {
+		return false
+	}
+	// Strip trailing non-alphanumeric chars
+	end := len(tok)
+	for end > 0 && !((tok[end-1] >= 'a' && tok[end-1] <= 'z') || (tok[end-1] >= 'A' && tok[end-1] <= 'Z') || (tok[end-1] >= '0' && tok[end-1] <= '9')) {
+		end--
+	}
+	if end < 30 {
+		return false
+	}
+	sorted := true
+	for i := 1; i < end; i++ {
+		if tok[i] <= tok[i-1] {
+			sorted = false
+			break
+		}
+	}
+	return sorted
+}
+
 // isFalsePositiveToken rejects tokens that look like secrets but aren't.
 func IsFalsePositiveToken(tok string) bool {
 	lower := strings.ToLower(tok)
 
-	// Base alphabets (base58, base62, sequential chars)
-	if strings.Contains(lower, "abcdefghijkmnopqrstuvwxyz") ||
-		strings.Contains(lower, "0123456789abcdef") ||
-		strings.Contains(lower, "abcdefghijklmnop") {
+	// Base alphabets: reject tokens that are mostly sequential base58/base62 chars
+	if isMostlyAlphabet(lower, "0123456789abcdef") {
 		return true
 	}
 
-	// CSS variables and UI state flags
-	if strings.HasPrefix(tok, "--") || strings.HasSuffix(tok, "=") {
+	// Full base58 alphabet (with/without common variants)
+	if isBase58Alphabet(tok) {
 		return true
+	}
+
+	// Sorted character sequences (alphabet/charset listings)
+	if isSortedSequence(tok) {
+		return true
+	}
+
+	// CSS variables (start with --)
+	if strings.HasPrefix(tok, "--") {
+		return true
+	}
+
+	// Trailing = on camelCase/snake_case variable names (JS property assignments)
+	if strings.HasSuffix(tok, "=") && len(tok) > 8 {
+		stripped := tok[:len(tok)-1]
+		isVarName := true
+		for i := 0; i < len(stripped); i++ {
+			c := stripped[i]
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+				isVarName = false
+				break
+			}
+		}
+		if isVarName {
+			return true
+		}
 	}
 
 	// Hyphenated experiment/feature-flag names (e.g. cowork-activation-checklist-v2-fired-completed)
@@ -315,26 +402,28 @@ func IsFalsePositiveToken(tok string) bool {
 		return true
 	}
 
-	// Internal naming patterns (snake_case with only letters/digits/hyphens/underscores, no mixed case transitions suggesting real secrets)
-	if strings.Contains(tok, "_") && !strings.ContainsAny(tok, "+/=") {
-		// Count case transitions — internal names have many, real secrets few
-		transitions := 0
-		for i := 1; i < len(tok); i++ {
-			if tok[i] != tok[i-1] && ((tok[i] >= 'a' && tok[i] <= 'z') != (tok[i-1] >= 'a' && tok[i-1] <= 'z')) {
-				transitions++
+	// snake_case internal names: all lowercase letters + digits + underscores only
+	if strings.Contains(tok, "_") && !strings.ContainsAny(tok, "+/=-") {
+		allSnake := true
+		for i := 0; i < len(tok); i++ {
+			c := tok[i]
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+				allSnake = false
+				break
 			}
 		}
-		if transitions > 5 {
-			return true
+		if allSnake {
+			transitions := 0
+			for i := 1; i < len(tok); i++ {
+				if (tok[i] >= 'a' && tok[i] <= 'z') != (tok[i-1] >= 'a' && tok[i-1] <= 'z') ||
+					(tok[i] >= '0' && tok[i] <= '9') != (tok[i-1] >= '0' && tok[i-1] <= '9') {
+					transitions++
+				}
+			}
+			if transitions > 5 {
+				return true
+			}
 		}
-	}
-
-	// Common placeholder/example tokens
-	lowerNoSep := strings.ReplaceAll(lower, "-", "")
-	lowerNoSep = strings.ReplaceAll(lowerNoSep, "_", "")
-	if strings.Contains(lowerNoSep, "baretoken") || strings.Contains(lowerNoSep, "exampletoken") ||
-		strings.Contains(lowerNoSep, "placeholder") || strings.Contains(lowerNoSep, "testtoken") {
-		return true
 	}
 
 	// URL path segments (contain @ for images like opengraph-image@2x.png)
@@ -344,6 +433,33 @@ func IsFalsePositiveToken(tok string) bool {
 		return true
 	}
 
+	// Common placeholder/template values
+	if knownPlaceholderRe.MatchString(tok) {
+		return true
+	}
+
+	return false
+}
+
+// knownPlaceholderRe matches common placeholder/template token values.
+var knownPlaceholderRe = regexp.MustCompile(`(?i)^(?:bare[-_]?token|your[-_]?(?:token|key|secret|password)|test[-_]?(?:token|key|secret|value|password)|example[-_]?(?:token|key|secret)|placeholder[-_]?(?:token|key|secret)?|xxx{1,10}|changeme|change[-_]?me|dummy|sample|fake[-_]?(?:secret|token|key|password)|temp[-_]?(?:token|key|secret)|not[-_]?(?:a[-_])?secret|token[-_]?here|secret[-_]?here|key[-_]?here|insert[-_]?(?:key|token|secret)|your[-_]?(?:api[-_]?key)|your[-_]?(?:api[-_]?key[-_]?here)|REPLACE[-_]?ME|TODO[-_]?(?:SECRET|TOKEN|KEY)|FIXME[-_]?(?:SECRET|TOKEN|KEY)|NOT[-_]?A[-_]?REAL[-_]?SECRET)$`)
+
+// kvPlaceholderRe matches key=value patterns where the value is a placeholder.
+var kvPlaceholderRe = regexp.MustCompile(`(?i)^(?:[a-z][a-z0-9]*[-_]?){1,4}\s*[:=]\s*['"](.+?)['"]$`)
+
+// IsFalsePositiveSecret checks a key=value matched string for placeholder values.
+// E.g. Token="bare-token" → extracts "bare-token" → checks placeholderRe.
+func IsFalsePositiveSecret(s string) bool {
+	if m := kvPlaceholderRe.FindStringSubmatch(s); m != nil {
+		val := strings.TrimSpace(m[1])
+		if IsFalsePositiveToken(val) {
+			return true
+		}
+		lowerVal := strings.ToLower(val)
+		if knownPlaceholderRe.MatchString(lowerVal) {
+			return true
+		}
+	}
 	return false
 }
 
