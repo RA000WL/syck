@@ -37,7 +37,7 @@
 | Language | Go 1.26+ |
 | Module Path | `github.com/RA000WL/syck` |
 | License | MIT |
-| Current Version | 1.2.0 (V1.3+ features on main) |
+| Current Version | 1.2.0 (V1.3+ features on main, 210+ rules) |
 | Binary | Single static binary, zero runtime dependencies |
 | Purpose | Detect hardcoded secrets, API keys, tokens, passwords, and credentials in source code, configs, web pages, and binaries |
 
@@ -60,6 +60,8 @@ SYCK combines both with context keywords, multi-layer decoding, JS string recons
 5. **Confidence over severity** — severity is what the rule says; confidence is how sure we are. Both live on every Finding.
 6. **Progressive triage** — SQLite cache enables cross-run dedup so teams can focus on new findings.
 7. **Zero-config defaults** — works out of the box; every behavior is tunable via 60+ flags.
+8. **Cross-rule dedup** — same secret triggering multiple rules collapses to one finding with highest severity.
+9. **Aggressive FP elimination** — sorted alphabet detection, base58 filtering, image filename FPs, placeholder tokens.
 
 ---
 
@@ -259,7 +261,7 @@ cmd/scan.go
 SYCK uses a **multi-layer detection approach** where each layer catches different types of secrets:
 
 ### Layer 1: Regex Pattern Matching
-- **200+ rules** in `internal/rules/builtin.yaml`
+- **210+ rules** in `internal/rules/builtin.yaml`
 - Each rule: name, severity, regex pattern, tags, optional entropy threshold, context keywords
 - Compiled once at startup with thread-safe caching
 - Context gating enforced: rules with `requires_context: true` only fire when the line contains one of their `context_keywords`
@@ -269,6 +271,8 @@ SYCK uses a **multi-layer detection approach** where each layer catches differen
 - Context-gated: only fires on lines containing secret-related keywords
 - Per-alphabet thresholds: hex ≥ 3.0, base64/JWT ≥ 4.0, unknown ≥ 4.5
 - Media token filtering: detects 15 base64-encoded media formats to avoid FPs
+- Sorted sequence detection: catches alphabet/charset listings (ascending ASCII, 30+ chars)
+- Trailing camelCase variable name filtering
 
 ### Layer 3: Contextual Entropy
 - `ExtractContextualSecrets()`: keyword-gated entropy detection for tokens ≥ 20 chars with entropy ≥ 4.5
@@ -312,6 +316,16 @@ SYCK uses a **multi-layer detection approach** where each layer catches differen
 - Debug artifact detection
 - Sensitive file references (`.env`, `.key`, `.pem`, credentials)
 
+### Layer 11: JWT Expiry Detection
+- Decodes JWT payload and checks `exp` claim against `time.Now()`
+- Creates HIGH severity finding for expired tokens (rule: `expired_jwt_token`)
+- Wired into both streaming and non-streaming scan paths
+
+### Layer 12: Terraform State Detection
+- Detects sensitive values in `.tfstate` files via `"value": "..."` patterns
+- Requires context gating (keywords: sensitive, attributes, resources)
+- CRITICAL severity for secrets in state files
+
 ---
 
 ## 6. Key Types & Interfaces
@@ -334,6 +348,9 @@ type Finding struct {
     AdaptiveModifier               int       // -40 to +40
     LearningTier                   string    // Experimental/Learning/Mature/Trusted
 }
+
+// Deduplication: DeduplicateBySecret collapses findings with same secret+file
+// across different rules, keeping highest severity and joining rule names.
 ```
 
 ### JSAnalysisResult (`internal/jsanalysis/analyze.go`)
@@ -369,14 +386,14 @@ type Detector interface {
 | Package | Responsibility |
 |---------|----------------|
 | `cmd/` | CLI layer: flag parsing, config loading, pipeline orchestration |
-| `scanner/` | Core engine: parallel file walk, per-line scanning, pipeline stages |
+| `scanner/` | Core engine: parallel file walk, per-line scanning with goroutine workers, pipeline stages |
 | `rules/` | YAML rule loading, thread-safe compilation, validation |
 | `entropy/` | Shannon entropy, per-alphabet thresholds, media filter |
 | `decoder/` | 9 decoder types + recursive pipeline (depth 3) |
 | `finding/` | Finding struct, severity enum, dedup, summary building |
 | `confidence/` | Multi-signal confidence scorer |
 | `correlation/` | 8 multi-finding correlation detectors |
-| `correlator/` | SQLite cross-run cache |
+| `correlator/` | SQLite cross-run cache + file mtime cache for incremental scanning |
 | `adaptive/` | Adaptive confidence learning |
 | `endpoints/` | 30+ endpoint extraction patterns + risk scoring |
 | `jsanalysis/` | JavaScript/source analysis (env vars, secrets, internal URLs) |
@@ -392,6 +409,10 @@ type Detector interface {
 | `progress/` | TUI progress bar wrapper |
 | `ruletest/` | Rule quality testing harness |
 | `httpclient/` | Shared HTTP client with connection pooling |
+| `fileutil/` | File extension detection and text file identification |
+| `parambrute/` | Hidden parameter brute-force discovery |
+| `sourcemap/` | JavaScript source map parsing and secret extraction |
+| `lsp/` | Language server protocol integration |
 
 ---
 
@@ -412,14 +433,15 @@ type Detector interface {
 │                       PER-FILE SCANNING                             │
 │                                                                     │
 │  1. Comment stripping (--strip-comments)                            │
-│  2. Regex rule matching (200+ rules)                                 │
+│  2. Regex rule matching (210+ rules, parallel workers)              │
 │  3. Entropy token scan (context-gated, alphabet-aware)             │
 │  4. Contextual secret extraction (entropy ≥ 4.5, length ≥ 20)     │
 │  5. Multi-line pattern matching (--multiline, 10-line window)      │
 │  6. Decoder pipeline (9 decoders, recursive depth 3 → rescan)     │
 │  7. Auth header detection                                           │
 │  8. URL secret extraction                                           │
-│  9. JS/Source analysis (env vars, secrets, internal URLs)          │
+│  9. JWT expiry detection                                            │
+│  10. JS/Source analysis (env vars, secrets, internal URLs)         │
 │                                                                     │
 │  Additional per-file passes:                                       │
 │  • JSON tree scanning (.json files)                                │
@@ -433,14 +455,17 @@ type Detector interface {
                                    │
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      POST-PROCESSING                                │
+│  POST-PROCESSING                                │
 │                                                                     │
-│  1. Deduplication                                                  │
-│  2. FP downgrade                                                   │
-│  3. .syckignore filtering                                          │
-│  4. Live validation (--validate, 13 provider APIs)                 │
-│  5. SQLite cache recording                                         │
-│  6. Adaptive learning (--adaptive)                                 │
+│  1. Cross-rule dedup (by secret value, keep highest severity)      │
+│  2. Deduplication (exact match)                                     │
+│  3. FP downgrade + false positive filters (sorted seq, base58,     │
+│     image filenames, placeholder tokens)                            │
+│  4. .syckignore filtering                                          │
+│  5. Mtime skip cache (--cache-db incremental)                      │
+│  6. Live validation (--validate, 13 provider APIs)                 │
+│  7. SQLite cache recording                                         │
+│  8. Adaptive learning (--adaptive)                                 │
 └──────────────────────────────────┬──────────────────────────────────┘
                                    │
                                    ▼
@@ -460,10 +485,11 @@ type Detector interface {
 ## 9. Scanning Modes
 
 ### File Scanning (default)
-- `filepath.Walk` with skip-directories map (35 entries)
+- `filepath.Walk` with skip-directories map (35 entries) + `--exclude-dir` regex
 - Extension whitelist: 70+ text file extensions
 - Parallel dispatch via semaphore (default 10 workers)
-- Streaming mode for files > 1MB
+- Streaming mode for files > 1MB with 10MB buffer
+- Mtime-based skip cache for incremental scanning
 
 ### URL Scanning (`--url`)
 - BFS with depth tracking (default max depth: 3)
@@ -510,6 +536,22 @@ type Detector interface {
 
 ## 11. Performance Optimizations
 
+### Parallel Rule Matching
+- `scanLineForRegexRules` partitions rules across `NumCPU` goroutine workers
+- Each worker processes a chunk of rules concurrently against the same line
+- Falls back to sequential for <64 rules or single CPU
+- Thread-safe: rules are read-only, findings collected per-worker then merged
+
+### Mtime-Based Skip Cache
+- SQLite `file_mtimes` table stores `file_path → mtime` mapping
+- `ShouldSkipFile(path, mtime)` returns true if file hasn't changed
+- `RecordFileMtime(path, mtime)` updates after scan
+- Enables incremental scanning — only scan modified files
+
+### Streaming Buffer
+- 10MB buffer for streaming scanner (handles minified JS mega-lines)
+- `scanFileFallback` handles `bufio.ErrTooLong` gracefully
+
 ### HTTP Client (`internal/httpclient/client.go`)
 - **Connection pooling**: MaxIdleConns=200, MaxIdleConnsPerHost=50
 - **Keep-alive**: Enabled by default, 120s idle timeout
@@ -540,6 +582,34 @@ type Detector interface {
 | V1.8 | Bug Bounty Core | Proxy, auth-token, header, scope-file, cookie, diff mode |
 | V1.9 | Security Headers | 18 finding types, 40+ tech fingerprinting, 188 rules |
 | V2.0 | Recon Optimization | jsanalysis, enhanced endpoints (30+), CertSpotter, DNS bruteforce, 150+ juicy paths, internal link detection, professional output, pipe mode fix, performance optimizations |
+| V2.1 | Accuracy & Performance | Cross-rule dedup by secret value, bare-token FP filter (sorted alphabet, base58, placeholders), email FP fix, parallel rule matching (goroutine worker pool), mtime-based skip cache, --exclude-dir flag, streaming progress indicator |
+| V2.2 | Detection Expansion | aws_session_token_long (ASIA... 48+), JWT expiry detection (IsJWTExpired/ScanExpiredJWTs), terraform_state_secret, kubernetes kubeconfig (3 rules), GitHub Actions secrets (2 rules) |
+
+---
+
+## 13. Testing Strategy
+
+```bash
+# Run all tests with race detector
+go test -race ./...
+
+# Run specific package tests
+go test -race ./internal/scanner/ -v
+go test -race ./internal/entropy/ -v
+
+# Run rule quality tests
+syck ruletest
+```
+
+### Test Coverage by Package
+| Package | Coverage | Tests |
+|---------|----------|-------|
+| `fileutil` | 100% | 88 tests (extensions, IsTextExt, edge cases) |
+| `jsanalysis` | 98.7% | 38 tests (env vars, imports, secrets, config URLs) |
+| `sourcemap` | 95.6% | 45 tests (VLQ, parsing, extraction, truncation) |
+| `parambrute` | 86.4% | 38 tests (rate limiter, brute force, isInteresting) |
+| `scanner` | — | Streaming tests: mega-line, ErrTooLong fallback, standard file |
+| `correlator` | — | Mtime cache tests: ShouldSkipFile, RecordFileMtime |
 
 ---
 

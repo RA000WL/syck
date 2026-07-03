@@ -5,16 +5,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner and recon engine written in Go. 200+ detection rules, multi-layer decoding, entropy analysis, URL crawling, JavaScript analysis, endpoint extraction, subdomain discovery, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
+A fast, modular secret scanner and recon engine written in Go. 210+ detection rules, multi-layer decoding, entropy analysis, URL crawling, JavaScript analysis, endpoint extraction, subdomain discovery, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
 
 ## Features
 
 ### Core Scanning
-- **200+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
+- **210+ detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
 - **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
 - **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
+- **Cross-rule dedup** — collapses findings with the same secret across multiple rules, keeping highest severity
+- **Parallel rule matching** — rules split across goroutine workers per line for faster scanning
+- **Incremental scanning** — mtime-based skip cache for unchanged files between runs
 
 ### JavaScript & Source Analysis
 - **JS string reconstruction** — constant propagation, concatenation chains, array joins, template literals, ternary expressions, array index access
@@ -36,6 +39,11 @@ A fast, modular secret scanner and recon engine written in Go. 200+ detection ru
 - **Technology fingerprinting** — CMS, frameworks, languages, libraries, CDNs from HTTP responses and source code
 - **WAF/CDN detection** — Cloudflare, Akamai, AWS CloudFront, and more
 - **Cloud storage detection** — S3, GCS, Azure Blob URL patterns
+- **Kubernetes kubeconfig detection** — tokens, certificate-authority-data, client-certificate-data in kubeconfig files
+- **GitHub Actions secrets** — `${{ secrets.X }}` references, GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN
+- **JWT expiry detection** — identifies expired JWT tokens (HIGH severity)
+- **Terraform state secrets** — detects sensitive values in .tfstate files (CRITICAL)
+- **AWS session tokens** — detects STS temporary credentials (ASIA... 48+ chars)
 
 ### Output & Integration
 - **7 output formats** — text (professional with severity icons), JSON, JSONL/NDJSON, SARIF 2.1.0, Markdown, CSV, dark-themed HTML
@@ -264,7 +272,7 @@ syck scan . --cache-db scan.db --adaptive
 
 | Flag | Description |
 |------|-------------|
-| `--endpoints` | Extract API, GraphQL, WebSocket, and internal URLs |
+| `--endpoints` | Extract API, GraphQL, WebSocket, and internal URLs (default: **on**) |
 | `--min-endpoint-score` | Only show endpoints with risk score >= N (default: 0) |
 | `--no-juicy-files` | Disable juicy file probing during endpoint scan |
 | `--git-history` | Scan files in git commit history |
@@ -309,6 +317,7 @@ syck scan . --cache-db scan.db --adaptive
 | `--header` | Custom header (repeatable): `--header "Name: Value"` |
 | `--scope-file` | File with scope regex patterns (one per line) |
 | `--cookie` | Cookie string: `--cookie "session=abc; token=xyz"` |
+| `--exclude-dir` | Regex pattern to exclude directories (e.g. `--exclude-dir "node_modules\|vendor"`) |
 | `--no-sitemap` | Disable robots.txt/sitemap.xml discovery |
 | `--diff` | Only show new findings (requires `--cache-db`) |
 | `--http-timeout` | HTTP timeout (default `10s`) |
@@ -330,12 +339,12 @@ syck scan . --cache-db scan.db --adaptive
 ```
 syck scan [paths...]
     │
-    ├── File scanning (parallel workers, streaming >1MB)
+    ├── File scanning (parallel workers, streaming >1MB, 10MB buffer)
     ├── URL scanning (goquery → BFS crawl → fetch → scan)
     ├── Stdin pipe (auto-detects URLs vs raw content)
     └── Git history (git log → git show → scan per-commit)
           │
-          ├── Regex rules (200+ patterns)
+          ├── Regex rules (210+ patterns, parallel worker pool)
           ├── Entropy token scan + contextual entropy
           ├── Multi-layer decoders (base64/hex/unicode/url/gzip/JWT/charcode)
           ├── JSON-aware tree walker
@@ -343,15 +352,18 @@ syck scan [paths...]
           ├── JS/Source analysis (env vars, secrets, internal URLs)
           ├── URL secret extraction
           ├── Auth header detection
+          ├── JWT expiry detection
           ├── Endpoint extraction (30+ patterns + risk scoring)
           ├── Security header analysis (18 finding types)
           ├── Technology fingerprinting (40+ signals)
           ├── WAF/CDN detection
           └── Cloud storage detection
                │
+               ├── Cross-rule dedup (by secret value, keep highest severity)
                ├── Deduplication
-               ├── FP downgrade
+               ├── FP downgrade + FP false positive filters
                ├── .syckignore filter
+               ├── Mtime skip cache (--cache-db incremental)
                ├── Diff mode (--diff)
                ├── Adaptive learning (--adaptive)
                ├── Live validation (--validate)
@@ -362,7 +374,7 @@ syck scan [paths...]
 
 | Package | Purpose |
 |---------|---------|
-| `scanner` | Core scanning engine (parallel file walk, regex match, entropy, multi-line, auth headers) |
+| `scanner` | Core scanning engine (parallel file walk, regex match with goroutine workers, entropy, multi-line, auth headers) |
 | `rules` | YAML rule loading, compilation, and validation |
 | `finding` | Finding/Severity types, confidence scoring, deduplication |
 | `decoder` | Base64, base64url, hex, Unicode, URL, gzip, JWT, double-base64, charcode decoding |
@@ -378,11 +390,16 @@ syck scan [paths...]
 | `ignore` | .syckignore fingerprint loading and filtering |
 | `validator` | Live secret validation against 13 providers |
 | `json_scanner` | JSON tree walking for secret-key values |
-| `correlator` | SQLite cross-run finding cache with fingerprint dedup |
+| `correlator` | SQLite cross-run finding cache with fingerprint dedup + file mtime cache for incremental scanning |
 | `adaptive` | Adaptive confidence learning engine (Bayesian smoothing, tier classification, weight store) |
 | `correlation` | Multi-finding correlation (AWS key+secret pairs, OAuth, Stripe, etc.) |
 | `confidence` | Confidence scoring engine |
 | `httpclient` | Shared HTTP client factory with connection pooling, proxy, TLS support |
+| `fileutil` | File extension detection and text file identification |
+| `parambrute` | Hidden parameter brute-force discovery |
+| `sourcemap` | JavaScript source map parsing and secret extraction |
+| `lsp` | Language server protocol integration |
+| `ruletest` | Rule quality testing harness |
 
 ## Contributing
 
