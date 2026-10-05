@@ -88,6 +88,25 @@ func TestBindEnvScanFlags(t *testing.T) {
 	}
 }
 
+func TestBindEnvCLIPrecedence(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	var workersVal int
+	cmd.Flags().IntVar(&workersVal, "workers", 10, "")
+
+	// Simulate an explicit CLI flag: Set marks the flag Changed.
+	if err := cmd.Flags().Set("workers", "4"); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SYCK_TEST_WORKERS", "7")
+
+	bindEnvToFlags(cmd)
+
+	if workersVal != 4 {
+		t.Errorf("workers = %d, want %d (explicit CLI flag must win over env)", workersVal, 4)
+	}
+}
+
 func TestWorkersClamp(t *testing.T) {
 	if got := clampWorkers(0); got <= 0 {
 		t.Fatalf("workers 0 must clamp positive, got %d", got)

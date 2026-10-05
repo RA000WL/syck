@@ -15,6 +15,9 @@ func bindEnvToFlags(cmd *cobra.Command) {
 	}
 	prefix := "SYCK_" + strings.ToUpper(strings.ReplaceAll(cmd.Name(), "-", "_")) + "_"
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			return // explicit CLI flag wins over env
+		}
 		envKey := prefix + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
 		if val, ok := os.LookupEnv(envKey); ok && val != "" {
 			if err := cmd.Flags().Set(f.Name, val); err != nil {
