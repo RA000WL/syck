@@ -114,3 +114,26 @@ func TestRecursiveDecodeFanoutBound(t *testing.T) {
 		t.Errorf("findings = %d, want <50 (fan-out bound)", len(findings))
 	}
 }
+
+func TestDecodedScanHonorsRuleEntropyThreshold(t *testing.T) {
+	// Low-entropy token (~2.3 bits/char: passes a 2.0 floor, blocked by 3.0).
+	secret := "aabbccddeeaabbccddee"
+	payload := base64.StdEncoding.EncodeToString([]byte("tok=" + secret + "\n"))
+	line := `const blob = "` + payload + `"`
+
+	rs := &rules.RuleSet{
+		Rules: []rules.Rule{
+			{Name: "low_entropy_tok", Severity: "HIGH", Pattern: `aabbccddeeaabbccddee`, EntropyThreshold: 3.0},
+		},
+	}
+	if err := rs.CompileAll(); err != nil {
+		t.Fatalf("compiling rules: %v", err)
+	}
+
+	findings := DecodeAndRescan(line, "test.txt", 1, rs, finding.SeverityInfo, Flags{Base64: true})
+	for _, f := range findings {
+		if f.Secret == secret {
+			t.Fatalf("decoded finding with entropy < rule threshold 3.0 was emitted: %+v", f)
+		}
+	}
+}

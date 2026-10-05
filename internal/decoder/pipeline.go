@@ -121,6 +121,18 @@ func scanDecoded(
 	}
 }
 
+// RuleEntropyFloor returns the minimum Shannon entropy a match must reach:
+// the rule's own EntropyThreshold when configured (> 0), else the global 2.0 floor.
+// Exported from decoder so both the decoded-content path here and the regex
+// paths in scanner share one definition (scanner cannot be imported by
+// decoder — scanner imports decoder — so the helper cannot live there).
+func RuleEntropyFloor(th float64) float64 {
+	if th > 0 {
+		return th
+	}
+	return 2.0
+}
+
 func scanDecodedChunk(
 	decodedText string,
 	path string,
@@ -153,7 +165,7 @@ func scanDecodedChunk(
 			}
 
 			e := entropy.Shannon(secret)
-			if e < 2.0 {
+			if e < RuleEntropyFloor(rule.EntropyThreshold) {
 				continue
 			}
 			if entropy.IsFalsePositiveToken(secret) {

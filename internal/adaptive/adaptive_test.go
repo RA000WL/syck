@@ -3,6 +3,8 @@ package adaptive
 import (
 	"testing"
 	"time"
+
+	"github.com/RA000WL/syck/internal/rules"
 )
 
 func TestExtractFilePattern(t *testing.T) {
@@ -99,7 +101,7 @@ func TestComputeModifier_AllTP_Boost(t *testing.T) {
 	for i := range verdicts {
 		verdicts[i] = Verdict{Verdict: "tp", CreatedAt: time.Now().Add(-1 * time.Hour)}
 	}
-	mod := ComputeModifier("aws_access_key", verdicts)
+	mod := ComputeModifier("aws_access_key_id", verdicts)
 	if mod < 30 {
 		t.Errorf("100 TP, 0 FP: modifier should be heavily positive, got %f", mod)
 	}
@@ -128,7 +130,7 @@ func TestComputeModifier_HighCertaintyCap(t *testing.T) {
 	for i := range verdicts {
 		verdicts[i] = Verdict{Verdict: "fp", CreatedAt: time.Now().Add(-1 * time.Hour)}
 	}
-	mod := ComputeModifier("aws_access_key", verdicts)
+	mod := ComputeModifier("aws_access_key_id", verdicts)
 	if mod < -10 {
 		t.Errorf("high-certainty rule capped at -10, got %f", mod)
 	}
@@ -156,7 +158,7 @@ func TestComputeModifier_Clamp(t *testing.T) {
 }
 
 func TestHighCertaintyRules(t *testing.T) {
-	rules := []string{"aws_access_key", "github_pat", "stripe_live_key", "private_key"}
+	rules := []string{"aws_access_key_id", "github_personal_access_token", "stripe_secret_key", "rsa_private_key"}
 	for _, r := range rules {
 		if !isHighCertainty(r) {
 			t.Errorf("expected %s to be high-certainty", r)
@@ -227,5 +229,21 @@ func TestAdaptiveFullModifierFlow(t *testing.T) {
 	adjusted := baseScore + int(w.Modifier)
 	if adjusted >= baseScore {
 		t.Errorf("negative modifier should reduce score: base=%d adjusted=%d", baseScore, adjusted)
+	}
+}
+
+func TestHighCertaintyRulesExistInBuiltin(t *testing.T) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("loading default rules: %v", err)
+	}
+	names := make(map[string]bool, len(rs.Rules))
+	for _, r := range rs.Rules {
+		names[r.Name] = true
+	}
+	for key := range highCertaintyRules {
+		if !names[key] {
+			t.Errorf("highCertaintyRules key %q is not a rule name in builtin.yaml", key)
+		}
 	}
 }

@@ -118,13 +118,14 @@ func ComputeWeightedStats(verdicts []Verdict) (weightedFP, weightedTP float64, s
 
 // High-certainty rules that should never be heavily penalized.
 var highCertaintyRules = map[string]bool{
-	"aws_access_key":     true,
-	"github_pat":         true,
-	"stripe_live_key":    true,
-	"private_key":        true,
-	"aws_secret_key":     true,
-	"github_oauth_token": true,
-	"stripe_restricted":  true,
+	"aws_access_key_id":            true,
+	"aws_secret_access_key":        true,
+	"stripe_secret_key":            true,
+	"stripe_restricted_key":        true,
+	"github_personal_access_token": true,
+	"github_app_token":             true,
+	"github_oauth_access_token":    true,
+	"rsa_private_key":              true,
 }
 
 func isHighCertainty(ruleName string) bool {

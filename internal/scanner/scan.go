@@ -617,7 +617,7 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				}
 
 				e := entropy.Shannon(secret)
-				if e < ruleEntropyFloor(rule.EntropyThreshold) {
+				if e < decoder.RuleEntropyFloor(rule.EntropyThreshold) {
 					continue
 				}
 				if entropy.IsFalsePositiveSecret(secret) {
