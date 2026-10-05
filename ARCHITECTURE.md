@@ -37,7 +37,7 @@
 | Language | Go 1.26+ |
 | Module Path | `github.com/RA000WL/syck` |
 | License | MIT |
-| Current Version | 1.2.0 (V1.3+ features on main, 202 rules) |
+| Current Version | 1.2.0 (V1.3+ features on main, 199 rules) |
 | Binary | Single static binary, zero runtime dependencies |
 | Purpose | Detect hardcoded secrets, API keys, tokens, passwords, and credentials in source code, configs, web pages, and binaries |
 
@@ -93,7 +93,7 @@ syck-go/
 │
 ├── internal/                       # All internal packages (not importable)
 │   ├── rules/                      # Rule loading, compilation, validation
-│   │   ├── builtin.yaml            # 202 embedded rules
+│   │   ├── builtin.yaml            # 199 embedded rules
 │   │   ├── rule.go                 # Rule/RuleSet types, matching
 │   │   ├── load.go                 # YAML loading, embedding, RuleLoader
 │   │   ├── compile.go              # Thread-safe regex compilation cache
@@ -261,7 +261,7 @@ cmd/scan.go
 SYCK uses a **multi-layer detection approach** where each layer catches different types of secrets:
 
 ### Layer 1: Regex Pattern Matching
-- **202 rules** in `internal/rules/builtin.yaml`
+- **199 rules** in `internal/rules/builtin.yaml`
 - Each rule: name, severity, regex pattern, tags, optional entropy threshold, context keywords
 - Compiled once at startup with thread-safe caching
 - Context gating enforced: rules with `requires_context: true` only fire when the line contains one of their `context_keywords`
@@ -433,7 +433,7 @@ type Detector interface {
 │                       PER-FILE SCANNING                             │
 │                                                                     │
 │  1. Comment stripping (--strip-comments)                            │
-│  2. Regex rule matching (202 rules, parallel workers)              │
+│  2. Regex rule matching (199 rules, parallel workers)              │
 │  3. Entropy token scan (context-gated, alphabet-aware)             │
 │  4. Contextual secret extraction (entropy ≥ 4.5, length ≥ 20)     │
 │  5. Multi-line pattern matching (--multiline, 10-line window)      │

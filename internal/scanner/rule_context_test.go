@@ -184,3 +184,47 @@ func TestGenericShapeGating(t *testing.T) {
 		}
 	})
 }
+
+// TestAirtableGating pins the airtable_api_key context gate (Batch 2b final
+// fix): the bare `key<17-char>` shape is far too generic to fire on its own,
+// so the rule only reports when "airtable" appears on the matching line.
+// The bare-token miss is an accepted false negative (pinned).
+func TestAirtableGating(t *testing.T) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("load default rules: %v", err)
+	}
+	cfg := Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	fires := func(content, ruleName string) bool {
+		for _, f := range ScanContent(content, "fixture.txt", cfg) {
+			if f.RuleName == ruleName {
+				return true
+			}
+		}
+		return false
+	}
+
+	// key + 13 alnum + trailing digit = 17 chars, matching
+	// \bkey[A-Za-z0-9]{13}[0-9]\b exactly; mixed case + digits clear the
+	// 2.0 entropy floor so only the context gate can silence it.
+	airtableTok := "key" + ctxTestBody[:13] + "8"
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"airtable_keyword_fires", "AIRTABLE_API_KEY=" + airtableTok, true},
+		{"airtable_bare_silent", airtableTok + " token", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fires(tc.content, "airtable_api_key")
+			if got != tc.want {
+				t.Fatalf("rule airtable_api_key fired=%v, want %v (content: %q)", got, tc.want, tc.content)
+			}
+		})
+	}
+}

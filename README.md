@@ -5,12 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 
-A fast, modular secret scanner and recon engine written in Go. 202 detection rules, multi-layer decoding, entropy analysis, URL crawling, JavaScript analysis, endpoint extraction, subdomain discovery, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
+A fast, modular secret scanner and recon engine written in Go. 199 detection rules, multi-layer decoding, entropy analysis, URL crawling, JavaScript analysis, endpoint extraction, subdomain discovery, security header analysis, technology fingerprinting, and live secret validation — all in a single static binary.
 
 ## Features
 
 ### Core Scanning
-- **202 detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
+- **199 detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
 - **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
@@ -344,7 +344,7 @@ syck scan [paths...]
     ├── Stdin pipe (auto-detects URLs vs raw content)
     └── Git history (git log → git show → scan per-commit)
           │
-          ├── Regex rules (202 patterns, parallel worker pool)
+          ├── Regex rules (199 patterns, parallel worker pool)
           ├── Entropy token scan + contextual entropy
           ├── Multi-layer decoders (base64/hex/unicode/url/gzip/JWT/charcode)
           ├── JSON-aware tree walker

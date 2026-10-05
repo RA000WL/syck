@@ -48,6 +48,16 @@ var positiveGenerators = map[string]func() []string{
 	"anthropic_api_key": func() []string {
 		return prefixLines("sk-ant-", alphanum, 30, 8)
 	},
+	"airtable_api_key": func() []string {
+		// Pattern is key + 13 alnum + trailing digit (17 chars total); the
+		// AIRTABLE_API_KEY prefix carries the rule's context keyword.
+		lines := make([]string, 8)
+		for i := range lines {
+			token := "key" + randStr(13, alphanum) + randStr(1, "0123456789")
+			lines[i] = "AIRTABLE_API_KEY=" + token
+		}
+		return lines
+	},
 	"asana_personal_token": func() []string {
 		return prefixLines("ASANA_TOKEN=1/", hexLower, 32, 8)
 	},

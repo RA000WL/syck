@@ -676,6 +676,8 @@ rules:
     severity: HIGH
     pattern: '\bkey[A-Za-z0-9]{13}[0-9]\b'
     tags: [airtable, database]
+    requires_context: true
+    context_keywords: [airtable]
   - name: recaptcha_key
     severity: MEDIUM
     pattern: '\b6L[eLd][A-Za-z0-9\-_]{30,}\b'
