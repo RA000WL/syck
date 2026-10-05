@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-var jwtCandidateRE = regexp.MustCompile(`\b[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b`)
+// jwtCandidateRE matches header.payload.signature; the payload segment
+// tolerates up to two trailing "=" padding chars (padded JWT dialects).
+var jwtCandidateRE = regexp.MustCompile(`\b[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+={0,2}\.[A-Za-z0-9_\-]+\b`)
 
 func tryJWT(line string) []DecodeResult {
 	var results []DecodeResult
@@ -17,13 +19,14 @@ func tryJWT(line string) []DecodeResult {
 		if len(parts) != 3 {
 			continue
 		}
-		payload := parts[1]
+		unpadded := parts[1]
+		payload := unpadded
 		for len(payload)%4 != 0 {
 			payload += "="
 		}
-		decoded, err := base64.RawURLEncoding.DecodeString(payload)
+		decoded, err := base64.URLEncoding.DecodeString(payload)
 		if err != nil {
-			decoded, err = base64.URLEncoding.DecodeString(payload)
+			decoded, err = base64.RawURLEncoding.DecodeString(unpadded)
 			if err != nil {
 				continue
 			}

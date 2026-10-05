@@ -26,6 +26,38 @@ func TestJWTRejectNonJWT(t *testing.T) {
 	}
 }
 
+func TestTryJWTPaddedPayload(t *testing.T) {
+	// Payload whose base64 form needs "=" padding, emitted padded.
+	payload := base64.URLEncoding.EncodeToString([]byte(`{"sub":"123"}`))
+	if !strings.HasSuffix(payload, "=") {
+		t.Fatalf("test payload must be padded, got %q", payload)
+	}
+	token := "eyJhbGciOiJIUzI1NiJ9." + payload + ".sig"
+	results := tryJWT(token)
+	if len(results) == 0 {
+		t.Fatal("padded JWT should decode")
+	}
+	if !strings.Contains(results[0].Text, "sub") {
+		t.Errorf("decoded JWT payload missing 'sub': %q", results[0].Text)
+	}
+}
+
+func TestTryJWTUnpaddedPayload(t *testing.T) {
+	// Same claims emitted unpadded (RFC 7519 style, len%4 != 0).
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"123"}`))
+	if len(payload)%4 == 0 {
+		t.Fatalf("test payload must need padding, got len %d", len(payload))
+	}
+	token := "eyJhbGciOiJIUzI1NiJ9." + payload + ".sig"
+	results := tryJWT(token)
+	if len(results) == 0 {
+		t.Fatal("unpadded JWT should decode")
+	}
+	if !strings.Contains(results[0].Text, "sub") {
+		t.Errorf("decoded JWT payload missing 'sub': %q", results[0].Text)
+	}
+}
+
 func TestIsJWTExpired_Expired(t *testing.T) {
 	// exp: 1000000000 = 2001-09-09
 	token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEwMDAwMDAwMDB9.invalid"

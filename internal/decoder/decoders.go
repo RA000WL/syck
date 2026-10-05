@@ -54,9 +54,6 @@ func tryHex(line string) []DecodeResult {
 		if len(m) < hexMinLen {
 			continue
 		}
-		if hasMixedCase(m) {
-			continue
-		}
 		decoded, err := hex.DecodeString(m)
 		if err != nil {
 			continue
@@ -117,20 +114,6 @@ func isPrintableUTF8(data []byte) bool {
 		}
 	}
 	return printable >= len(data)/2
-}
-
-func hasMixedCase(s string) bool {
-	hasUpper := false
-	hasLower := false
-	for _, ch := range s {
-		if ch >= 'A' && ch <= 'F' {
-			hasUpper = true
-		}
-		if ch >= 'a' && ch <= 'f' {
-			hasLower = true
-		}
-	}
-	return hasUpper && hasLower
 }
 
 type Flags struct {

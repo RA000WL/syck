@@ -17,12 +17,13 @@ func tryBase64URL(line string) []DecodeResult {
 		if len(m) < base64MinLen {
 			continue
 		}
+		unpadded := m
 		for len(m)%4 != 0 {
 			m += "="
 		}
-		decoded, err := base64.RawURLEncoding.DecodeString(m)
+		decoded, err := base64.URLEncoding.DecodeString(m)
 		if err != nil {
-			decoded, err = base64.URLEncoding.DecodeString(m)
+			decoded, err = base64.RawURLEncoding.DecodeString(unpadded)
 			if err != nil {
 				continue
 			}
