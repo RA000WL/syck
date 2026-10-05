@@ -51,7 +51,7 @@ SYCK combines both with context keywords, multi-layer decoding, JS string recons
 2. **Recursive decoding** — secrets hidden in base64, hex, JWT, etc. are decoded and re-scanned up to depth 3.
 3. **JS-aware analysis** — JavaScript string obfuscation (concat, join, template literals, ternaries) is reversed before scanning.
 4. **Recon-first approach** — subdomain discovery, endpoint extraction, and internal link detection complement secret scanning.
-5. **Confidence over severity** — severity is what the rule says; confidence is how sure we are. Both live on every Finding.
+5. **Confidence over severity** — severity is what the rule says; confidence is how sure we are. Both live on every secret Finding (endpoints/juicy-files/internal-URL/debug-artifact findings carry neither).
 6. **Progressive triage** — SQLite cache enables cross-run dedup so teams can focus on new findings.
 7. **Zero-config defaults** — works out of the box; every behavior is tunable via 60+ flags.
 8. **Cross-rule dedup** — same secret triggering multiple rules collapses to one finding with highest severity.
@@ -334,7 +334,7 @@ type Finding struct {
     Severity                       Severity  // 0-4: INFO/LOW/MEDIUM/HIGH/CRITICAL
     Entropy                        float64
     RiskScore                      int       // 0-10 (endpoint risk)
-    Confidence                     int       // 0-100 numeric
+    Confidence                     int       // 0-120 numeric
     ConfidenceBand                 string    // LOW/MEDIUM/HIGH/CRITICAL
     DetectionMethod                string    // regex/entropy/context/decoded/url_param
     VerificationStatus             string    // VERIFIED/LIKELY/POTENTIAL/UNVERIFIED
@@ -343,8 +343,11 @@ type Finding struct {
     LearningTier                   string    // Experimental/Learning/Mature/Trusted
 }
 
-// Deduplication: DeduplicateBySecret collapses findings with same secret+file
-// across different rules, keeping highest severity and joining rule names.
+// Deduplication: DeduplicateBySecret emits one finding per occurrence
+// (Secret+File group, split by File+Line+Column). RuleName is a single exact
+// rule name — the highest-severity rule at that occurrence — and RuleNames
+// lists every rule that matched it (severity desc, then name asc). Rule names
+// are never joined into one string.
 ```
 
 ### JSAnalysisResult (`internal/jsanalysis/analyze.go`)
@@ -556,7 +559,8 @@ raw findings
 │  SCORING                                                           │
 │                                                                     │
 │  6. Confidence — single unified scale (internal/confidence),        │
-│     0–120 points, every finding carries Confidence + ConfidenceBand │
+│     0–120 points, every secret finding carries Confidence +        │
+│     ConfidenceBand (endpoints/juicy/internal-url do not)           │
 │       regex/decoded/expired-JWT match ......... 40  (PtsRegex)     │
 │       entropy + context keyword ................. 35  (20 + 15)     │
 │       URL query-param secret .................. 55  (40 + 15)     │

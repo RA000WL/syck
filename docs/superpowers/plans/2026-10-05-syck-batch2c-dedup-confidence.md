@@ -37,7 +37,7 @@
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `func DeduplicateBySecret(findings []Finding) []Finding` — same signature. New behavior: group key `Secret + "\x00" + File` (unchanged) but emit **one finding per distinct occurrence (File+Line+Column)**, with `RuleName` = highest-severity rule name for that occurrence and `RuleNames` = all rule names at that occurrence (sorted by severity desc, then name asc for determinism); severity = highest across the group; stable order = by File, then Line, then Column.
+- Produces: `func DeduplicateBySecret(findings []Finding) []Finding` — same signature. New behavior: group key `Secret + "\x00" + File` (unchanged) but emit **one finding per distinct occurrence (File+Line+Column)**, with `RuleName` = highest-severity rule name for that occurrence and `RuleNames` = all rule names at that occurrence (sorted by severity desc, then name asc for determinism); severity = highest within the occurrence bucket; stable order = by File, then Line, then Column.
 
 - [ ] **Step 1: Write the failing tests**
 

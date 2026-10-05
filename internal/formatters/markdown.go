@@ -40,7 +40,7 @@ func (f *MarkdownFormatter) Format(findings []finding.Finding, opts FormatOption
 				tier = f.LearningTier
 			}
 			b.WriteString(fmt.Sprintf("| %d | %s | %d | %s | %s | `%s` | %.3f | %s | %s | `%s` |\n",
-				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.ConfidenceBand, f.VerificationStatus, f.RuleName, f.Entropy, adapt, tier, f.Secret))
+				f.Line, finding.SeverityNames[f.Severity], f.RiskScore, f.ConfidenceBand, f.VerificationStatus, RuleCell(f), f.Entropy, adapt, tier, f.Secret))
 		}
 		b.WriteString("\n")
 	}

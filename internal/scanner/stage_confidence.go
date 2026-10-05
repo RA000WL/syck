@@ -14,6 +14,16 @@ func NewConfidenceStage() *ConfidenceStage { return &ConfidenceStage{scorer: con
 
 func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 	for i := range in {
+		// A finding that already carries a score was scored by a scan site
+		// with more inputs than this stage can see (context keyword,
+		// credential pair, decoder provenance). Re-deriving the band from
+		// this stage's own signal set would let the band and the number
+		// disagree, and the band is a triage field keyed off RuleName — so
+		// only rescore when there is no score at all.
+		if in[i].Confidence != 0 {
+			in[i].ConfidenceBand = confidence.Band(in[i].Confidence)
+			continue
+		}
 		sig := confidence.Signals{
 			RegexMatch:        isRegexMatch(in[i].DetectionMethod, in[i].RuleName),
 			Entropy:           in[i].Entropy,

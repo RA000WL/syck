@@ -2,6 +2,7 @@ package formatters
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -40,10 +41,19 @@ type sarifDriver struct {
 }
 
 type sarifRule struct {
-	ID                   string         `json:"id"`
-	Name                 string         `json:"name"`
-	ShortDescription     sarifTextBlock `json:"shortDescription"`
-	DefaultConfiguration sarifConfig    `json:"defaultConfiguration"`
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	ShortDescription     sarifTextBlock  `json:"shortDescription"`
+	DefaultConfiguration sarifConfig     `json:"defaultConfiguration"`
+	Properties           *sarifRuleProps `json:"properties,omitempty"`
+}
+
+// sarifRuleProps is a SARIF properties bag on the reporting descriptor. The
+// sibling rules that matched the same occurrence as this one are recorded here
+// so a viewer can see which rules are related; SARIF 2.1.0 has no dedicated
+// field for that, and top-level keys must not be invented.
+type sarifRuleProps struct {
+	RelatedRules []string `json:"relatedRules,omitempty"`
 }
 
 type sarifConfig struct {
@@ -103,6 +113,20 @@ func versionOrDefault(v string) string {
 }
 
 func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
+	// Union of sibling rules per rule id, so N rules sharing one occurrence
+	// stay visibly related regardless of which of them is the primary.
+	relatedSets := make(map[string]map[string]bool)
+	for _, fnd := range findings {
+		for _, sibling := range SiblingRuleNames(fnd) {
+			set := relatedSets[fnd.RuleName]
+			if set == nil {
+				set = make(map[string]bool)
+				relatedSets[fnd.RuleName] = set
+			}
+			set[sibling] = true
+		}
+	}
+
 	rulesIndex := make(map[string]int)
 	var rulesList []sarifRule
 	for _, finding := range findings {
@@ -112,14 +136,23 @@ func (f *SARIFFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 			if level == "" {
 				level = "warning"
 			}
-			rulesList = append(rulesList, sarifRule{
+			rule := sarifRule{
 				ID:   finding.RuleName,
 				Name: finding.RuleName,
 				ShortDescription: sarifTextBlock{
 					Text: "Detects " + finding.RuleName + ".",
 				},
 				DefaultConfiguration: sarifConfig{Level: level},
-			})
+			}
+			if set := relatedSets[finding.RuleName]; len(set) > 0 {
+				related := make([]string, 0, len(set))
+				for name := range set {
+					related = append(related, name)
+				}
+				sort.Strings(related)
+				rule.Properties = &sarifRuleProps{RelatedRules: related}
+			}
+			rulesList = append(rulesList, rule)
 		}
 	}
 

@@ -219,13 +219,7 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 	if cfg.CacheDB != "" {
 		cache, err := correlator.OpenCache(cfg.CacheDB)
 		if err == nil {
-			for i := range allFindings {
-				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
-				isNew, _ := cache.RecordWithMeta(fp, allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
-				if isNew {
-					allFindings[i].IsNew = true
-				}
-			}
+			recordFingerprints(cache, allFindings)
 			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
 				for i := range allFindings {
 					filePattern := adaptive.ExtractFilePattern(allFindings[i].File)
@@ -241,6 +235,35 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 	}
 
 	return allFindings, nil
+}
+
+// recordFingerprints records every finding in the cross-run cache and then
+// back-fills IsNew onto all findings sharing a newly recorded fingerprint.
+//
+// RecordWithMeta only reports isNew for the INSERT that wins the UNIQUE
+// constraint on fingerprint, and Fingerprint is RuleName|Secret|File — no line
+// or column. With per-occurrence dedup one secret used on N lines produces N
+// findings over one fingerprint, so trusting the return value alone would mark
+// occurrence 1 new and occurrences 2..N as already-known on their very first
+// sight, which is wrong for --diff. Fingerprint is deliberately left
+// position-free so a secret that moves a line is still "known".
+func recordFingerprints(cache *correlator.Cache, findings []finding.Finding) {
+	newFingerprints := make(map[string]bool)
+	for i := range findings {
+		fp := correlator.Fingerprint(findings[i].RuleName, findings[i].Secret, findings[i].File)
+		if isNew, _ := cache.RecordWithMeta(fp, findings[i].RuleName, findings[i].Secret, findings[i].File); isNew {
+			newFingerprints[fp] = true
+		}
+	}
+	if len(newFingerprints) == 0 {
+		return
+	}
+	for i := range findings {
+		fp := correlator.Fingerprint(findings[i].RuleName, findings[i].Secret, findings[i].File)
+		if newFingerprints[fp] {
+			findings[i].IsNew = true
+		}
+	}
 }
 
 func ScanBinaryFile(path string, cfg Config) ([]finding.Finding, error) {
@@ -1004,12 +1027,7 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 
 	if cfg.CacheDB != "" {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
-			for i := range findings {
-				fp := correlator.Fingerprint(findings[i].RuleName, findings[i].Secret, findings[i].File)
-				if isNew, _ := cache.RecordWithMeta(fp, findings[i].RuleName, findings[i].Secret, findings[i].File); isNew {
-					findings[i].IsNew = true
-				}
-			}
+			recordFingerprints(cache, findings)
 			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
 				for i := range findings {
 					filePattern := adaptive.ExtractFilePattern(findings[i].File)
@@ -1099,12 +1117,7 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 	// Cache and adaptive learning
 	if cfg.CacheDB != "" {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
-			for i := range allFindings {
-				fp := correlator.Fingerprint(allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File)
-				if isNew, _ := cache.RecordWithMeta(fp, allFindings[i].RuleName, allFindings[i].Secret, allFindings[i].File); isNew {
-					allFindings[i].IsNew = true
-				}
-			}
+			recordFingerprints(cache, allFindings)
 			if cfg.Adaptive && cfg.AdaptiveWeights != nil {
 				for i := range allFindings {
 					filePattern := adaptive.ExtractFilePattern(allFindings[i].File)

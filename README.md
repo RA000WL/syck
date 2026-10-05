@@ -12,7 +12,7 @@ A fast, modular secret scanner and recon engine written in Go. 199 detection rul
 ### Core Scanning
 - **199 detection rules** — AWS, GCP, Azure, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, SendGrid, Terraform, Firebase, Kubernetes, Docker, email/password hashes, PII, and 50+ providers
 - **Entropy analysis** — Shannon entropy scoring with per-alphabet thresholds and media token filtering
-- **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
+- **Confidence scoring** — numeric 0-120 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
 - **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
 - **Cross-rule dedup** — one finding per occurrence; matching rules are listed together while the highest-severity rule stays primary

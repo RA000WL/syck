@@ -145,9 +145,14 @@ func DeduplicateBySecret(findings []Finding) []Finding {
 	// preserved. RuleName stays a single exact rule name (the highest
 	// severity rule at that occurrence); RuleNames carries all rule names
 	// at the occurrence sorted by severity desc, then name asc.
+	//
+	// The reported finding is the best finding *for the reported rule* — the
+	// whole record, not just its severity — so Confidence, ConfidenceBand,
+	// Entropy and DetectionMethod always describe the rule being named.
+	// ConfidenceBand is a triage field keyed off RuleName; mixing it with
+	// another rule's numbers produces incoherent rows.
 	type occurrence struct {
-		rep       Finding
-		sevByRule map[string]Severity
+		byRule map[string]Finding
 	}
 	byGroup := make(map[string]map[string]*occurrence)
 
@@ -171,13 +176,13 @@ func DeduplicateBySecret(findings []Finding) []Finding {
 		}
 		occ, ok := bucket[lk]
 		if !ok {
-			rep := f
-			occ = &occurrence{rep: rep, sevByRule: make(map[string]Severity)}
+			occ = &occurrence{byRule: make(map[string]Finding)}
 			bucket[lk] = occ
 			locOrder[gk] = append(locOrder[gk], lk)
 		}
-		if sev, seen := occ.sevByRule[f.RuleName]; !seen || severityRank(f.Severity) > severityRank(sev) {
-			occ.sevByRule[f.RuleName] = f.Severity
+		// Highest-severity finding per rule name; ties keep the first seen.
+		if prev, seen := occ.byRule[f.RuleName]; !seen || severityRank(f.Severity) > severityRank(prev.Severity) {
+			occ.byRule[f.RuleName] = f
 		}
 	}
 
@@ -185,21 +190,19 @@ func DeduplicateBySecret(findings []Finding) []Finding {
 	for _, gk := range groupOrder {
 		for _, lk := range locOrder[gk] {
 			occ := byGroup[gk][lk]
-			names := make([]string, 0, len(occ.sevByRule))
-			for name := range occ.sevByRule {
+			names := make([]string, 0, len(occ.byRule))
+			for name := range occ.byRule {
 				names = append(names, name)
 			}
 			sort.Slice(names, func(i, j int) bool {
-				ri, rj := severityRank(occ.sevByRule[names[i]]), severityRank(occ.sevByRule[names[j]])
+				ri, rj := severityRank(occ.byRule[names[i]].Severity), severityRank(occ.byRule[names[j]].Severity)
 				if ri != rj {
 					return ri > rj
 				}
 				return names[i] < names[j]
 			})
-			out := occ.rep
-			out.RuleName = names[0]
+			out := occ.byRule[names[0]]
 			out.RuleNames = names
-			out.Severity = occ.sevByRule[names[0]]
 			result = append(result, out)
 		}
 	}

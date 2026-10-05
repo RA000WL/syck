@@ -8,22 +8,23 @@ import (
 )
 
 type jsonlFinding struct {
-	File             string  `json:"file"`
-	Line             int     `json:"line"`
-	Column           int     `json:"column,omitempty"`
-	Rule             string  `json:"rule"`
-	Severity         string  `json:"severity"`
-	RiskScore        int     `json:"risk_score,omitempty"`
-	Secret           string  `json:"secret"`
-	Entropy          float64 `json:"entropy"`
-	Context          string  `json:"context"`
-	ContextBefore    string  `json:"context_before,omitempty"`
-	ContextAfter     string  `json:"context_after,omitempty"`
-	Confidence       string  `json:"confidence,omitempty"`
-	Verification     string  `json:"verification_status,omitempty"`
-	DecodedPrev      string  `json:"decoded_value_preview,omitempty"`
-	AdaptiveModifier int     `json:"adaptive_modifier,omitempty"`
-	LearningTier     string  `json:"learning_tier,omitempty"`
+	File             string   `json:"file"`
+	Line             int      `json:"line"`
+	Column           int      `json:"column,omitempty"`
+	Rule             string   `json:"rule"`
+	Rules            []string `json:"rules,omitempty"`
+	Severity         string   `json:"severity"`
+	RiskScore        int      `json:"risk_score,omitempty"`
+	Secret           string   `json:"secret"`
+	Entropy          float64  `json:"entropy"`
+	Context          string   `json:"context"`
+	ContextBefore    string   `json:"context_before,omitempty"`
+	ContextAfter     string   `json:"context_after,omitempty"`
+	Confidence       string   `json:"confidence,omitempty"`
+	Verification     string   `json:"verification_status,omitempty"`
+	DecodedPrev      string   `json:"decoded_value_preview,omitempty"`
+	AdaptiveModifier int      `json:"adaptive_modifier,omitempty"`
+	LearningTier     string   `json:"learning_tier,omitempty"`
 }
 
 type JSONLFormatter struct{}
@@ -52,6 +53,7 @@ func (f *JSONLFormatter) Format(findings []finding.Finding, opts FormatOptions) 
 			Line:             f.Line,
 			Column:           f.Column,
 			Rule:             f.RuleName,
+			Rules:            AttributedRules(f),
 			Severity:         finding.SeverityNames[f.Severity],
 			RiskScore:        f.RiskScore,
 			Secret:           secret,

@@ -20,7 +20,7 @@ func csvEscape(field string) string {
 func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (string, error) {
 	var b strings.Builder
 
-	b.WriteString("file,line,column,rule,severity,risk_score,secret,entropy,context,confidence,verification_status,decoded_value_preview,adaptive_modifier,learning_tier\n")
+	b.WriteString("file,line,column,rule,severity,risk_score,secret,entropy,context,confidence,verification_status,decoded_value_preview,adaptive_modifier,learning_tier,rules\n")
 
 	for _, f := range findings {
 		secret := f.Secret
@@ -31,7 +31,11 @@ func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (s
 			ctx = strings.ReplaceAll(f.Context, f.Secret, masked)
 		}
 
-		b.WriteString(fmt.Sprintf("%s,%d,%d,%s,%s,%d,%s,%.3f,%s,%s,%s,%s,%d,%s\n",
+		// rules lists the sibling rules for the same occurrence; the primary
+		// one is already in the rule column, so single-rule rows stay empty.
+		siblings := strings.Join(SiblingRuleNames(f), ";")
+
+		b.WriteString(fmt.Sprintf("%s,%d,%d,%s,%s,%d,%s,%.3f,%s,%s,%s,%s,%d,%s,%s\n",
 			csvEscape(f.File),
 			f.Line,
 			f.Column,
@@ -46,6 +50,7 @@ func (f *CSVFormatter) Format(findings []finding.Finding, opts FormatOptions) (s
 			csvEscape(f.DecodedValuePreview),
 			f.AdaptiveModifier,
 			csvEscape(f.LearningTier),
+			csvEscape(siblings),
 		))
 	}
 

@@ -73,10 +73,13 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		}
 	}
 
-	deduped := deduplicateFindings(processedFindings)
-	byCategory := groupByCategory(deduped)
+	// No formatter-level collapse: the scanner already deduplicates (unless
+	// --no-dedup), and re-collapsing per secret here would hide every
+	// occurrence after the first and disagree with the JSON/SARIF totals.
+	// The user's escape hatch is the scanner's --no-dedup flag.
+	byCategory := groupByCategory(processedFindings)
 
-	b.WriteString(f.renderQuickSummary(deduped, opts))
+	b.WriteString(f.renderQuickSummary(processedFindings, opts))
 
 	categories := []string{"secrets", "juicy_files", "endpoints", "security_headers", "internal_urls", "other"}
 	for _, cat := range categories {
@@ -87,7 +90,7 @@ func (f *TextFormatter) Format(findings []finding.Finding, opts FormatOptions) (
 		b.WriteString(f.renderCategory(cat, catFindings, opts))
 	}
 
-	summary := finding.BuildBasicSummary(deduped)
+	summary := finding.BuildBasicSummary(processedFindings)
 	b.WriteString(f.renderSummary(summary, opts))
 
 	return b.String(), nil
@@ -172,13 +175,17 @@ func (f *TextFormatter) renderCategory(category string, findings []finding.Findi
 			riskMarker = " [!]"
 		}
 
+		// file:line:col keeps every occurrence locatable; the same secret can
+		// legitimately appear on many lines and all of them are rendered.
+		loc := truncateStr(findingLocation(f), 40)
+
 		if opts.NoColor {
-			b.WriteString(fmt.Sprintf("  %s %-8s %s%s\n", icon, sevName, truncateStr(f.Secret, 60), riskMarker))
+			b.WriteString(fmt.Sprintf("  %s %-8s %-40s %s%s\n", icon, sevName, loc, truncateStr(f.Secret, 60), riskMarker))
 			if f.Context != "" && f.Context != truncateStr(f.Secret, 60) {
 				b.WriteString(fmt.Sprintf("    %s\n", truncateStr(f.Context, 70)))
 			}
 		} else {
-			b.WriteString(fmt.Sprintf("  %s %s%-8s%s %s%s%s%s\n", icon, sevColor, sevName, ansi.reset, ansi.white, truncateStr(f.Secret, 60), riskMarker, ansi.reset))
+			b.WriteString(fmt.Sprintf("  %s %s%-8s%s %s%s%s %s%s%s%s\n", icon, sevColor, sevName, ansi.reset, ansi.cyan, loc, ansi.reset, ansi.white, truncateStr(f.Secret, 60), riskMarker, ansi.reset))
 			if f.Context != "" && f.Context != truncateStr(f.Secret, 60) {
 				b.WriteString(fmt.Sprintf("    %s%s%s\n", ansi.dim, truncateStr(f.Context, 70), ansi.reset))
 			}
@@ -187,6 +194,20 @@ func (f *TextFormatter) renderCategory(category string, findings []finding.Findi
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+// findingLocation renders grep-able file:line:col, degrading gracefully for
+// findings that carry no position (stdin/URL recon, rule sets without column
+// tracking).
+func findingLocation(f finding.Finding) string {
+	switch {
+	case f.Line <= 0:
+		return f.File
+	case f.Column <= 0:
+		return fmt.Sprintf("%s:%d", f.File, f.Line)
+	default:
+		return fmt.Sprintf("%s:%d:%d", f.File, f.Line, f.Column)
+	}
 }
 
 func (f *TextFormatter) renderSummary(summary finding.Summary, opts FormatOptions) string {
@@ -241,20 +262,6 @@ func (f *TextFormatter) renderSummary(summary finding.Summary, opts FormatOption
 	}
 
 	return b.String()
-}
-
-func deduplicateFindings(findings []finding.Finding) []finding.Finding {
-	seen := make(map[string]bool)
-	var result []finding.Finding
-	for _, f := range findings {
-		key := f.File + "|" + f.Secret
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		result = append(result, f)
-	}
-	return result
 }
 
 func groupByCategory(findings []finding.Finding) map[string][]finding.Finding {

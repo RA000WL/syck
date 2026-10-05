@@ -95,7 +95,7 @@ th{color:#aaa;font-weight:600}
 				tierCell = f.LearningTier
 			}
 			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td><span class=\"badge\" style=\"background:%s\">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%.3f</td><td>%s</td><td>%s</td><td>%s</td><td class=\"secret-cell\"><code>%s</code></td></tr>\n",
-				f.Line, color, finding.SeverityNames[f.Severity], riskBadge, confBadge, verBadge, htmlEscape(f.RuleName), f.Entropy, adaptCell, tierCell, decoded, htmlEscape(f.Secret)))
+				f.Line, color, finding.SeverityNames[f.Severity], riskBadge, confBadge, verBadge, htmlEscape(RuleCell(f)), f.Entropy, adaptCell, tierCell, decoded, htmlEscape(f.Secret)))
 		}
 		b.WriteString("</table>\n")
 	}
