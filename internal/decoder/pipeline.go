@@ -173,6 +173,10 @@ func scanDecodedChunk(
 	}
 }
 
+// maxDecompressed caps gzip/zlib output so a small hostile input cannot
+// expand into an unbounded allocation (decompression bomb).
+const maxDecompressed = 5 << 20
+
 func TryGzipDecompress(data []byte) ([]byte, bool) {
 	readers := []func([]byte) (io.ReadCloser, error){
 		func(b []byte) (io.ReadCloser, error) { return gzip.NewReader(strings.NewReader(string(b))) },
@@ -185,8 +189,12 @@ func TryGzipDecompress(data []byte) ([]byte, bool) {
 			continue
 		}
 		defer r.Close()
-		out, err := io.ReadAll(r)
+		// Read one byte past the cap so oversized streams are still detectable.
+		out, err := io.ReadAll(io.LimitReader(r, int64(maxDecompressed)+1))
 		if err == nil && len(out) > 0 {
+			if len(out) > maxDecompressed {
+				out = out[:maxDecompressed]
+			}
 			return out, true
 		}
 	}

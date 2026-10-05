@@ -267,6 +267,13 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		lower := strings.ToLower(path)
 		if ext == ".zip" || ext == ".jar" || ext == ".war" || ext == ".ear" ||
 			ext == ".tar" || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
+			// Size gate: never slurp an oversized archive into memory.
+			if info.Size() > cfg.MaxFileSize {
+				if cfg.Debug {
+					fmt.Fprintf(os.Stderr, "[debug] skip archive (size %d > max %d): %s\n", info.Size(), cfg.MaxFileSize, path)
+				}
+				return nil, nil
+			}
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				return nil, err
