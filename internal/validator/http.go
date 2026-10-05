@@ -14,12 +14,13 @@ var (
 )
 
 // InitValidatorClient sets the validator's HTTP client with proxy support.
+// TLS certificate verification is always enabled.
 func InitValidatorClient(proxyURL string) {
-	httpClient = httpclient.NewClient(5*time.Second, proxyURL, true)
+	httpClient = httpclient.NewValidatorClient(5*time.Second, proxyURL)
 }
 
 func init() {
-	httpClient = httpclient.NewClient(5*time.Second, "", true)
+	httpClient = httpclient.NewValidatorClient(5*time.Second, "")
 }
 
 func httpDo(req *http.Request) (*http.Response, error) {

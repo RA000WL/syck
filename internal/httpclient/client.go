@@ -76,9 +76,15 @@ func NewTransport(proxyURL string, insecureSkipVerify bool) *http.Transport {
 		}
 	}
 	if insecureSkipVerify {
-		tr.TLSClientConfig.InsecureSkipVerify = true // #nosec G402 -- validator needs this
+		tr.TLSClientConfig.InsecureSkipVerify = true // #nosec G402 -- explicit opt-in only; validators use NewValidatorClient
 	}
 	return tr
+}
+
+// NewValidatorClient creates an http.Client for validator calls with TLS
+// verification pinned on (insecureSkipVerify=false), regardless of other callers.
+func NewValidatorClient(timeout time.Duration, proxyURL string) *http.Client {
+	return NewClient(timeout, proxyURL, false)
 }
 
 // NewClient creates an http.Client with the given timeout, proxy, and TLS settings.

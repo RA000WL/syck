@@ -1,6 +1,9 @@
 package validator
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestValidateUnknownRule(t *testing.T) {
 	_, ok := Validate("totally_fake_rule", "secret123")
@@ -122,5 +125,16 @@ func TestAllRegistered(t *testing.T) {
 		if _, ok := registry[name]; !ok {
 			t.Errorf("missing registered validator: %s", name)
 		}
+	}
+}
+
+func TestValidatorTLSVerifyEnabled(t *testing.T) {
+	InitValidatorClient("")
+	tr, ok := httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("not *http.Transport")
+	}
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("validator must verify TLS")
 	}
 }
