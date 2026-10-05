@@ -7,11 +7,15 @@ import (
 )
 
 type DecoderFlags struct {
-	Base64  bool
-	Hex     bool
-	Unicode bool
-	URL     bool
-	Gzip    bool
+	Base64       bool
+	Hex          bool
+	Unicode      bool
+	URL          bool
+	Gzip         bool
+	Base64URL    bool
+	JWT          bool
+	DoubleBase64 bool
+	CharCode     bool
 }
 
 type DecoderStage struct {
@@ -22,7 +26,17 @@ type DecoderStage struct {
 }
 
 func NewDecoderStage(rs *rules.RuleSet, min finding.Severity, flags DecoderFlags) *DecoderStage {
-	df := decoder.Flags{Base64: flags.Base64, Hex: flags.Hex, Unicode: flags.Unicode, URL: flags.URL}
+	df := decoder.Flags{
+		Base64:       flags.Base64,
+		Hex:          flags.Hex,
+		Unicode:      flags.Unicode,
+		URL:          flags.URL,
+		Gzip:         flags.Gzip,
+		Base64URL:    flags.Base64URL,
+		JWT:          flags.JWT,
+		DoubleBase64: flags.DoubleBase64,
+		CharCode:     flags.CharCode,
+	}
 	return &DecoderStage{
 		rs:       rs,
 		min:      min,

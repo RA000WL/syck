@@ -248,7 +248,7 @@ func ScanBinaryFile(path string, cfg Config) ([]finding.Finding, error) {
 		return nil, err
 	}
 	var findings []finding.Finding
-	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 	for _, s := range strs {
 		findings = append(findings, scanContent(s.text, path+" (binary)", cfg, "binary_", nil, hasDecoders)...)
 	}
@@ -286,7 +286,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 				return nil, nil
 			}
 			var findings []finding.Finding
-			hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+			hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 			for _, m := range members {
 				mFindings := scanContent(m.Content, m.Path+" ($archive: "+filepath.Base(path)+")", cfg, "archive_", nil, hasDecoders)
 				findings = append(findings, mFindings...)
@@ -308,7 +308,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 	var findings []finding.Finding
 
 	gzipScanned := make(map[string]bool)
-	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 
 	if cfg.DecodeGzip && len(raw) > 64 {
 		if decompressed, ok := decoder.DecodeFileContent(raw); ok {
@@ -472,7 +472,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 func ScanContent(content string, path string, cfg Config) []finding.Finding {
 	var findings []finding.Finding
 	gzipScanned := make(map[string]bool)
-	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 
 	findings = append(findings, scanContent(content, path, cfg, "", gzipScanned, hasDecoders)...)
 
@@ -549,14 +549,17 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 	defer streamingBufPool.Put(bp)
 	buf := *bp
 	scanner.Buffer(buf, len(buf))
-	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 	df := decoder.Flags{
-		Base64:   cfg.DecodeBase64,
-		Hex:      cfg.DecodeHex,
-		Unicode:  cfg.DecodeUnicode,
-		URL:      cfg.DecodeURL,
-		Gzip:     cfg.DecodeGzip,
-		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
+		Base64:       cfg.DecodeBase64,
+		Hex:          cfg.DecodeHex,
+		Unicode:      cfg.DecodeUnicode,
+		URL:          cfg.DecodeURL,
+		Base64URL:    cfg.DecodeBase64URL,
+		JWT:          cfg.DecodeJWT,
+		DoubleBase64: cfg.DecodeDoubleBase64,
+		Gzip:         cfg.DecodeGzip,
+		CharCode:     cfg.DecodeCharCode || cfg.DecodeHex || cfg.DecodeUnicode,
 	}
 	var activeDec []decoder.Decoder
 	if hasDecoders {
@@ -781,7 +784,7 @@ func scanFileFallback(path string, cfg Config) ([]finding.Finding, error) {
 		return nil, fmt.Errorf("%s: fallback read: %w", path, err)
 	}
 
-	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 	content := string(raw)
 
 	var findings []finding.Finding
@@ -830,12 +833,15 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 	// Prepare decoders
 	df := decoder.Flags{
-		Base64:   cfg.DecodeBase64,
-		Hex:      cfg.DecodeHex,
-		Unicode:  cfg.DecodeUnicode,
-		URL:      cfg.DecodeURL,
-		Gzip:     cfg.DecodeGzip,
-		CharCode: cfg.DecodeHex || cfg.DecodeUnicode,
+		Base64:       cfg.DecodeBase64,
+		Hex:          cfg.DecodeHex,
+		Unicode:      cfg.DecodeUnicode,
+		URL:          cfg.DecodeURL,
+		Base64URL:    cfg.DecodeBase64URL,
+		JWT:          cfg.DecodeJWT,
+		DoubleBase64: cfg.DecodeDoubleBase64,
+		Gzip:         cfg.DecodeGzip,
+		CharCode:     cfg.DecodeCharCode || cfg.DecodeHex || cfg.DecodeUnicode,
 	}
 	var activeDec []decoder.Decoder
 	if hasDecoders {
