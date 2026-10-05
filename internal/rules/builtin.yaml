@@ -114,6 +114,10 @@ rules:
     severity: CRITICAL
     pattern: '\bxoxb-[0-9A-Za-z\-]{10,200}\b'
     tags: [slack, messaging]
+  - name: slack_user_token
+    severity: CRITICAL
+    pattern: '\bxoxp-[0-9A-Za-z\-]{10,200}\b'
+    tags: [slack, messaging]
   - name: slack_webhook_url
     severity: HIGH
     pattern: 'https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+'
@@ -215,6 +219,10 @@ rules:
     # Note: sk- prefix overlaps with anthropic/deepseek/openrouter specific rules
     # Those rules are more specific and should be checked first in dedup
     pattern: '\bsk-proj-[a-zA-Z0-9\-_]{20,}\b'
+    tags: [openai, ai]
+  - name: openai_legacy_key
+    severity: CRITICAL
+    pattern: '\bsk-[A-Za-z0-9]{48}\b'
     tags: [openai, ai]
   - name: openai_org_key
     severity: HIGH
@@ -554,10 +562,6 @@ rules:
     severity: HIGH
     pattern: '(?i)jenkins[_-]?(?:api[_-]?)?token\s*[:=]\s*[''"][a-f0-9]{32}[''"]'
     tags: [jenkins, ci]
-  - name: gitlab_runner_registration_token
-    severity: CRITICAL
-    pattern: '\bGR1348941[A-Za-z0-9\-_]{10,}\b'
-    tags: [gitlab, ci]
 
   # ── Hosting / CDN ────────────────────────
   - name: netlify_api_token
@@ -822,10 +826,6 @@ rules:
     tags: [crypto, ssh]
 
   # ── Generic / DB / Cloud Services ────────
-  - name: mongodb_connection_string
-    severity: CRITICAL
-    pattern: 'mongodb(?:\+srv)?://[^:]+:[^@]+@[a-zA-Z0-9.\-]+'
-    tags: [database, connection-string]
   - name: redis_url_with_password
     severity: HIGH
     pattern: 'redis://[^:]+:[^@]+@[a-zA-Z0-9.\-]+'
@@ -870,18 +870,6 @@ rules:
     severity: HIGH
     pattern: '(?i)(?:linode|akamai)[_-]?(?:api[_-]?)?(?:token|key)\s*[:=]\s*[''"][a-f0-9]{64}[''"]'
     tags: [linode, cloud]
-  - name: discord_webhook
-    severity: HIGH
-    pattern: 'https://discord(?:app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+'
-    tags: [webhook, discord]
-  - name: postgres_connection_url
-    severity: CRITICAL
-    pattern: 'postgres(?:ql)?://[^:]+:[^@]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]+'
-    tags: [database, connection-string]
-  - name: mysql_connection_url
-    severity: CRITICAL
-    pattern: 'mysql://[^:]+:[^@]+@[a-zA-Z0-9.\-]+(?::\d+)?/[a-zA-Z0-9_]+'
-    tags: [database, connection-string]
   # ── PII / GDPR ──────────────────────────
   - name: email_address
     severity: LOW
@@ -908,21 +896,21 @@ rules:
 
   # --- Cloud Metadata Endpoints ---
   - name: cloud_metadata_aws
-    severity: high
+    severity: HIGH
     pattern: '169\.254\.169\.254(?:/latest/meta-data/|/latest/user-data/|/latest/dynamic/instance-identity/)'
     description: 'AWS EC2 Instance Metadata Service endpoint'
     tags: [cloud, aws, ssrf, metadata]
     context_keywords: [fetch, curl, wget, requests, http, axios, proxy, redirect, ssrf]
 
   - name: cloud_metadata_gcp
-    severity: high
+    severity: HIGH
     pattern: 'metadata\.google\.internal'
     description: 'GCP Compute Engine metadata endpoint'
     tags: [cloud, gcp, ssrf, metadata]
     context_keywords: [fetch, curl, wget, requests, http, axios, proxy, redirect, ssrf]
 
   - name: cloud_metadata_azure
-    severity: high
+    severity: HIGH
     pattern: '169\.254\.169\.254/metadata/instance'
     description: 'Azure Instance Metadata Service endpoint'
     tags: [cloud, azure, ssrf, metadata]
@@ -930,19 +918,19 @@ rules:
 
   # --- Environment Variable Secrets ---
   - name: env_sensitive_var
-    severity: high
+    severity: HIGH
     pattern: '(?:^|\s)(?:DATABASE_URL|REDIS_URL|MONGODB_URI|MONGODB_CONNECTION|MONGO_URI|SUPABASE_URL|SUPABASE_KEY|SUPABASE_SERVICE_KEY)=(.+)'
     description: 'Sensitive environment variable with connection string or URL'
     tags: [env, database, sensitive]
 
   - name: env_token_var
-    severity: high
+    severity: HIGH
     pattern: '(?:^|\s)(?:MAILGUN_API_KEY|SENDGRID_API_KEY|TWILIO_AUTH_TOKEN|CLOUDFLARE_API_KEY|CF_API_KEY|ALGOLIA_API_KEY|ALGOLIA_SEARCH_KEY|STRIPE_SECRET_KEY|STRIPE_LIVE_SECRET|SQUARE_ACCESS_TOKEN)=(.+)'
     description: 'Provider-specific sensitive token in environment variable'
     tags: [env, token, provider]
 
   - name: env_generic_secret
-    severity: medium
+    severity: MEDIUM
     pattern: '(?:^|\s)(?:\w+_SECRET=\S{8,}|\w+_PASSWORD=\S{8,}|\w+_TOKEN=\S{20,}|\w+_API_KEY=\S{20,})'
     description: 'Generic secret/password/token environment variable'
     tags: [env, generic, secret]
@@ -951,19 +939,19 @@ rules:
     entropy_threshold: 3.0
 
   - name: dotenv_file_secret
-    severity: high
+    severity: HIGH
     pattern: '(?:^|\s)(?:SECRET|TOKEN|API_KEY|PASSWORD|PASSWD|PRIVATE_KEY|ACCESS_KEY|AUTH_TOKEN|DATABASE_URL|REDIS_URL|MONGODB_URI)=(.+)'
     description: 'Sensitive value in .env or dotenv file'
     tags: [env, dotenv, secret]
 
   - name: env_aws_secret
-    severity: critical
+    severity: CRITICAL
     pattern: '(?:^|\s)AWS_SECRET_ACCESS_KEY=(\S+)'
     description: 'AWS Secret Access Key in environment variable'
     tags: [env, aws, cloud]
 
   - name: npmrc_auth_token
-    severity: high
+    severity: HIGH
     pattern: '_authToken\s*=\s*(?:ghp_|npm_)?[A-Za-z0-9_-]{20,}'
     description: 'npm auth token in .npmrc file'
     tags: [env, npm, token]

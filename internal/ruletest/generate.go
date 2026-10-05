@@ -140,6 +140,9 @@ var positiveGenerators = map[string]func() []string{
 	"openai_api_key": func() []string {
 		return prefixLines("sk-proj-", alphanum, 30, 8)
 	},
+	"openai_legacy_key": func() []string {
+		return prefixLines("sk-", alphanum, 48, 8)
+	},
 	"oracle_cloud_ocid": func() []string {
 		return prefixLines("ocid1.compartment.oc1..", hexLower, 32, 8)
 	},
@@ -169,6 +172,9 @@ var positiveGenerators = map[string]func() []string{
 	},
 	"slack_bot_token": func() []string {
 		return prefixLines("xoxb-", alphanum, 50, 8)
+	},
+	"slack_user_token": func() []string {
+		return prefixLines("xoxp-", alphanum, 50, 8)
 	},
 	"slack_webhook_url": func() []string {
 		lines := make([]string, 8)
