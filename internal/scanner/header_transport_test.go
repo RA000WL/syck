@@ -66,3 +66,86 @@ func TestHeaderTransport_CloneDoesNotMutateOriginal(t *testing.T) {
 		t.Error("original request was mutated — clone failed")
 	}
 }
+
+// captureTripper records the request headers it receives.
+type captureTripper struct {
+	got http.Header
+}
+
+func (c *captureTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.got = req.Header.Clone()
+	return &http.Response{Header: make(http.Header), Request: req}, nil
+}
+
+func newCredTransport(base http.RoundTripper) *headerTransport {
+	return &headerTransport{
+		base: base,
+		headers: map[string][]string{
+			"Authorization": {"Bearer x"},
+			"Cookie":        {"a=1"},
+			"X-Api-Key":     {"secret-key"},
+			"X-Custom":      {"keep-me"},
+		},
+	}
+}
+
+// withRedirectChain builds a request to target whose redirect history starts at origin.
+func withRedirectChain(t *testing.T, origin, target string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originReq, err := http.NewRequest("GET", origin, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Response = &http.Response{Request: originReq}
+	return req
+}
+
+func TestHeaderTransportCrossOriginStrip(t *testing.T) {
+	base := &captureTripper{}
+	transport := newCredTransport(base)
+
+	req := withRedirectChain(t, "http://example.com/start", "http://evil.com/next")
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := base.got.Get("Authorization"); got != "" {
+		t.Errorf("cross-host Authorization should be stripped, got %q", got)
+	}
+	if got := base.got.Get("Cookie"); got != "" {
+		t.Errorf("cross-host Cookie should be stripped, got %q", got)
+	}
+	if got := base.got.Get("X-Api-Key"); got != "" {
+		t.Errorf("cross-host X-Api-Key should be stripped, got %q", got)
+	}
+	if got := base.got.Get("X-Custom"); got != "keep-me" {
+		t.Errorf("cross-host X-Custom should be kept, got %q", got)
+	}
+}
+
+func TestHeaderTransportSameOriginKeep(t *testing.T) {
+	base := &captureTripper{}
+	transport := newCredTransport(base)
+
+	req := withRedirectChain(t, "http://example.com/start", "http://example.com:8080/next")
+	if _, err := transport.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := base.got.Get("Authorization"); got != "Bearer x" {
+		t.Errorf("same-host Authorization should be kept, got %q", got)
+	}
+	if got := base.got.Get("Cookie"); got != "a=1" {
+		t.Errorf("same-host Cookie should be kept, got %q", got)
+	}
+	if got := base.got.Get("X-Api-Key"); got != "secret-key" {
+		t.Errorf("same-host X-Api-Key should be kept, got %q", got)
+	}
+	if got := base.got.Get("X-Custom"); got != "keep-me" {
+		t.Errorf("same-host X-Custom should be kept, got %q", got)
+	}
+}
