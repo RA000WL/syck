@@ -6,6 +6,7 @@ import (
 	"fmt"
 	neturl "net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -23,11 +24,23 @@ const (
 type WebhookOption func(*webhookConfig)
 
 type webhookConfig struct {
-	proxyURL string
+	proxyURL      string
+	redact        bool
+	allowInsecure bool
 }
 
 func WithProxy(url string) WebhookOption {
 	return func(c *webhookConfig) { c.proxyURL = url }
+}
+
+// WithRedact masks secret values in the webhook payload when true.
+func WithRedact(v bool) WebhookOption {
+	return func(c *webhookConfig) { c.redact = v }
+}
+
+// WithAllowInsecure permits plain http:// webhook URLs when true.
+func WithAllowInsecure(v bool) WebhookOption {
+	return func(c *webhookConfig) { c.allowInsecure = v }
 }
 
 func PostWebhook(url string, style WebhookStyle, findings []finding.Finding, opts ...WebhookOption) error {
@@ -37,7 +50,13 @@ func PostWebhook(url string, style WebhookStyle, findings []finding.Finding, opt
 	}
 
 	if parsedURL, err := neturl.Parse(url); err == nil && parsedURL.Scheme == "http" {
+		if !cfg.allowInsecure {
+			return fmt.Errorf("refusing plain HTTP webhook URL %q: secrets would be sent in plaintext — use HTTPS or set allow-insecure", url)
+		}
 		fmt.Fprintf(os.Stderr, "[warning] webhook URL uses HTTP — secrets will be sent in plaintext\n")
+	}
+	if cfg.redact {
+		findings = redactFindings(findings)
 	}
 
 	var body []byte
@@ -72,6 +91,28 @@ type slackMsg struct {
 	Text     string `json:"text"`
 	Username string `json:"username,omitempty"`
 	Mrkdwn   bool   `json:"mrkdwn"`
+}
+
+// redactFindings returns a copy of findings with secret values masked in the
+// Secret field and scrubbed from context strings, mirroring the redaction
+// applied by the file formatters (see JSONFormatter.Format).
+func redactFindings(findings []finding.Finding) []finding.Finding {
+	if len(findings) == 0 {
+		return findings
+	}
+	out := make([]finding.Finding, len(findings))
+	for i, f := range findings {
+		if orig := f.Secret; orig != "" {
+			masked := RedactSecret(orig)
+			f.Secret = masked
+			f.Context = strings.ReplaceAll(f.Context, orig, masked)
+			f.ContextBefore = strings.ReplaceAll(f.ContextBefore, orig, masked)
+			f.ContextAfter = strings.ReplaceAll(f.ContextAfter, orig, masked)
+			f.DecodedValuePreview = strings.ReplaceAll(f.DecodedValuePreview, orig, masked)
+		}
+		out[i] = f
+	}
+	return out
 }
 
 func slackPayload(findings []finding.Finding) ([]byte, error) {

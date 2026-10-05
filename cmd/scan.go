@@ -57,79 +57,80 @@ Examples:
 }
 
 var (
-	rulesFile         string
-	severityStr       string
-	formatStr         string
-	outputFile        string
-	redact            bool
-	noDedup           bool
-	excludeStr        string
-	quiet             bool
-	workers           int
-	maxFileSize       string
-	decodeBase64      bool
-	decodeHex         bool
-	decodeUnicode     bool
-	decodeURL         bool
-	decodeGzip        bool
-	jsReconstruct     bool
-	endpoints         bool
-	pipe              bool
-	failOn            string
-	downgradeFP       bool
-	urlList           []string
-	urlFile           string
-	scopeStr          string
-	crawlLimit        int
-	crawlDepth        int
-	headless          bool
-	rateLimit         int
-	userAgent         string
-	cookies           bool
-	cookieFile        string
-	concurrency       int
-	hostConcurrency   int
-	ignoreRobots      bool
-	gitHistory        bool
-	validate          bool
-	verify            bool
-	verifyRate        int
-	ignoreFile        string
-	maxScanLineLen    int
-	progressFlag      bool
-	minEndpointScore  int
-	noJuicyFiles      bool
-	sensitiveOnly     bool
-	scanArchives      bool
-	scanBinaries      bool
-	multiline         bool
-	stripComments     bool
-	detectAuthHeaders bool
-	probeGraphQL      bool
-	parseOpenAPI      bool
-	paramBrute        bool
-	paramBruteWordlist string
-	allowPrivateIPs    bool
-	entropyThresholds map[string]string
-	webhookURL        string
-	webhookStyle      string
-	cacheDB           string
-	adaptiveFlag      bool
-	proxyURL          string
-	authToken         string
-	headerList        []string
-	scopeFile         string
-	cookieString      string
-	noSitemap         bool
-	diffMode          bool
-	httpTimeout       string
-	headerCheck       bool
-	techDetect        bool
-	urlCacheDB        string
-	scanRecon         bool
-	scanReconWayback  bool
-	scanReconLive     bool
-	excludeDir        string
+	rulesFile            string
+	severityStr          string
+	formatStr            string
+	outputFile           string
+	redact               bool
+	noDedup              bool
+	excludeStr           string
+	quiet                bool
+	workers              int
+	maxFileSize          string
+	decodeBase64         bool
+	decodeHex            bool
+	decodeUnicode        bool
+	decodeURL            bool
+	decodeGzip           bool
+	jsReconstruct        bool
+	endpoints            bool
+	pipe                 bool
+	failOn               string
+	downgradeFP          bool
+	urlList              []string
+	urlFile              string
+	scopeStr             string
+	crawlLimit           int
+	crawlDepth           int
+	headless             bool
+	rateLimit            int
+	userAgent            string
+	cookies              bool
+	cookieFile           string
+	concurrency          int
+	hostConcurrency      int
+	ignoreRobots         bool
+	gitHistory           bool
+	validate             bool
+	verify               bool
+	verifyRate           int
+	ignoreFile           string
+	maxScanLineLen       int
+	progressFlag         bool
+	minEndpointScore     int
+	noJuicyFiles         bool
+	sensitiveOnly        bool
+	scanArchives         bool
+	scanBinaries         bool
+	multiline            bool
+	stripComments        bool
+	detectAuthHeaders    bool
+	probeGraphQL         bool
+	parseOpenAPI         bool
+	paramBrute           bool
+	paramBruteWordlist   string
+	allowPrivateIPs      bool
+	entropyThresholds    map[string]string
+	webhookURL           string
+	webhookStyle         string
+	allowInsecureWebhook bool
+	cacheDB              string
+	adaptiveFlag         bool
+	proxyURL             string
+	authToken            string
+	headerList           []string
+	scopeFile            string
+	cookieString         string
+	noSitemap            bool
+	diffMode             bool
+	httpTimeout          string
+	headerCheck          bool
+	techDetect           bool
+	urlCacheDB           string
+	scanRecon            bool
+	scanReconWayback     bool
+	scanReconLive        bool
+	excludeDir           string
 )
 
 func init() {
@@ -188,6 +189,7 @@ func init() {
 	scanCmd.Flags().StringToStringVar(&entropyThresholds, "entropy-threshold", nil, "per-alphabet entropy threshold (hex=3.0,base64=4.2)")
 	scanCmd.Flags().StringVar(&webhookURL, "webhook-url", "", "send findings to this webhook URL")
 	scanCmd.Flags().StringVar(&webhookStyle, "webhook-style", "json", "webhook payload style: slack, discord, or json (default json)")
+	scanCmd.Flags().BoolVar(&allowInsecureWebhook, "allow-insecure-webhook", false, "allow http:// webhook URLs (secrets sent in plaintext; HTTPS is the default requirement)")
 	scanCmd.Flags().StringVar(&cacheDB, "cache-db", "", "path to SQLite cache database for cross-run dedup")
 	scanCmd.Flags().BoolVar(&adaptiveFlag, "adaptive", false, "enable adaptive confidence learning from past verdicts")
 	scanCmd.Flags().StringVar(&proxyURL, "proxy", "", "HTTP proxy URL for all requests (e.g. http://127.0.0.1:8080)")
@@ -726,6 +728,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 		if proxyURL != "" {
 			webhookOpts = append(webhookOpts, formatters.WithProxy(proxyURL))
 		}
+		webhookOpts = append(webhookOpts,
+			formatters.WithRedact(redact),
+			formatters.WithAllowInsecure(allowInsecureWebhook),
+		)
 		if err := formatters.PostWebhook(webhookURL, style, findings, webhookOpts...); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: webhook error: %v\n", err)
 		}
