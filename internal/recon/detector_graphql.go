@@ -55,9 +55,9 @@ type deepSchemaResult struct {
 	Data struct {
 		Schema struct {
 			Types []struct {
-				Name       string `json:"name"`
-				Kind       string `json:"kind"`
-				Fields     []struct {
+				Name   string `json:"name"`
+				Kind   string `json:"kind"`
+				Fields []struct {
 					Name string `json:"name"`
 					Type struct {
 						Name string `json:"name"`
@@ -72,8 +72,8 @@ type deepSchemaResult struct {
 					} `json:"type"`
 				} `json:"inputFields"`
 			} `json:"types"`
-			QueryType       *struct{ Name string } `json:"queryType"`
-			MutationType    *struct{ Name string } `json:"mutationType"`
+			QueryType        *struct{ Name string } `json:"queryType"`
+			MutationType     *struct{ Name string } `json:"mutationType"`
 			SubscriptionType *struct{ Name string } `json:"subscriptionType"`
 		} `json:"__schema"`
 	} `json:"data"`

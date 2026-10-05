@@ -23,10 +23,10 @@ const (
 
 // ToolConfig holds configuration for external tool execution
 type ToolConfig struct {
-	Timeout     int    // timeout in seconds
-	MaxResults  int    // max results to return
-	ExtraArgs   string // additional arguments
-	Wordlist    string // custom wordlist path
+	Timeout    int    // timeout in seconds
+	MaxResults int    // max results to return
+	ExtraArgs  string // additional arguments
+	Wordlist   string // custom wordlist path
 }
 
 // ToolResult holds results from an external tool

@@ -3,7 +3,7 @@ package main
 import "github.com/RA000WL/syck/cmd"
 
 var (
-	version = "1.1.0"
+	version = "1.2.0"
 	commit  = "none"
 	date    = "unknown"
 )

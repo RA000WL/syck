@@ -9,17 +9,17 @@ import (
 
 // HostResult holds the result of a live host check.
 type HostResult struct {
-	Host      string
-	Alive     bool
+	Host       string
+	Alive      bool
 	StatusCode int
-	IP        string
+	IP         string
 }
 
 // CheckLiveHosts performs HTTP HEAD requests to determine which hosts are alive.
 func CheckLiveHosts(hosts []string, client *http.Client, timeout time.Duration) []HostResult {
 	if client == nil {
 		client = &http.Client{
-			Timeout:     timeout,
+			Timeout:       timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
 		}
 	}

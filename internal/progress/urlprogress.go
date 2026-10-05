@@ -30,33 +30,33 @@ type BannerConfig struct {
 
 // ANSI color codes
 const (
-	colorReset   = "\033[0m"
-	colorBold    = "\033[1m"
-	colorDim     = "\033[2m"
+	colorReset = "\033[0m"
+	colorBold  = "\033[1m"
+	colorDim   = "\033[2m"
 
 	// Gradient: green → cyan → blue → purple
-	colorGreen   = "\033[38;2;0;255;136m"
-	colorCyan    = "\033[38;2;0;220;255m"
-	colorBlue    = "\033[38;2;80;120;255m"
-	colorPurple  = "\033[38;2;180;80;255m"
-	colorTeal    = "\033[38;2;0;230;200m"
+	colorGreen  = "\033[38;2;0;255;136m"
+	colorCyan   = "\033[38;2;0;220;255m"
+	colorBlue   = "\033[38;2;80;120;255m"
+	colorPurple = "\033[38;2;180;80;255m"
+	colorTeal   = "\033[38;2;0;230;200m"
 
 	// Value colors (matching screenshot)
-	colorValCyan    = "\033[38;2;0;220;255m"
-	colorValGreen   = "\033[38;2;80;255;136m"
-	colorValRed     = "\033[38;2;255;80;80m"
-	colorValYellow  = "\033[38;2;255;200;0m"
-	colorValWhite   = "\033[38;2;220;220;220m"
+	colorValCyan   = "\033[38;2;0;220;255m"
+	colorValGreen  = "\033[38;2;80;255;136m"
+	colorValRed    = "\033[38;2;255;80;80m"
+	colorValYellow = "\033[38;2;255;200;0m"
+	colorValWhite  = "\033[38;2;220;220;220m"
 
 	// Icon colors (matching screenshot)
-	colorIconGold    = "\033[38;2;255;200;0m"
-	colorIconYellow  = "\033[38;2;255;220;0m"
-	colorIconGreen   = "\033[38;2;80;255;136m"
-	colorIconCyan    = "\033[38;2;0;220;255m"
-	colorIconPink    = "\033[38;2;255;80;180m"
-	colorIconRed     = "\033[38;2;255;80;80m"
-	colorIconPurple  = "\033[38;2;180;120;255m"
-	colorIconOrange  = "\033[38;2;255;160;0m"
+	colorIconGold   = "\033[38;2;255;200;0m"
+	colorIconYellow = "\033[38;2;255;220;0m"
+	colorIconGreen  = "\033[38;2;80;255;136m"
+	colorIconCyan   = "\033[38;2;0;220;255m"
+	colorIconPink   = "\033[38;2;255;80;180m"
+	colorIconRed    = "\033[38;2;255;80;80m"
+	colorIconPurple = "\033[38;2;180;120;255m"
+	colorIconOrange = "\033[38;2;255;160;0m"
 )
 
 // PrintBanner displays a feroxbuster-style startup banner with block font and color accents.
@@ -107,11 +107,11 @@ func PrintBanner(w io.Writer, cfg BannerConfig) {
 
 	// Fields: icon (colored) | label (bold white) | value (colored)
 	type row struct {
-		icon     string
-		iconClr  string
-		label    string
-		val      string
-		valClr   string
+		icon    string
+		iconClr string
+		label   string
+		val     string
+		valClr  string
 	}
 
 	rows := []row{

@@ -19,8 +19,8 @@ import (
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/fileutil"
 	"github.com/RA000WL/syck/internal/finding"
-	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/jsanalysis"
+	"github.com/RA000WL/syck/internal/json_scanner"
 	"github.com/RA000WL/syck/internal/jsrecon"
 )
 
@@ -404,12 +404,12 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 				severity = finding.SeverityHigh
 			}
 			findings = append(findings, finding.Finding{
-				File:      path,
-				Line:      secret.Line,
-				RuleName:  "js_secret_" + secret.Type,
-				Severity:  severity,
-				Secret:    secret.Value,
-				Context:   finding.Truncate(secret.Context),
+				File:     path,
+				Line:     secret.Line,
+				RuleName: "js_secret_" + secret.Type,
+				Severity: severity,
+				Secret:   secret.Value,
+				Context:  finding.Truncate(secret.Context),
 			})
 		}
 
@@ -517,12 +517,12 @@ func ScanContent(content string, path string, cfg Config) []finding.Finding {
 				severity = finding.SeverityHigh
 			}
 			findings = append(findings, finding.Finding{
-				File:      path,
-				Line:      secret.Line,
-				RuleName:  "js_secret_" + secret.Type,
-				Severity:  severity,
-				Secret:    secret.Value,
-				Context:   finding.Truncate(secret.Context),
+				File:     path,
+				Line:     secret.Line,
+				RuleName: "js_secret_" + secret.Type,
+				Severity: severity,
+				Secret:   secret.Value,
+				Context:  finding.Truncate(secret.Context),
 			})
 		}
 	}

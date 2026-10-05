@@ -9,56 +9,56 @@ import (
 
 var (
 	// Environment variable access patterns
-	envVarRE        = regexp.MustCompile(`process\.env\.([A-Z_][A-Z0-9_]*)`)
-	importMetaEnvRE = regexp.MustCompile(`import\.meta\.env\.([A-Z_][A-Z0-9_]*)`)
-	envDollarRE     = regexp.MustCompile(`\$([A-Z_][A-Z0-9_]*)\b`)
+	envVarRE           = regexp.MustCompile(`process\.env\.([A-Z_][A-Z0-9_]*)`)
+	importMetaEnvRE    = regexp.MustCompile(`import\.meta\.env\.([A-Z_][A-Z0-9_]*)`)
+	envDollarRE        = regexp.MustCompile(`\$([A-Z_][A-Z0-9_]*)\b`)
 	envBracketSingleRE = regexp.MustCompile(`process\.env\['([A-Z_][A-Z0-9_]*)'\]`)
 	envBracketDoubleRE = regexp.MustCompile(`process\.env\["([A-Z_][A-Z0-9_]*)"\]`)
 
 	// Dynamic imports and lazy loading - separate patterns for each quote type
-	dynamicImportSingleRE = regexp.MustCompile(`import\s*\(\s*'([^']+)'\s*\)`)
-	dynamicImportDoubleRE = regexp.MustCompile(`import\s*\(\s*"([^"]+)"\s*\)`)
+	dynamicImportSingleRE   = regexp.MustCompile(`import\s*\(\s*'([^']+)'\s*\)`)
+	dynamicImportDoubleRE   = regexp.MustCompile(`import\s*\(\s*"([^"]+)"\s*\)`)
 	dynamicImportBacktickRE = regexp.MustCompile("import\\s*\\(\\s*`([^`]+)`\\s*\\)")
-	requireSingleRE   = regexp.MustCompile(`require\s*\(\s*'([^']+)'\s*\)`)
-	requireDoubleRE   = regexp.MustCompile(`require\s*\(\s*"([^"]+)"\s*\)`)
-	lazyLoadSingleRE  = regexp.MustCompile(`(?i)(?:load|lazy|preload)\s*\(\s*'([^']+)'\s*\)`)
-	lazyLoadDoubleRE  = regexp.MustCompile(`(?i)(?:load|lazy|preload)\s*\(\s*"([^"]+)"\s*\)`)
+	requireSingleRE         = regexp.MustCompile(`require\s*\(\s*'([^']+)'\s*\)`)
+	requireDoubleRE         = regexp.MustCompile(`require\s*\(\s*"([^"]+)"\s*\)`)
+	lazyLoadSingleRE        = regexp.MustCompile(`(?i)(?:load|lazy|preload)\s*\(\s*'([^']+)'\s*\)`)
+	lazyLoadDoubleRE        = regexp.MustCompile(`(?i)(?:load|lazy|preload)\s*\(\s*"([^"]+)"\s*\)`)
 
 	// Webpack/Vite chunk patterns
-	webpackChunkRE   = regexp.MustCompile(`(?:webpackChunk|webpackJsonp|__webpack_require__|webpack_modules)\b`)
-	viteChunkRE      = regexp.MustCompile(`(?:(?:__vite_|vite客户端|vite/client)[\w.]*)`)
-	chunkImportRE    = regexp.MustCompile(`import\s*\(\s*['"]([^'"]*chunk[^'"]*\.js)['"]\s*\)`)
+	webpackChunkRE = regexp.MustCompile(`(?:webpackChunk|webpackJsonp|__webpack_require__|webpack_modules)\b`)
+	viteChunkRE    = regexp.MustCompile(`(?:(?:__vite_|vite客户端|vite/client)[\w.]*)`)
+	chunkImportRE  = regexp.MustCompile(`import\s*\(\s*['"]([^'"]*chunk[^'"]*\.js)['"]\s*\)`)
 
 	// Comment-leaked secrets and endpoints
-	lineCommentRE    = regexp.MustCompile(`//\s*(https?://[^\s'"]+)`)
-	blockCommentRE   = regexp.MustCompile(`/\*([^*]|\*[^/])*\*/`)
-	todoCommentRE    = regexp.MustCompile(`(?i)(?:TODO|FIXME|HACK|XXX|TEMP)\s*[:;]\s*(.+)`)
+	lineCommentRE  = regexp.MustCompile(`//\s*(https?://[^\s'"]+)`)
+	blockCommentRE = regexp.MustCompile(`/\*([^*]|\*[^/])*\*/`)
+	todoCommentRE  = regexp.MustCompile(`(?i)(?:TODO|FIXME|HACK|XXX|TEMP)\s*[:;]\s*(.+)`)
 
 	// Base64 encoded strings (potential secrets/URLs)
-	base64StringRE   = regexp.MustCompile(`['"` + "`" + `]([A-Za-z0-9+/]{40,}={0,2})['"` + "`" + `]`)
+	base64StringRE = regexp.MustCompile(`['"` + "`" + `]([A-Za-z0-9+/]{40,}={0,2})['"` + "`" + `]`)
 
 	// Config objects with interesting values
-	configURLRE      = regexp.MustCompile(`(?i)(?:baseURL|apiURL|api_url|endpoint|baseUrl|host|server|origin)\s*[:=]\s*['"]([^'"]+)['"]`)
-	configKeyRE      = regexp.MustCompile(`(?i)(?:apiKey|api_key|token|secret|password|auth)\s*[:=]\s*['"]([^'"]+)['"]`)
+	configURLRE = regexp.MustCompile(`(?i)(?:baseURL|apiURL|api_url|endpoint|baseUrl|host|server|origin)\s*[:=]\s*['"]([^'"]+)['"]`)
+	configKeyRE = regexp.MustCompile(`(?i)(?:apiKey|api_key|token|secret|password|auth)\s*[:=]\s*['"]([^'"]+)['"]`)
 
 	// Internal/hidden service patterns
 	internalServiceRE = regexp.MustCompile(`(?i)(?:internal|private|corp|intranet|staging|dev|sandbox|test)\s*[:=]\s*['"]([^'"]+)['"]`)
 	localhostRE       = regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+`)
 
 	// Sensitive file references
-	sensitiveFileRE   = regexp.MustCompile(`['"]([^'"]*(?:\.env|\.key|\.pem|\.cert|\.p12|\.pfx|\.jks|\.keystore|credentials?\.json|secrets?\.json|service[_-]?account)[^'"]*)['"]`)
+	sensitiveFileRE = regexp.MustCompile(`['"]([^'"]*(?:\.env|\.key|\.pem|\.cert|\.p12|\.pfx|\.jks|\.keystore|credentials?\.json|secrets?\.json|service[_-]?account)[^'"]*)['"]`)
 
 	// Debug/development URLs
-	debugURLRE        = regexp.MustCompile(`(?i)['"]([^'"]*(?:debug|trace|profile|inspect|devtools|console)[^'"]*)['"]`)
+	debugURLRE = regexp.MustCompile(`(?i)['"]([^'"]*(?:debug|trace|profile|inspect|devtools|console)[^'"]*)['"]`)
 
 	// Source map references
-	sourceMapRE       = regexp.MustCompile(`(?:sourceMappingURL|sourceURL)\s*[:=]\s*['"]?([^'"\s]+\.map)['"]?`)
+	sourceMapRE = regexp.MustCompile(`(?:sourceMappingURL|sourceURL)\s*[:=]\s*['"]?([^'"\s]+\.map)['"]?`)
 
 	// API versioning patterns
-	apiVersionRE      = regexp.MustCompile(`['"]([^'"]*/(?:v\d+|api/v\d+|version/\d+)[^'"]*)['"]`)
+	apiVersionRE = regexp.MustCompile(`['"]([^'"]*/(?:v\d+|api/v\d+|version/\d+)[^'"]*)['"]`)
 
 	// Hidden routes/paths in code
-	hiddenRouteRE     = regexp.MustCompile(`(?i)(?:route|path|redirect|forward)\s*[:=]\s*['"]([^'"]+/[^'"]+)['"]`)
+	hiddenRouteRE = regexp.MustCompile(`(?i)(?:route|path|redirect|forward)\s*[:=]\s*['"]([^'"]+/[^'"]+)['"]`)
 )
 
 type AnalysisResult struct {
@@ -83,10 +83,10 @@ type AnalysisResult struct {
 }
 
 type SecretFinding struct {
-	Value    string
-	Context  string
-	Type     string // "env_ref", "config_secret", "base64", "comment_leak"
-	Line     int
+	Value   string
+	Context string
+	Type    string // "env_ref", "config_secret", "base64", "comment_leak"
+	Line    int
 }
 
 func AnalyzeJS(content string, filePath string) *AnalysisResult {

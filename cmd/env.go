@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -16,7 +17,9 @@ func bindEnvToFlags(cmd *cobra.Command) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		envKey := prefix + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
 		if val, ok := os.LookupEnv(envKey); ok && val != "" {
-			_ = cmd.Flags().Set(f.Name, val)
+			if err := cmd.Flags().Set(f.Name, val); err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: invalid value %q for %s (flag --%s): %v\n", val, envKey, f.Name, err)
+			}
 		}
 	})
 }

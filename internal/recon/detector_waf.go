@@ -10,7 +10,7 @@ import (
 // WAFSignature represents a WAF detection pattern.
 type WAFSignature struct {
 	Name     string
-	Header   string // header name to check
+	Header   string   // header name to check
 	Patterns []string // substrings to match in header value
 	Category string
 	Severity finding.Severity
@@ -101,13 +101,13 @@ func (d *WAFDetector) Detect(urls []string) []SurfaceFinding {
 			if val == "" {
 				// For some signatures, presence of the header alone is enough
 				if len(sig.Patterns) == 1 && sig.Patterns[0] == "" {
-				if resp.Header.Get(sig.Header) != "" {
-					out = append(out, SurfaceFinding{
-						URL:      rawURL,
-						Category: sig.Category,
-						Severity: sig.Severity,
-						Source:   "waf_" + sig.Name,
-					})
+					if resp.Header.Get(sig.Header) != "" {
+						out = append(out, SurfaceFinding{
+							URL:      rawURL,
+							Category: sig.Category,
+							Severity: sig.Severity,
+							Source:   "waf_" + sig.Name,
+						})
 					}
 				}
 				continue

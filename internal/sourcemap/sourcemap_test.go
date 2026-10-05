@@ -361,9 +361,9 @@ func TestVLQDecoder_Decode(t *testing.T) {
 		wantVal    int
 		wantDigits int
 	}{
-		{"zero", "A", 0, 1},       // 0 in VLQ
-		{"positive one", "C", 1, 1}, // 1: (1 << 1) | 0 = 2, but sign bit=0 so positive, value=1
-		{"positive two", "E", 2, 1}, // 2: (2 << 1) | 0 = 4
+		{"zero", "A", 0, 1},          // 0 in VLQ
+		{"positive one", "C", 1, 1},  // 1: (1 << 1) | 0 = 2, but sign bit=0 so positive, value=1
+		{"positive two", "E", 2, 1},  // 2: (2 << 1) | 0 = 4
 		{"negative one", "D", -1, 1}, // -1: (-1 -> 1 as unsigned, bit0=1 for negative, 1>>1 = 0, then -(0) = wrong... let me recalc
 		// VLQ encoding: value -> unsigned: (abs(val) << 1) | (1 if negative)
 		// 0 -> 0 -> 'A'
@@ -403,7 +403,7 @@ func TestVLQDecoder_DecodeMultiByte(t *testing.T) {
 	// byte 2: we need (16 >> 5) = 0 with sign bit. 0 -> 'A'
 	// result |= (0 & 31) << 5 = 0, shift=10, 0&32==0 break
 	// result = 0, but that's wrong...
-	
+
 	// Let me reconsider. The VLQ encoding is:
 	// For value v: encode unsigned = (v << 1) if v >= 0, ((-v) << 1) | 1 if v < 0
 	// 16 -> unsigned = 32
@@ -411,7 +411,7 @@ func TestVLQDecoder_DecodeMultiByte(t *testing.T) {
 	// Group 1 (LSB): 0b00000 = 0, continuation=1 -> byte value = 0 | 32 = 32 -> 'g'
 	// Group 2 (MSB): 0b00001 = 1, continuation=0 -> byte value = 1 -> 'B'
 	// So 16 encodes as "gB"
-	
+
 	val, consumed := decoder.Decode("gB")
 	if val != 16 {
 		t.Errorf("Decode(gB) val = %d, want 16", val)
@@ -784,8 +784,8 @@ func TestDecodeMappings_MultipleFields(t *testing.T) {
 	mapping := "CAEG"
 
 	sm := &SourceMap{
-		Version: 3,
-		Sources: []string{"src.js"},
+		Version:  3,
+		Sources:  []string{"src.js"},
 		Mappings: mapping,
 	}
 	mappings := sm.DecodeMappings()
@@ -829,7 +829,7 @@ func TestDecodeMappings_MultipleLines(t *testing.T) {
 
 func TestDecodeMappings_SemicolonOnly(t *testing.T) {
 	sm := &SourceMap{
-		Version: 3,
+		Version:  3,
 		Mappings: ";;;",
 	}
 	mappings := sm.DecodeMappings()
@@ -875,7 +875,7 @@ func TestDecodeMappings_NegativeValues(t *testing.T) {
 	// 'D' encodes -1
 	// For genCol: -1 would mean genCol becomes -1 (relative from 0)
 	// For other fields they are absolute in this implementation... let me check
-	// Actually looking at the code, genCol is accumulated (relative), 
+	// Actually looking at the code, genCol is accumulated (relative),
 	// but srcIdx, srcLine, srcCol are just assigned directly (not accumulated)
 	// So negative values for genCol are valid (relative encoding)
 	decoder := NewVLQDecoder()

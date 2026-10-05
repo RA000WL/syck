@@ -13,13 +13,13 @@ import (
 
 // SourceMap represents a parsed JavaScript source map
 type SourceMap struct {
-	Version    int      `json:"version"`
-	File       string   `json:"file"`
-	SourceRoot string   `json:"sourceRoot"`
-	Sources    []string `json:"sources"`
+	Version        int      `json:"version"`
+	File           string   `json:"file"`
+	SourceRoot     string   `json:"sourceRoot"`
+	Sources        []string `json:"sources"`
 	SourcesContent []string `json:"sourcesContent"`
-	Names      []string `json:"names"`
-	Mappings   string   `json:"mappings"`
+	Names          []string `json:"names"`
+	Mappings       string   `json:"mappings"`
 }
 
 // SourceMapFile represents a file within a source map with its content

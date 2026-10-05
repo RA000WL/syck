@@ -10,13 +10,15 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "syck",
 	Short: "Secret scanner for bug bounty hunting",
-	Long: `Syck is a modular secret scanner with 150+ detection rules,
+	Long: `Syck is a modular secret scanner with 202 detection rules,
 entropy analysis, and multiple output formats.
 
 Scan files and directories for API keys, tokens, passwords, 
 and other secrets before they end up in the wrong hands.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		bindEnvToFlags(cmd.Root())
+		for _, sub := range cmd.Root().Commands() {
+			bindEnvToFlags(sub)
+		}
 		return nil
 	},
 	SilenceErrors: true, // errExitCode is a normal signal (exit 1 due to findings), not an error

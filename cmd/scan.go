@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -213,8 +214,6 @@ func init() {
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
-	bindEnvToFlags(cmd)
-
 	if sensitiveOnly {
 		fmt.Fprintln(os.Stderr, "WARNING: --sensitive-only is deprecated, use --min-endpoint-score 5 instead")
 		if minEndpointScore == 0 {
@@ -444,7 +443,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	scanCfg := scanner.Config{
-		Workers:           workers,
+		Workers:           clampWorkers(workers),
 		MaxFileSize:       maxSize,
 		Exclude:           excludeRegex,
 		Rules:             rs,
@@ -764,6 +763,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return errExitCode
 	}
 	return nil
+}
+
+// clampWorkers returns n when positive, otherwise a sane default of
+// max(runtime.NumCPU(), 2) so a zero/negative --workers value never
+// yields a zero-size worker pool.
+func clampWorkers(n int) int {
+	if n > 0 {
+		return n
+	}
+	return max(runtime.NumCPU(), 2)
 }
 
 func parseSize(s string) int64 {

@@ -15,19 +15,19 @@ import (
 )
 
 var (
-	reconDomain       string
-	reconOutput       string
-	reconResolve      bool
-	reconLiveCheck    bool
-	reconWayback      bool
-	reconWaybackLim   int
-	reconScope        string
-	reconTimeout      string
-	reconProxy        string
-	reconSubfinderFile string
-	reconUseSubfinder bool
-	reconUseAmass     bool
-	reconUseHttpx     bool
+	reconDomain          string
+	reconOutput          string
+	reconResolve         bool
+	reconLiveCheck       bool
+	reconWayback         bool
+	reconWaybackLim      int
+	reconScope           string
+	reconTimeout         string
+	reconProxy           string
+	reconSubfinderFile   string
+	reconUseSubfinder    bool
+	reconUseAmass        bool
+	reconUseHttpx        bool
 	reconExternalTimeout int
 )
 

@@ -130,8 +130,8 @@ type Config struct {
 	Timeout     time.Duration
 	Wordlist    []string
 	MaxParams   int
-	RateLimit   int  // requests per second per host (0 = unlimited)
-	RetryCount  int  // number of retries on 429
+	RateLimit   int           // requests per second per host (0 = unlimited)
+	RetryCount  int           // number of retries on 429
 	RetryDelay  time.Duration // delay between retries
 }
 

@@ -74,3 +74,28 @@ func TestBindEnvToFlags_NilEnv(t *testing.T) {
 		t.Errorf("severity = %q, want %q (default preserved)", severityVal, "LOW")
 	}
 }
+
+func TestBindEnvScanFlags(t *testing.T) {
+	oldWorkers := workers
+	t.Cleanup(func() { workers = oldWorkers })
+
+	t.Setenv("SYCK_SCAN_WORKERS", "7")
+
+	bindEnvToFlags(scanCmd)
+
+	if workers != 7 {
+		t.Errorf("workers = %d, want %d (SYCK_SCAN_WORKERS not bound)", workers, 7)
+	}
+}
+
+func TestWorkersClamp(t *testing.T) {
+	if got := clampWorkers(0); got <= 0 {
+		t.Fatalf("workers 0 must clamp positive, got %d", got)
+	}
+	if got := clampWorkers(-3); got <= 0 {
+		t.Fatalf("negative workers must clamp positive, got %d", got)
+	}
+	if got := clampWorkers(7); got != 7 {
+		t.Fatalf("positive workers must pass through, got %d", got)
+	}
+}

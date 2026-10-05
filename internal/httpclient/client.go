@@ -15,10 +15,10 @@ import (
 
 // dnsCache caches DNS lookups to reduce DNS queries
 var (
-	dnsCache   = make(map[string][]net.IP)
-	dnsMu      sync.RWMutex
-	dnsExpiry  = make(map[string]time.Time)
-	dnsTTL     = 5 * time.Minute
+	dnsCache  = make(map[string][]net.IP)
+	dnsMu     sync.RWMutex
+	dnsExpiry = make(map[string]time.Time)
+	dnsTTL    = 5 * time.Minute
 )
 
 // cachedResolver returns a DNS resolver that caches results
@@ -51,16 +51,16 @@ func (r *cachedResolver) LookupHost(host string) ([]net.IP, error) {
 // If proxyURL is empty, falls back to http.ProxyFromEnvironment (respects HTTP_PROXY env vars).
 func NewTransport(proxyURL string, insecureSkipVerify bool) *http.Transport {
 	tr := &http.Transport{
-		MaxIdleConns:          200,
-		MaxIdleConnsPerHost:   50,
-		IdleConnTimeout:       120 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
-		DisableKeepAlives:     false,
-		DisableCompression:    false,
+		MaxIdleConns:           200,
+		MaxIdleConnsPerHost:    50,
+		IdleConnTimeout:        120 * time.Second,
+		TLSHandshakeTimeout:    10 * time.Second,
+		ResponseHeaderTimeout:  15 * time.Second,
+		DisableKeepAlives:      false,
+		DisableCompression:     false,
 		MaxResponseHeaderBytes: 1 << 20,
-		WriteBufferSize:       1 << 16,
-		ReadBufferSize:        1 << 16,
+		WriteBufferSize:        1 << 16,
+		ReadBufferSize:         1 << 16,
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
