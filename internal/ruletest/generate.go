@@ -48,6 +48,9 @@ var positiveGenerators = map[string]func() []string{
 	"anthropic_api_key": func() []string {
 		return prefixLines("sk-ant-", alphanum, 30, 8)
 	},
+	"asana_personal_token": func() []string {
+		return prefixLines("ASANA_TOKEN=1/", hexLower, 32, 8)
+	},
 	"aws_access_key_id": func() []string {
 		prefixes := []string{"AKIA", "AGPA", "AIDA", "AROA", "AIPA", "ANPA", "ANVA", "ASIA"}
 		lines := make([]string, 8)
@@ -136,6 +139,9 @@ var positiveGenerators = map[string]func() []string{
 	},
 	"openai_api_key": func() []string {
 		return prefixLines("sk-proj-", alphanum, 30, 8)
+	},
+	"oracle_cloud_ocid": func() []string {
+		return prefixLines("ocid1.compartment.oc1..", hexLower, 32, 8)
 	},
 	"perplexity_api_key": func() []string {
 		return prefixLines("pplx-", alphanum, 30, 8)

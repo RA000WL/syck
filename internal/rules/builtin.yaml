@@ -50,7 +50,7 @@ rules:
   # ── Azure ────────────────────────────────
   - name: azure_connection_string
     severity: CRITICAL
-    pattern: '(?i)DefaultEndpointsProtocol=https?;(?:AccountName=[a-z0-9]+;)?AccountKey=[a-zA-Z0-9+/=]{6,}(?:;EndpointSuffix=core\.windows\.net)?'
+    pattern: '(?i)DefaultEndpointsProtocol=https?;(?:AccountName=[a-z0-9]+;)?AccountKey=[a-zA-Z0-9+/=]{32,}(?:;EndpointSuffix=core\.windows\.net)?'
     tags: [azure, cloud]
   - name: azure_client_id
     severity: MEDIUM
@@ -468,7 +468,7 @@ rules:
     pattern: '(?i)token:\s*[A-Za-z0-9._\-]{20,}'
     tags: [kubernetes, kubeconfig, token]
     requires_context: true
-    context_keywords: [users, user, token, kubeconfig, apiVersion, kind]
+    context_keywords: [kubeconfig, users]
   - name: kubernetes_kubeconfig_cert
     severity: CRITICAL
     pattern: '(?i)certificate-authority-data:\s*[A-Za-z0-9+/=]{40,}'
@@ -542,6 +542,8 @@ rules:
     severity: HIGH
     pattern: '\b[0-9/]+/[0-9a-f]{32}\b'
     tags: [asana, productivity]
+    requires_context: true
+    context_keywords: [asana]
 
   # ── CI/CD ────────────────────────────────
   - name: circleci_token
@@ -566,7 +568,7 @@ rules:
   # ── Cloud (non-AWS) ──────────────────────
   - name: oracle_cloud_ocid
     severity: MEDIUM
-    pattern: '\bocid1\.[a-z0-9]+\.[a-z0-9]+\.\.\.\b'
+    pattern: '\bocid1\.[a-z0-9_]+\.[a-z0-9_]+[a-zA-Z0-9._\-]*\b'
     tags: [oracle, cloud]
 
   # ── Push Notifications ───────────────────
@@ -590,6 +592,8 @@ rules:
     severity: LOW
     pattern: '\b[a-zA-Z0-9\-_]{40,}:[a-zA-Z0-9\-_]{10,}\b'
     tags: [elastic, cloud]
+    requires_context: true
+    context_keywords: [elastic, elasticsearch, cloud_id]
 
   # ── CRM / Sales ──────────────────────────
   - name: hubspot_api_key
@@ -637,11 +641,11 @@ rules:
     requires_context: true
     context_keywords: [backend, credential, aws_secret, aws_access, s3, dynamodb]
   - name: terraform_state_secret
-    severity: CRITICAL
+    severity: HIGH
     pattern: '"value"\s*:\s*"[^"]{20,}"'
     tags: [terraform, state, iac, tfstate]
     requires_context: true
-    context_keywords: ["sensitive", "attributes", "resources"]
+    context_keywords: [sensitive]
 
   # ── Productivity / Design ────────────────
   - name: figma_api_token
@@ -802,8 +806,10 @@ rules:
     severity: MEDIUM
     pattern: '\b(?:Basic|Bearer)\s+[A-Za-z0-9\-_+/=]{20,}\b'
     tags: [generic, auth]
+    requires_context: true
+    context_keywords: [authorization]
   - name: credential_url
-    severity: HIGH
+    severity: MEDIUM
     pattern: '\bhttps?://[^\s:@]+:[^\s:@]+@[^\s]{3,}\b'
     tags: [generic, credential]
   - name: api_key_header
@@ -881,6 +887,7 @@ rules:
     severity: LOW
     pattern: '\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b'
     tags: [pii, email, gdpr]
+    requires_context: true
     context_keywords: [contact, support, admin, mail, notify, newsletter, signup, login, register]
 
   # ── Password Hashes ──────────────────────
