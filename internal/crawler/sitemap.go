@@ -179,10 +179,15 @@ func (sf *SitemapFetcher) fetchAndParse(rawURL string, seen map[string]bool, dep
 	sitemapURLs := ParseSitemap(content)
 	var urls []string
 	for _, entry := range sitemapURLs {
-		if entry.Loc != "" && !seen[entry.Loc] {
-			seen[entry.Loc] = true
-			urls = append(urls, entry.Loc)
+		if entry.Loc == "" || seen[entry.Loc] {
+			continue
 		}
+		if !sf.AllowPrivateIPs && !netguard.AllowFetch(entry.Loc) {
+			fmt.Fprintf(os.Stderr, "[debug] sitemap skip private IP %s\n", entry.Loc)
+			continue
+		}
+		seen[entry.Loc] = true
+		urls = append(urls, entry.Loc)
 	}
 	return urls
 }

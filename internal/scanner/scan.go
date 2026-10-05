@@ -160,7 +160,7 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				}
 				return nil
 			}
-			if info.Size() > cfg.MaxFileSize {
+			if cfg.MaxFileSize > 0 && info.Size() > cfg.MaxFileSize {
 				return nil
 			}
 			// Mtime skip: skip unchanged files
@@ -268,7 +268,7 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		if ext == ".zip" || ext == ".jar" || ext == ".war" || ext == ".ear" ||
 			ext == ".tar" || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
 			// Size gate: never slurp an oversized archive into memory.
-			if info.Size() > cfg.MaxFileSize {
+			if cfg.MaxFileSize > 0 && info.Size() > cfg.MaxFileSize {
 				if cfg.Debug {
 					fmt.Fprintf(os.Stderr, "[debug] skip archive (size %d > max %d): %s\n", info.Size(), cfg.MaxFileSize, path)
 				}

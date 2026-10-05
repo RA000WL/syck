@@ -90,3 +90,22 @@ func TestFetchSitemaps_DeduplicatesStandardPaths(t *testing.T) {
 		t.Errorf("expected 0 standard path fetches (already in robots), got %d", standardCalled)
 	}
 }
+
+func TestFetchSitemaps_LeafLocSSRFGate(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sitemap.xml", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>http://192.168.1.1/admin</loc></url><url><loc>https://example.com/page</loc></url></urlset>`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	fetcher := &SitemapFetcher{client: ts.Client(), ua: "test"}
+	urls := fetcher.FetchSitemaps("example.com", []string{ts.URL + "/sitemap.xml"})
+	if len(urls) != 1 {
+		t.Fatalf("expected 1 URL (private leaf filtered), got %d: %v", len(urls), urls)
+	}
+	if urls[0] != "https://example.com/page" {
+		t.Errorf("unexpected URL: %s", urls[0])
+	}
+}
