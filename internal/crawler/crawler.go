@@ -81,14 +81,16 @@ type crawler struct {
 	hostSema       *HostSemaphores
 	robots         *RobotsCache
 	sitemapFetcher *SitemapFetcher
-	mu             sync.Mutex // protects results and visited
+	mu             sync.Mutex // protects results, visited, and sitemapDomains; all visited access holds mu.
 	results        []CrawledURL
 	visited        map[string]bool
 	sitemapDomains map[string]bool // domains that have had sitemaps fetched
 	queue          []queueEntry
-	queueMu        sync.Mutex
-	debug          bool
-	initialHost    string
+	// queueMu protects queue. Lock order wherever both are needed is
+	// queueMu -> mu; never acquire queueMu while holding mu.
+	queueMu     sync.Mutex
+	debug       bool
+	initialHost string
 }
 
 type queueEntry struct {
@@ -325,14 +327,15 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			// V1.1: harvest source maps for JS files
 			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") && c.visitedCount() < cfg.Limit {
 				mapURL := e.url + ".map"
+				// Single-mutex discipline: check visited (under mu) and enqueue
+				// atomically. Lock order queueMu -> mu.
+				c.queueMu.Lock()
 				c.mu.Lock()
-				alreadyQueued := c.visited[mapURL]
-				c.mu.Unlock()
-				if !alreadyQueued {
-					c.queueMu.Lock()
+				if !c.visited[mapURL] {
 					c.queue = append(c.queue, queueEntry{url: mapURL, depth: e.depth + 1})
-					c.queueMu.Unlock()
 				}
+				c.mu.Unlock()
+				c.queueMu.Unlock()
 			}
 
 			// Enqueue discovered URLs
@@ -351,9 +354,12 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 // nextURL pops the next unvisited URL from the queue and marks it visited.
 // This eliminates the race between nextURL() and markVisited() where the
 // same URL could be dequeued twice by concurrent goroutines.
+// All visited access holds mu; lock order here is queueMu -> mu.
 func (c *crawler) nextURL() *queueEntry {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	for len(c.queue) > 0 {
 		entry := c.queue[0]
@@ -390,6 +396,7 @@ func (c *crawler) addResult(r CrawledURL) {
 }
 
 // enqueueURLs adds new URLs to the queue if not already visited.
+// All visited access holds mu; lock order here is queueMu -> mu.
 func (c *crawler) enqueueURLs(urls []string, depth int) {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
