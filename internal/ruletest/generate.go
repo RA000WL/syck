@@ -68,6 +68,12 @@ var positiveGenerators = map[string]func() []string{
 		}
 		return keys
 	},
+	"dropbox_api_token": func() []string {
+		return prefixLines("DROPBOX_TOKEN=sl.", alphanum, 24, 8)
+	},
+	"elevenlabs_api_key": func() []string {
+		return prefixLines("sk_", alphanum, 40, 8)
+	},
 	"fireworks_api_key": func() []string {
 		return prefixLines("fw_", alphanum, 36, 8)
 	},
@@ -106,6 +112,25 @@ var positiveGenerators = map[string]func() []string{
 	"mailgun_api_key": func() []string {
 		return prefixLines("key-", hexLower, 32, 8)
 	},
+	"mapbox_api_token": func() []string {
+		lines := make([]string, 8)
+		for i := range lines {
+			// Body includes -_. per spec; end on an alnum char so the trailing \b holds.
+			lines[i] = "sk." + randStr(39, alphanum+"-_.") + randStr(1, alphanum)
+		}
+		return lines
+	},
+	"moonshot_api_key": func() []string {
+		lines := make([]string, 8)
+		for i := range lines {
+			if i%2 == 0 {
+				lines[i] = fmt.Sprintf("MOONSHOT_API_KEY=ms-%s", randStr(24, alphanum))
+			} else {
+				lines[i] = fmt.Sprintf("kimi api key: ms-%s", randStr(24, alphanum))
+			}
+		}
+		return lines
+	},
 	"npm_token": func() []string {
 		return prefixLines("npm_", alphanum, 36, 8)
 	},
@@ -117,6 +142,9 @@ var positiveGenerators = map[string]func() []string{
 	},
 	"replicate_api_token": func() []string {
 		return prefixLines("r8_", hexBoth, 48, 8)
+	},
+	"runway_api_key": func() []string {
+		return prefixLines("RUNWAY_API_KEY=rw-", alphanum, 24, 8)
 	},
 	"sendgrid_api_token": func() []string {
 		lines := make([]string, 8)

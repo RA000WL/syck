@@ -266,7 +266,7 @@ rules:
     tags: [openrouter, ai]
   - name: elevenlabs_api_key
     severity: MEDIUM
-    pattern: '\bsk_[a-zA-Z0-9]{20,}\b'
+    pattern: '\bsk_[a-zA-Z0-9]{32,}\b'
     tags: [elevenlabs, ai]
   - name: cerebras_api_key
     severity: HIGH
@@ -282,16 +282,20 @@ rules:
     tags: [ollama, ai]
   - name: runway_api_key
     severity: HIGH
-    pattern: '\brw[-_][a-zA-Z0-9\-_]{10,}\b'
+    pattern: '\brw[-_][a-zA-Z0-9\-_]{20,}\b'
     tags: [runway, ai]
+    requires_context: true
+    context_keywords: [runway]
   - name: minimax_api_key
     severity: MEDIUM
     pattern: '\bmm-[a-zA-Z0-9]{30,}\b'
     tags: [minimax, ai]
   - name: moonshot_api_key
     severity: MEDIUM
-    pattern: '\bms-[a-zA-Z0-9]{10,}\b|\bsk-kimi-[a-zA-Z0-9]{10,}\b'
+    pattern: '\bms-[a-zA-Z0-9]{20,}\b|\bsk-kimi-[a-zA-Z0-9]{10,}\b'
     tags: [moonshot, ai]
+    requires_context: true
+    context_keywords: [moonshot, kimi]
   - name: tencent_cloud_api_key
     severity: MEDIUM
     pattern: '\bAKID[a-zA-Z0-9]{20,}\b|\btc_[a-zA-Z0-9]{20,}\b'
@@ -512,7 +516,7 @@ rules:
   # ── Maps / Geo ───────────────────────────
   - name: mapbox_api_token
     severity: HIGH
-    pattern: '\bsk\.[a-zA-Z0-9._\-]{20,200}\b'
+    pattern: '\bsk\.[a-zA-Z0-9._\-]{32,200}\b'
     tags: [mapbox, maps]
 
   # ── Monitoring ───────────────────────────
@@ -530,8 +534,10 @@ rules:
   # ── Misc SaaS ────────────────────────────
   - name: dropbox_api_token
     severity: HIGH
-    pattern: '\bsl\.[A-Za-z0-9\-_]{10,}\b'
+    pattern: '\bsl\.[A-Za-z0-9\-_]{16,}\b'
     tags: [dropbox, storage]
+    requires_context: true
+    context_keywords: [dropbox, dbx]
   - name: asana_personal_token
     severity: HIGH
     pattern: '\b[0-9/]+/[0-9a-f]{32}\b'
