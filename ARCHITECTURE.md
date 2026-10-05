@@ -54,7 +54,7 @@ SYCK combines both with context keywords, multi-layer decoding, JS string recons
 5. **Confidence over severity** — severity is what the rule says; confidence is how sure we are. Both live on every secret Finding (endpoints/juicy-files/internal-URL/debug-artifact findings carry neither).
 6. **Progressive triage** — SQLite cache enables cross-run dedup so teams can focus on new findings.
 7. **Zero-config defaults** — works out of the box; every behavior is tunable via 60+ flags.
-8. **Cross-rule dedup** — same secret triggering multiple rules collapses to one finding with highest severity.
+8. **Cross-rule dedup** — a secret triggering multiple rules keeps one finding per occurrence; the highest-severity rule stays primary in `RuleName` and the others are listed in `RuleNames`.
 9. **Aggressive FP elimination** — sorted alphabet detection, base58 filtering, image filename FPs, placeholder tokens.
 
 ---

@@ -60,6 +60,18 @@ unblock) is listed under [1.2.0](#120--batch-1-security-hardening) below.
   −10 penalty cap for high-precision providers never applied.
 - Per-rule entropy thresholds now apply to decoded (base64/hex/…) content as
   well as plaintext.
+- The default `--format text` output no longer re-collapses per-secret
+  findings: it renders one line per occurrence with `file:line`, matching the
+  count `--format json` reports for the same scan. Sibling rule names are now
+  surfaced in every output format (JSON, JSONL, CSV, SARIF, Markdown, HTML);
+  SARIF carries them as rule properties rather than inventing top-level keys.
+- `--diff` now marks every occurrence of a newly-recorded secret as new.
+  Previously only the first occurrence was flagged, because later ones hit
+  the fingerprint's uniqueness constraint and were recorded as updates.
+- A finding's `Confidence`, `ConfidenceBand`, and `DetectionMethod` now come
+  from the same rule that `RuleName` names. They could previously be
+  inherited from a different rule matching the same secret at the same
+  offset, yielding a severity that disagreed with its own confidence band.
 
 ## [1.2.0] — Batch 1: security hardening
 
