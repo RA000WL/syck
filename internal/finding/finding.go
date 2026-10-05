@@ -2,6 +2,7 @@ package finding
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -53,6 +54,7 @@ type Finding struct {
 	Line                int
 	Column              int
 	RuleName            string
+	RuleNames           []string `json:"rule_names,omitempty"`
 	Severity            Severity
 	RiskScore           int    `json:"risk_score,omitempty"`
 	FirstSeen           string `json:"first_seen,omitempty"`
@@ -146,42 +148,78 @@ func severityRank(s Severity) int {
 }
 
 func DeduplicateBySecret(findings []Finding) []Finding {
-	type entry struct {
-		rules    []string
-		severity Severity
-		idx      int
+	// Group key is unchanged: Secret + File. Within each group, emit one
+	// finding per distinct occurrence (File+Line+Column) so line info is
+	// preserved. RuleName stays a single exact rule name (the highest
+	// severity rule at that occurrence); RuleNames carries all rule names
+	// at the occurrence sorted by severity desc, then name asc.
+	type occurrence struct {
+		rep       Finding
+		sevByRule map[string]Severity
 	}
-	byKey := make(map[string]*entry)
-	var order []string
-	var result []Finding
+	byGroup := make(map[string]map[string]*occurrence)
 
+	occKey := func(f Finding) string {
+		return f.Secret + "\x00" + f.File
+	}
+	locKey := func(f Finding) string {
+		return f.File + "\x00" + strconv.Itoa(f.Line) + "\x00" + strconv.Itoa(f.Column)
+	}
+
+	var groupOrder []string
+	locOrder := make(map[string][]string)
 	for _, f := range findings {
-		key := f.Secret + "\x00" + f.File
-		if e, ok := byKey[key]; ok {
-			e.rules = append(e.rules, f.RuleName)
-			if severityRank(f.Severity) > severityRank(e.severity) {
-				e.severity = f.Severity
-			}
-		} else {
-			byKey[key] = &entry{
-				rules:    []string{f.RuleName},
-				severity: f.Severity,
-				idx:      len(result),
-			}
-			order = append(order, key)
-			result = append(result, f)
+		gk := occKey(f)
+		lk := locKey(f)
+		bucket, ok := byGroup[gk]
+		if !ok {
+			bucket = make(map[string]*occurrence)
+			byGroup[gk] = bucket
+			groupOrder = append(groupOrder, gk)
+		}
+		occ, ok := bucket[lk]
+		if !ok {
+			rep := f
+			occ = &occurrence{rep: rep, sevByRule: make(map[string]Severity)}
+			bucket[lk] = occ
+			locOrder[gk] = append(locOrder[gk], lk)
+		}
+		if sev, seen := occ.sevByRule[f.RuleName]; !seen || severityRank(f.Severity) > severityRank(sev) {
+			occ.sevByRule[f.RuleName] = f.Severity
 		}
 	}
 
-	for _, key := range order {
-		e := byKey[key]
-		idx := e.idx
-		result[idx].RuleName = strings.Join(e.rules, ",")
-		result[idx].Severity = e.severity
+	var result []Finding
+	for _, gk := range groupOrder {
+		for _, lk := range locOrder[gk] {
+			occ := byGroup[gk][lk]
+			names := make([]string, 0, len(occ.sevByRule))
+			for name := range occ.sevByRule {
+				names = append(names, name)
+			}
+			sort.Slice(names, func(i, j int) bool {
+				ri, rj := severityRank(occ.sevByRule[names[i]]), severityRank(occ.sevByRule[names[j]])
+				if ri != rj {
+					return ri > rj
+				}
+				return names[i] < names[j]
+			})
+			out := occ.rep
+			out.RuleName = names[0]
+			out.RuleNames = names
+			out.Severity = occ.sevByRule[names[0]]
+			result = append(result, out)
+		}
 	}
 
 	sort.SliceStable(result, func(i, j int) bool {
-		return severityRank(result[i].Severity) > severityRank(result[j].Severity)
+		if result[i].File != result[j].File {
+			return result[i].File < result[j].File
+		}
+		if result[i].Line != result[j].Line {
+			return result[i].Line < result[j].Line
+		}
+		return result[i].Column < result[j].Column
 	})
 
 	return result

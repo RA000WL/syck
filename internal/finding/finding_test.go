@@ -78,9 +78,21 @@ func TestDeduplicateBySecret(t *testing.T) {
 	for _, f := range deduped {
 		if f.Secret == "AIzaSy123" {
 			aiFound = true
-			// Should have all rule names comma-separated
-			if f.RuleName != "google_api_key,generic_secret,api_key_header,high_entropy_token,url_google_api_key" {
-				t.Errorf("AIzaSy123 RuleName = %q, want all 5 rules", f.RuleName)
+			// Single exact rule name: highest severity wins, ties by name asc.
+			// All 5 findings share Line 0/Column 0 (one occurrence), so
+			// RuleNames records all 5 rules, severity desc then name asc.
+			if f.RuleName != "api_key_header" {
+				t.Errorf("AIzaSy123 RuleName = %q, want %q (single highest-severity name)", f.RuleName, "api_key_header")
+			}
+			wantNames := []string{"api_key_header", "generic_secret", "google_api_key", "url_google_api_key", "high_entropy_token"}
+			if len(f.RuleNames) != len(wantNames) {
+				t.Errorf("AIzaSy123 RuleNames = %q, want %q", f.RuleNames, wantNames)
+			} else {
+				for i, want := range wantNames {
+					if f.RuleNames[i] != want {
+						t.Errorf("AIzaSy123 RuleNames[%d] = %q, want %q (full: %q)", i, f.RuleNames[i], want, f.RuleNames)
+					}
+				}
 			}
 			// Should keep highest severity (HIGH, not MEDIUM)
 			if f.Severity != SeverityHigh {
