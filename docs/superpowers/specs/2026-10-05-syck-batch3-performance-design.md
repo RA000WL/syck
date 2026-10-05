@@ -74,6 +74,11 @@ formatters, and any finding-visible behavior change.
   one atomic crawl budget via `CompareAndSwap`; `.js.map` enqueue
   routed through the normal scope and domain filters.
 
+If the 3c benchmark shows the current goroutine path is not slower,
+the regex change is reverted and only the crawl-budget and scope
+fixes ship in 3c. That outcome is a valid, documented result — not a
+failed task.
+
 ## 4. Data flow, errors, testing (approved)
 
 Findings, ordering, and exit codes are unchanged — only goroutine,
