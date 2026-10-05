@@ -40,7 +40,10 @@ In scope:
   reporting as LOW.
 - `internal/crawler/crawler.go:346-375` single mutex for `visited` map.
 - Gzip/archive caps (`internal/decoder/pipeline.go:176-195`,
-  `internal/scanner/scan.go:270`).
+  `internal/scanner/scan.go:270`) plus two escape hatches:
+  `--allow-private-ips` (default off, permits intentional intranet
+  scans) and `--allow-insecure-webhook` (default off, permits
+  `http://` webhook URLs).
 - `gofmt -w` 14 dirty files; fix `cmd/root.go:19` +
   `cmd/env.go:15` env binding (`SYCK_<CMD>_<FLAG>` for all subcommands,
   surface `Set` errors); reconcile version (`main.go:6` 1.1.0 vs docs
