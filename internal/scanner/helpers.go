@@ -110,7 +110,7 @@ func scanCrawledContent(crawled []crawler.CrawledURL, cfg Config, urlsScanned, t
 			cfg.URLProgress(c.URL, nil, false)
 		}
 
-		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL
+		hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
 		itemFindings := scanContent(c.Content, c.URL, cfg, "", nil, hasDecoders)
 		findings = append(findings, itemFindings...)
 		*urlsScanned++

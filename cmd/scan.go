@@ -73,6 +73,10 @@ var (
 	decodeUnicode        bool
 	decodeURL            bool
 	decodeGzip           bool
+	decodeBase64URL      bool
+	decodeJWT            bool
+	decodeDoubleBase64   bool
+	decodeCharCode       bool
 	jsReconstruct        bool
 	endpoints            bool
 	pipe                 bool
@@ -151,6 +155,10 @@ func init() {
 	scanCmd.Flags().BoolVar(&decodeUnicode, "decode-unicode", false, "decode \\uXXXX escapes and rescan")
 	scanCmd.Flags().BoolVar(&decodeURL, "decode-url", false, "URL-decode lines and rescan")
 	scanCmd.Flags().BoolVar(&decodeGzip, "decode-gzip", false, "decompress gzip/zlib content and rescan")
+	scanCmd.Flags().BoolVar(&decodeBase64URL, "decode-base64url", false, "base64url decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeJWT, "decode-jwt", false, "jwt decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeDoubleBase64, "decode-double-base64", false, "double-base64 decode lines and rescan")
+	scanCmd.Flags().BoolVar(&decodeCharCode, "decode-charcode", false, "charcode decode lines and rescan")
 	scanCmd.Flags().BoolVar(&jsReconstruct, "js-reconstruct", true, "reconstruct JS concatenated strings")
 	scanCmd.Flags().BoolVar(&endpoints, "endpoints", true, "extract API/graphql/websocket URLs")
 	scanCmd.Flags().BoolVar(&pipe, "pipe", false, "scan from stdin")
@@ -443,60 +451,64 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	scanCfg := scanner.Config{
-		Workers:           clampWorkers(workers),
-		MaxFileSize:       maxSize,
-		Exclude:           excludeRegex,
-		Rules:             rs,
-		MinSeverity:       sev,
-		NoDedup:           noDedup,
-		Debug:             debugMode,
-		DecodeBase64:      decodeBase64,
-		DecodeHex:         decodeHex,
-		DecodeUnicode:     decodeUnicode,
-		DecodeURL:         decodeURL,
-		DecodeGzip:        decodeGzip,
-		JSReconstruct:     jsReconstruct,
-		Endpoints:         endpoints,
-		DowngradeFP:       downgradeFP,
-		URLs:              allURLs,
-		URLFile:           urlFile,
-		Scope:             scopeRegex,
-		CrawlLimit:        crawlLimit,
-		CrawlDepth:        crawlDepth,
-		Headless:          headless,
-		RateLimit:         rateLimit,
-		UserAgent:         userAgent,
-		Cookies:           cookies,
-		CookieFile:        cookieFile,
-		Concurrency:       concurrency,
-		HostConcurrency:   hostConcurrency,
-		RespectRobots:     !ignoreRobots,
-		GitHistory:        gitHistory,
-		MaxScanLineLen:    maxScanLineLen,
-		MultiLine:         multiline,
-		MinEndpointScore:  minEndpointScore,
-		ProbeJuicyFiles:   endpoints && !noJuicyFiles,
-		ScanArchives:      scanArchives,
-		ScanBinaries:      scanBinaries,
-		StripComments:     stripComments,
-		DetectAuthHeaders: detectAuthHeaders,
-		ProbeGraphQL:      probeGraphQL,
-		ParseOpenAPI:      parseOpenAPI,
-		EntropyThresholds: entropyThresholdsParsed,
-		CacheDB:           cacheDB,
-		Adaptive:          adaptiveFlag,
-		HTTPTimeout:       parsedTimeout,
-		ProxyURL:          proxyURL,
-		Headers:           headers,
-		ScopePatterns:     scopePatterns,
-		Diff:              diffMode,
-		CookieString:      cookieString,
-		NoSitemap:         noSitemap,
-		AllowPrivateIPs:   allowPrivateIPs,
-		HeaderCheck:       headerCheck,
-		TechDetect:        techDetect,
-		URLCacheDB:        urlCacheDB,
-		ExcludeDir:        parseExcludeDir(excludeDir),
+		Workers:            clampWorkers(workers),
+		MaxFileSize:        maxSize,
+		Exclude:            excludeRegex,
+		Rules:              rs,
+		MinSeverity:        sev,
+		NoDedup:            noDedup,
+		Debug:              debugMode,
+		DecodeBase64:       decodeBase64,
+		DecodeHex:          decodeHex,
+		DecodeUnicode:      decodeUnicode,
+		DecodeURL:          decodeURL,
+		DecodeGzip:         decodeGzip,
+		DecodeBase64URL:    decodeBase64URL,
+		DecodeJWT:          decodeJWT,
+		DecodeDoubleBase64: decodeDoubleBase64,
+		DecodeCharCode:     decodeCharCode,
+		JSReconstruct:      jsReconstruct,
+		Endpoints:          endpoints,
+		DowngradeFP:        downgradeFP,
+		URLs:               allURLs,
+		URLFile:            urlFile,
+		Scope:              scopeRegex,
+		CrawlLimit:         crawlLimit,
+		CrawlDepth:         crawlDepth,
+		Headless:           headless,
+		RateLimit:          rateLimit,
+		UserAgent:          userAgent,
+		Cookies:            cookies,
+		CookieFile:         cookieFile,
+		Concurrency:        concurrency,
+		HostConcurrency:    hostConcurrency,
+		RespectRobots:      !ignoreRobots,
+		GitHistory:         gitHistory,
+		MaxScanLineLen:     maxScanLineLen,
+		MultiLine:          multiline,
+		MinEndpointScore:   minEndpointScore,
+		ProbeJuicyFiles:    endpoints && !noJuicyFiles,
+		ScanArchives:       scanArchives,
+		ScanBinaries:       scanBinaries,
+		StripComments:      stripComments,
+		DetectAuthHeaders:  detectAuthHeaders,
+		ProbeGraphQL:       probeGraphQL,
+		ParseOpenAPI:       parseOpenAPI,
+		EntropyThresholds:  entropyThresholdsParsed,
+		CacheDB:            cacheDB,
+		Adaptive:           adaptiveFlag,
+		HTTPTimeout:        parsedTimeout,
+		ProxyURL:           proxyURL,
+		Headers:            headers,
+		ScopePatterns:      scopePatterns,
+		Diff:               diffMode,
+		CookieString:       cookieString,
+		NoSitemap:          noSitemap,
+		AllowPrivateIPs:    allowPrivateIPs,
+		HeaderCheck:        headerCheck,
+		TechDetect:         techDetect,
+		URLCacheDB:         urlCacheDB,
+		ExcludeDir:         parseExcludeDir(excludeDir),
 	}
 
 	if progressFlag && !quiet && !pipe {

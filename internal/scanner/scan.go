@@ -968,7 +968,8 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	}
 
 	content := linesBuf.String()
-	findings := scanContent(content, "stdin", cfg, "", nil, false)
+	hasDecoders := cfg.DecodeBase64 || cfg.DecodeHex || cfg.DecodeUnicode || cfg.DecodeURL || cfg.DecodeBase64URL || cfg.DecodeJWT || cfg.DecodeDoubleBase64 || cfg.DecodeCharCode
+	findings := scanContent(content, "stdin", cfg, "", nil, hasDecoders)
 
 	// Endpoint extraction for stdin
 	if cfg.Endpoints && content != "" {
