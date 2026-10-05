@@ -15,6 +15,7 @@ import (
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/httpclient"
+	"github.com/RA000WL/syck/internal/netguard"
 	"github.com/RA000WL/syck/internal/recon"
 	"github.com/RA000WL/syck/internal/rules"
 	"github.com/RA000WL/syck/internal/sourcemap"
@@ -22,7 +23,7 @@ import (
 
 // buildHTTPClient creates an HTTP client with custom headers and cookies
 func buildHTTPClient(cfg Config) *http.Client {
-	httpClient := httpclient.NewClient(cfg.HTTPTimeout, cfg.ProxyURL, false)
+	httpClient := httpclient.NewClientWithPrivateIPs(cfg.HTTPTimeout, cfg.ProxyURL, false, cfg.AllowPrivateIPs)
 
 	if len(cfg.Headers) > 0 || cfg.CookieString != "" {
 		effectiveHeaders := make(map[string][]string)
@@ -60,6 +61,7 @@ func buildCrawlConfig(cfg Config, httpClient *http.Client) crawler.CrawlConfig {
 		HostConcurrency: cfg.HostConcurrency,
 		RespectRobots:   cfg.RespectRobots,
 		SameDomainOnly:  true,
+		AllowPrivateIPs: cfg.AllowPrivateIPs,
 		HTTPClient:      httpClient,
 	}
 
@@ -385,6 +387,12 @@ func analyzeSourceMaps(httpClient *http.Client, crawled []crawler.CrawledURL, cf
 		}
 
 		// Fetch and parse source map
+		if !cfg.AllowPrivateIPs && !netguard.AllowFetch(mapURL) {
+			if cfg.Debug {
+				fmt.Fprintf(os.Stderr, "[debug] source map skip private IP %s\n", mapURL)
+			}
+			continue
+		}
 		sm, err := sourcemap.FetchAndParseSourceMap(httpClient, mapURL)
 		if err != nil {
 			if cfg.Debug {

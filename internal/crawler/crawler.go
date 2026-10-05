@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RA000WL/syck/internal/netguard"
 )
 
 type CrawlConfig struct {
@@ -29,6 +31,7 @@ type CrawlConfig struct {
 	RespectRobots   bool
 	SameDomainOnly  bool
 	SitemapEnabled  bool
+	AllowPrivateIPs bool
 	URLCache        *URLCache
 }
 
@@ -112,11 +115,15 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	// Build HTTP client with optional cookie jar
 	client := cfg.HTTPClient
 	if client == nil {
+		allowPrivate := cfg.AllowPrivateIPs
 		client = &http.Client{
 			Timeout: 10 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 5 {
 					return fmt.Errorf("too many redirects")
+				}
+				if !allowPrivate && req.URL != nil && !netguard.AllowFetch(req.URL.String()) {
+					return fmt.Errorf("blocked redirect to private IP: %s", req.URL.String())
 				}
 				return nil
 			},
@@ -145,6 +152,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 	// Initialize sitemap fetcher if enabled
 	if cfg.SitemapEnabled {
 		c.sitemapFetcher = NewSitemapFetcher(client, cfg.UserAgent)
+		c.sitemapFetcher.AllowPrivateIPs = cfg.AllowPrivateIPs
 	}
 
 	// Seed the queue

@@ -109,6 +109,7 @@ var (
 	parseOpenAPI      bool
 	paramBrute        bool
 	paramBruteWordlist string
+	allowPrivateIPs    bool
 	entropyThresholds map[string]string
 	webhookURL        string
 	webhookStyle      string
@@ -205,6 +206,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&scanReconLive, "recon-live", false, "only scan live hosts from recon")
 	scanCmd.Flags().BoolVar(&paramBrute, "param-brute", false, "brute-force hidden parameters on discovered endpoints")
 	scanCmd.Flags().StringVar(&paramBruteWordlist, "param-wordlist", "", "custom wordlist for parameter brute-force (one per line)")
+	scanCmd.Flags().BoolVar(&allowPrivateIPs, "allow-private-ips", false, "allow secondary fetches and redirects to private IPs (disables SSRF guard)")
 	scanCmd.Flags().StringVar(&excludeDir, "exclude-dir", "", "regex pattern to exclude directories (e.g. 'node_modules|vendor')")
 }
 
@@ -489,6 +491,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Diff:              diffMode,
 		CookieString:      cookieString,
 		NoSitemap:         noSitemap,
+		AllowPrivateIPs:   allowPrivateIPs,
 		HeaderCheck:       headerCheck,
 		TechDetect:        techDetect,
 		URLCacheDB:        urlCacheDB,

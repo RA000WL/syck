@@ -69,6 +69,7 @@ type Config struct {
 	Diff          bool                // only output new findings (requires CacheDB)
 	CookieString  string              // cookie string to inject (name=value; name2=value2)
 	NoSitemap     bool                // disable robots/sitemap discovery
+	AllowPrivateIPs bool              // allow secondary fetches/redirects to private IPs (SSRF gate escape hatch)
 	HeaderCheck   bool                // analyze HTTP security headers on discovered URLs
 	TechDetect    bool                // detect technologies from HTTP responses and source code
 	URLCacheDB    string              // path to SQLite URL cache database for cross-run dedup

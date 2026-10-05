@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/RA000WL/syck/internal/netguard"
 )
 
 const (
@@ -65,6 +68,8 @@ func ParseSitemapIndex(data string) []string {
 type SitemapFetcher struct {
 	client *http.Client
 	ua     string
+	// AllowPrivateIPs disables the SSRF gate for child sitemap fetches.
+	AllowPrivateIPs bool
 }
 
 // NewSitemapFetcher creates a SitemapFetcher with the given HTTP client and user agent.
@@ -159,6 +164,10 @@ func (sf *SitemapFetcher) fetchAndParse(rawURL string, seen map[string]bool, dep
 		for _, childURL := range childSitemaps {
 			if len(allURLs) >= MaxURLsFromSitemaps {
 				break
+			}
+			if !sf.AllowPrivateIPs && !netguard.AllowFetch(childURL) {
+				fmt.Fprintf(os.Stderr, "[debug] sitemap skip private IP %s\n", childURL)
+				continue
 			}
 			urls := sf.fetchAndParse(childURL, seen, depth+1)
 			allURLs = append(allURLs, urls...)

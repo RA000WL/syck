@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/RA000WL/syck/internal/netguard"
 )
 
 // dnsCache caches DNS lookups to reduce DNS queries
@@ -89,6 +91,14 @@ func NewValidatorClient(timeout time.Duration, proxyURL string) *http.Client {
 
 // NewClient creates an http.Client with the given timeout, proxy, and TLS settings.
 func NewClient(timeout time.Duration, proxyURL string, insecureSkipVerify bool) *http.Client {
+	return NewClientWithPrivateIPs(timeout, proxyURL, insecureSkipVerify, false)
+}
+
+// NewClientWithPrivateIPs creates an http.Client like NewClient but optionally
+// allows redirects to private/Literal-IP targets gated by netguard.
+// When allowPrivateIPs is false, redirects to denied targets are stopped
+// with an error.
+func NewClientWithPrivateIPs(timeout time.Duration, proxyURL string, insecureSkipVerify bool, allowPrivateIPs bool) *http.Client {
 	transport := NewTransport(proxyURL, insecureSkipVerify)
 	return &http.Client{
 		Transport: transport,
@@ -96,6 +106,9 @@ func NewClient(timeout time.Duration, proxyURL string, insecureSkipVerify bool) 
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("too many redirects")
+			}
+			if !allowPrivateIPs && req.URL != nil && !netguard.AllowFetch(req.URL.String()) {
+				return fmt.Errorf("blocked redirect to private IP: %s", req.URL.String())
 			}
 			return nil
 		},
