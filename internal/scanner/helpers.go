@@ -518,6 +518,15 @@ func scanLineForRegexRules(line string, lineNum int, path string, cfg Config, ta
 	return findings
 }
 
+// ruleEntropyFloor returns the minimum Shannon entropy a match must reach:
+// the rule's own EntropyThreshold when configured (> 0), else the global 2.0 floor.
+func ruleEntropyFloor(th float64) float64 {
+	if th > 0 {
+		return th
+	}
+	return 2.0
+}
+
 // scanLineForRegexRulesChunk scans a line against a subset of rules (a chunk).
 func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Config, tagPrefix string, skipSecrets map[string]bool, chunk []rules.Rule, offset int) []finding.Finding {
 	var findings []finding.Finding
@@ -551,7 +560,7 @@ func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Confi
 			}
 
 			e := entropy.Shannon(secret)
-			if e < 2.0 {
+			if e < ruleEntropyFloor(rule.EntropyThreshold) {
 				continue
 			}
 			if entropy.IsFalsePositiveSecret(secret) {
