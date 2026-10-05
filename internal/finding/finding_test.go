@@ -2,6 +2,21 @@ package finding
 
 import "testing"
 
+func TestParseSeverityCaseInsensitive(t *testing.T) {
+	if ParseSeverity("critical") != SeverityCritical {
+		t.Fatal("lowercase critical")
+	}
+	if ParseSeverity("High") != SeverityHigh {
+		t.Fatal("mixed high")
+	}
+	if ParseSeverity("MEDIUM") != SeverityMedium {
+		t.Fatal("upper medium")
+	}
+	if ParseSeverity("bogus") != SeverityLow {
+		t.Fatal("unknown fallback")
+	}
+}
+
 func TestFindingConfidenceField(t *testing.T) {
 	f := Finding{
 		RuleName:       "x",

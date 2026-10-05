@@ -42,7 +42,7 @@ var SeverityFromName = map[string]Severity{
 }
 
 func ParseSeverity(s string) Severity {
-	if sev, ok := SeverityFromName[s]; ok {
+	if sev, ok := SeverityFromName[strings.ToUpper(s)]; ok {
 		return sev
 	}
 	return SeverityLow
