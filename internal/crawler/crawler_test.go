@@ -1,9 +1,11 @@
 package crawler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 )
@@ -92,5 +94,71 @@ func TestCrawlConcurrentVisitedRace(t *testing.T) {
 	}
 	if len(results) == 0 {
 		t.Fatal("expected at least 1 result")
+	}
+}
+
+// TestVisitedMapConcurrentHammer directly hammers every accessor of the
+// crawler visited map concurrently. Unlike TestCrawlConcurrentVisitedRace
+// (which goes through the public Crawl API where HostConcurrency serializes
+// workers), this white-box test forces nextURL vs markVisited/visitedCount/
+// enqueueURLs interleavings every run, so `go test -race` flags any future
+// dual-mutex regression on the visited map. Hermetic: no network.
+func TestVisitedMapConcurrentHammer(t *testing.T) {
+	c := &crawler{visited: make(map[string]bool)}
+
+	const unique = 50
+	urls := make([]string, unique)
+	for i := range urls {
+		urls[i] = fmt.Sprintf("http://example.test/p%d", i)
+	}
+	// Seed the queue with duplicates: each unique URL 4x.
+	for r := 0; r < 4; r++ {
+		for _, u := range urls {
+			c.queue = append(c.queue, queueEntry{url: u, depth: 0})
+		}
+	}
+
+	var retMu sync.Mutex
+	returned := make(map[string]int)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				u := urls[(g+i)%len(urls)]
+				if e := c.nextURL(); e != nil {
+					retMu.Lock()
+					returned[e.url]++
+					retMu.Unlock()
+				}
+				c.markVisited(u)
+				_ = c.visitedCount()
+				c.enqueueURLs([]string{u}, 0)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	// Drain leftovers (enqueueURLs may have appended entries before their
+	// URL was marked visited); every pop is still deduped by nextURL.
+	for {
+		e := c.nextURL()
+		if e == nil {
+			break
+		}
+		returned[e.url]++
+	}
+
+	// No URL may be handed out twice: nextURL checks and marks visited
+	// atomically under the single-mutex discipline.
+	for u, n := range returned {
+		if n > 1 {
+			t.Errorf("nextURL returned %s %d times, want at most once", u, n)
+		}
+	}
+	// Every unique URL was either dequeued or explicitly marked.
+	if got := c.visitedCount(); got != unique {
+		t.Errorf("visitedCount = %d, want %d", got, unique)
 	}
 }
