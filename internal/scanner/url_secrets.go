@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/RA000WL/syck/internal/confidence"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 )
@@ -40,15 +41,17 @@ func ExtractURLSecrets(line string, path string, lineno int) []finding.Finding {
 					continue
 				}
 				findings = append(findings, finding.Finding{
-					File:            path,
-					Line:            lineno,
-					Column:          0,
-					RuleName:        ruleName,
-					Severity:        finding.SeverityHigh,
-					Secret:          val,
-					Context:         finding.Truncate("URL secret param: " + param + "=" + val),
-					Entropy:         e,
-					Confidence:      finding.ConfidenceURLParam + finding.ConfidenceRegex,
+					File:     path,
+					Line:     lineno,
+					Column:   0,
+					RuleName: ruleName,
+					Severity: finding.SeverityHigh,
+					Secret:   val,
+					Context:  finding.Truncate("URL secret param: " + param + "=" + val),
+					Entropy:  e,
+					// URL-param hits score regex + context on the unified scale.
+					Confidence:      confidence.PtsRegex + confidence.PtsContext,
+					ConfidenceBand:  confidence.Band(confidence.PtsRegex + confidence.PtsContext),
 					DetectionMethod: "url_param",
 				})
 			}

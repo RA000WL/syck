@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/RA000WL/syck/internal/adaptive"
+	"github.com/RA000WL/syck/internal/confidence"
 	"github.com/RA000WL/syck/internal/correlator"
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
@@ -639,7 +640,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Context:         finding.Truncate(strings.TrimSpace(line)),
 					ContextBefore:   finding.Truncate(ctxBefore),
 					Entropy:         e,
-					Confidence:      finding.ConfidenceRegex,
+					Confidence:      confidence.PtsRegex,
+					ConfidenceBand:  confidence.Band(confidence.PtsRegex),
 					DetectionMethod: "regex",
 				}
 				lineFindings = append(lineFindings, f)
@@ -674,7 +676,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					Context:         finding.Truncate(strings.TrimSpace(line)),
 					ContextBefore:   finding.Truncate(ctxBefore),
 					Entropy:         tokEntropy,
-					Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
+					Confidence:      confidence.PtsEntropy + confidence.PtsContext,
+					ConfidenceBand:  confidence.Band(confidence.PtsEntropy + confidence.PtsContext),
 					DetectionMethod: "entropy+context",
 				}
 				lineFindings = append(lineFindings, f)
@@ -698,7 +701,8 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 				Secret:          cs.Token,
 				Context:         finding.Truncate(strings.TrimSpace(line)),
 				Entropy:         cs.Entropy,
-				Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
+				Confidence:      confidence.PtsEntropy + confidence.PtsContext,
+				ConfidenceBand:  confidence.Band(confidence.PtsEntropy + confidence.PtsContext),
 				DetectionMethod: "entropy+context",
 			}
 			lineFindings = append(lineFindings, f)
@@ -722,12 +726,12 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 					key = key[:60]
 				}
 				if !lineSkipSecrets[key] {
-					findings = append(findings, df)
+					findings = append(findings, markDecodedFindings([]finding.Finding{df})...)
 				}
 			}
 		} else if hasDecoders {
-			findings = append(findings, decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
-				cfg.Rules, cfg.MinSeverity, activeDec)...)
+			findings = append(findings, markDecodedFindings(decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
+				cfg.Rules, cfg.MinSeverity, activeDec))...)
 		}
 
 		urlFindings := ExtractURLSecrets(line, path, lineNum)
@@ -1224,7 +1228,8 @@ func ScanExpiredJWTs(line string, lineNum int, path string) []finding.Finding {
 				Secret:          m,
 				Context:         finding.Truncate(strings.TrimSpace(line)),
 				Entropy:         0,
-				Confidence:      finding.ConfidenceRegex,
+				Confidence:      confidence.PtsRegex,
+				ConfidenceBand:  confidence.Band(confidence.PtsRegex),
 				DetectionMethod: "regex+expiry",
 			})
 		}

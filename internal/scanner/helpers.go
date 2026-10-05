@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RA000WL/syck/internal/confidence"
 	"github.com/RA000WL/syck/internal/crawler"
 	"github.com/RA000WL/syck/internal/decoder"
 	"github.com/RA000WL/syck/internal/endpoints"
@@ -581,10 +582,11 @@ func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Confi
 			}
 			ctx = finding.Truncate(ctx)
 
-			conf := finding.ConfidenceRegex
+			// Decoded hits keep PtsRegex: there is no separate decoded bonus on
+			// the unified scale, so a decoded regex match scores like a plain one.
+			conf := confidence.PtsRegex
 			method := "regex"
 			if tagPrefix != "" {
-				conf += finding.ConfidenceDecoded
 				method = "decoded_regex"
 			}
 
@@ -600,6 +602,7 @@ func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Confi
 				ContextAfter:    "",
 				Entropy:         e,
 				Confidence:      conf,
+				ConfidenceBand:  confidence.Band(conf),
 				DetectionMethod: method,
 			})
 		}
@@ -656,7 +659,8 @@ func scanLineForEntropyTokens(line string, lineNum int, path string, cfg Config,
 			ContextBefore:   ctxBefore,
 			ContextAfter:    ctxAfter,
 			Entropy:         tokEntropy,
-			Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
+			Confidence:      confidence.PtsEntropy + confidence.PtsContext,
+			ConfidenceBand:  confidence.Band(confidence.PtsEntropy + confidence.PtsContext),
 			DetectionMethod: "entropy+context",
 		})
 	}
@@ -681,12 +685,30 @@ func scanLineForContextualSecrets(line string, lineNum int, path string) []findi
 			Secret:          cs.Token,
 			Context:         finding.Truncate(strings.TrimSpace(line)),
 			Entropy:         cs.Entropy,
-			Confidence:      finding.ConfidenceEntropy + finding.ConfidenceContext,
+			Confidence:      confidence.PtsEntropy + confidence.PtsContext,
+			ConfidenceBand:  confidence.Band(confidence.PtsEntropy + confidence.PtsContext),
 			DetectionMethod: "entropy+context",
 		})
 	}
 
 	return findings
+}
+
+// markDecodedFindings puts decoder-originated findings on the unified
+// confidence scale. The decoder package sets no confidence fields, so every
+// decoded regex hit keeps confidence.PtsRegex with its band, and gains the
+// "decoded_regex" method label when the decoder left it empty.
+func markDecodedFindings(fs []finding.Finding) []finding.Finding {
+	for i := range fs {
+		if fs[i].Confidence == 0 {
+			fs[i].Confidence = confidence.PtsRegex
+		}
+		fs[i].ConfidenceBand = confidence.Band(fs[i].Confidence)
+		if fs[i].DetectionMethod == "" {
+			fs[i].DetectionMethod = "decoded_regex"
+		}
+	}
+	return fs
 }
 
 // scanLineForDecodedContent scans decoded content for secrets
@@ -712,7 +734,7 @@ func scanLineForDecodedContent(line string, lineNum int, path string, cfg Config
 		decodedFindings = filtered
 	}
 
-	return decodedFindings
+	return markDecodedFindings(decodedFindings)
 }
 
 // scanLineForAuthHeaders scans a single line for auth headers

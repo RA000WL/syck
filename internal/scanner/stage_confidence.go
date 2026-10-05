@@ -15,7 +15,7 @@ func NewConfidenceStage() *ConfidenceStage { return &ConfidenceStage{scorer: con
 func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 	for i := range in {
 		sig := confidence.Signals{
-			RegexMatch:        in[i].RuleName != "entropy_token",
+			RegexMatch:        isRegexMatch(in[i].DetectionMethod, in[i].RuleName),
 			Entropy:           in[i].Entropy,
 			HasContextKeyword: false,
 			Verified:          in[i].VerificationStatus == "VERIFIED",
@@ -28,4 +28,20 @@ func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 		in[i].ConfidenceBand = confidence.Band(score)
 	}
 	return in
+}
+
+// isRegexMatch derives the regex signal from DetectionMethod. The pipeline
+// Rule/Decoder stages predate DetectionMethod and leave it empty, so an
+// empty method falls back to the rule-name heuristic (only "entropy_token"
+// is a known non-regex producer there); every other empty-method finding is
+// a regex hit.
+func isRegexMatch(method, ruleName string) bool {
+	switch method {
+	case "regex", "decoded_regex", "regex+expiry":
+		return true
+	case "":
+		return ruleName != "entropy_token"
+	default:
+		return false
+	}
 }

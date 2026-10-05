@@ -8,14 +8,6 @@ import (
 
 const MaxContextLen = 500
 
-const (
-	ConfidenceRegex    = 60
-	ConfidenceEntropy  = 15
-	ConfidenceContext  = 15
-	ConfidenceDecoded  = 10
-	ConfidenceURLParam = 10
-)
-
 type Severity int
 
 const (

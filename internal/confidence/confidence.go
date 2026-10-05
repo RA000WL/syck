@@ -13,30 +13,33 @@ type Scorer struct{}
 func NewScorer() *Scorer { return &Scorer{} }
 
 const (
-	ptsRegex     = 40
-	ptsEntropy   = 20
-	ptsContext   = 15
-	ptsVerified  = 50
-	ptsCredPair  = 30
-	entropyFloor = 4.5
+	PtsRegex    = 40
+	PtsEntropy  = 20
+	PtsContext  = 15
+	PtsVerified = 50
+	PtsCredPair = 30
+	// EntropyFloor is the minimum Shannon entropy for the entropy signal.
+	EntropyFloor = 4.5
+	// MaxScore caps the unified confidence scale.
+	MaxScore = 120
 )
 
 func (s *Scorer) Score(sig Signals) int {
 	score := 0
 	if sig.RegexMatch {
-		score += ptsRegex
+		score += PtsRegex
 	}
-	if sig.Entropy >= entropyFloor {
-		score += ptsEntropy
+	if sig.Entropy >= EntropyFloor {
+		score += PtsEntropy
 	}
 	if sig.HasContextKeyword {
-		score += ptsContext
+		score += PtsContext
 	}
 	if sig.Verified {
-		score += ptsVerified
+		score += PtsVerified
 	}
 	if sig.InCredentialPair {
-		score += ptsCredPair
+		score += PtsCredPair
 	}
 	return score
 }
@@ -48,8 +51,8 @@ func (s *Scorer) ScoreWithAdaptive(sig Signals, adaptiveMod int) int {
 	if adjusted < 0 {
 		adjusted = 0
 	}
-	if adjusted > 120 {
-		adjusted = 120
+	if adjusted > MaxScore {
+		adjusted = MaxScore
 	}
 	return adjusted
 }
@@ -62,7 +65,7 @@ func Band(score int) string {
 		return "MEDIUM"
 	case score <= 90:
 		return "HIGH"
-	case score <= 120:
+	case score <= MaxScore:
 		return "CRITICAL"
 	default:
 		return "VERY_HIGH"
