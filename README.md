@@ -15,7 +15,7 @@ A fast, modular secret scanner and recon engine written in Go. 199 detection rul
 - **Confidence scoring** — numeric 0-100 confidence with LOW/MEDIUM/HIGH/CRITICAL bands and detection method tags
 - **Contextual entropy** — keyword-gated entropy detection finds secrets even without specific rule matches
 - **Multi-layer decoding** — base64, base64url, hex, Unicode escape, URL-encoded, gzip, JWT, double-base64, String.fromCharCode — recursive up to depth 3
-- **Cross-rule dedup** — collapses findings with the same secret across multiple rules, keeping highest severity
+- **Cross-rule dedup** — one finding per occurrence; matching rules are listed together while the highest-severity rule stays primary
 - **Parallel rule matching** — rules split across goroutine workers per line for faster scanning
 - **Incremental scanning** — mtime-based skip cache for unchanged files between runs
 
@@ -359,8 +359,8 @@ syck scan [paths...]
           ├── WAF/CDN detection
           └── Cloud storage detection
                │
-               ├── Cross-rule dedup (by secret value, keep highest severity)
-               ├── Deduplication
+               ├── Deduplication (exact match)
+               ├── Cross-rule dedup (per occurrence; RuleName + RuleNames)
                ├── FP downgrade + FP false positive filters
                ├── .syckignore filter
                ├── Mtime skip cache (--cache-db incremental)

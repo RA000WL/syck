@@ -17,15 +17,9 @@
 9. [Scanning Modes](#9-scanning-modes)
 10. [Post-Processing Pipeline](#10-post-processing-pipeline)
 11. [Output Formats](#11-output-formats)
-12. [Confidence & Risk Scoring](#12-confidence--risk-scoring)
-13. [Live Validation](#13-live-validation)
-14. [External Integrations](#14-external-integrations)
-15. [CLI Reference](#15-cli-reference)
-16. [Rule System](#16-rule-system)
-17. [Testing Strategy](#17-testing-strategy)
-18. [Build & Release](#18-build--release)
-19. [Performance Optimizations](#19-performance-optimizations)
-20. [Version History](#20-version-history)
+12. [Performance Optimizations](#12-performance-optimizations)
+13. [Version History](#13-version-history)
+14. [Testing Strategy](#14-testing-strategy)
 
 ---
 
@@ -520,7 +514,77 @@ type Detector interface {
 
 ---
 
-## 10. Output Formats
+## 10. Post-Processing Pipeline
+
+Raw detection output runs through these stages before formatting
+(`internal/finding`, `internal/scanner/downgrade.go`, `internal/correlator`,
+`internal/adaptive`):
+
+```
+raw findings
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  DEDUP                                                            │
+│                                                                     │
+│  1. Deduplicate (exact match)                                      │
+│     key: RuleName + Secret + File + 40-char context prefix         │
+│                                                                     │
+│  2. DeduplicateBySecret (cross-rule, by secret value)              │
+│     groups by Secret + File, then buckets by Line + Column         │
+│     → ONE FINDING PER OCCURRENCE (line info preserved)             │
+│     → RuleName   = single highest-severity rule at that occurrence  │
+│     → RuleNames  = all rules that matched, severity desc then name  │
+│     → Severity   = highest within the occurrence bucket            │
+│     RuleName stays a single exact name: correlation detectors       │
+│     (8 detectors, exact match) and adaptive weights are keyed on it.│
+│                                                                     │
+│  Bypass with --no-dedup.                                            │
+└─────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  FILTERING                                                         │
+│                                                                     │
+│  3. FP downgrade (test/mock/vendor dirs, placeholder patterns)      │
+│  4. .syckignore fingerprint suppression                             │
+│  5. Mtime skip cache (--cache-db incremental scans)                │
+└─────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  SCORING                                                           │
+│                                                                     │
+│  6. Confidence — single unified scale (internal/confidence),        │
+│     0–120 points, every finding carries Confidence + ConfidenceBand │
+│       regex/decoded/expired-JWT match ......... 40  (PtsRegex)     │
+│       entropy + context keyword ................. 35  (20 + 15)     │
+│       URL query-param secret .................. 55  (40 + 15)     │
+│       live-verified secret .................... +50                │
+│       credential pair .......................... +30                │
+│     Bands: <=30 LOW · <=60 MEDIUM · <=90 HIGH · <=120 CRITICAL     │
+│                                                                     │
+│  7. SQLite cache recording (--cache-db): fingerprint =              │
+│     sha256(RuleName | Secret | File), first/last seen, IsNew        │
+│     (feeds --diff)                                                 │
+│                                                                     │
+│  8. Adaptive learning (--adaptive): Bayesian-smoothed per           │
+│     (RuleName, filePattern) modifier, clamped [-40, +40];           │
+│     high-certainty rules capped at -10                             │
+└─────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+formatter → stdout / file / webhook
+```
+
+**Note on counts:** because dedup is per-occurrence rather than per-secret,
+one secret matched by N rules in one file yields N findings rather than 1.
+This is intentional — it restores line-level triage signal that the previous
+per-secret collapse destroyed.
+
+---
+
+## 11. Output Formats
 
 | Format | Command | Best For |
 |--------|---------|----------|
@@ -534,7 +598,7 @@ type Detector interface {
 
 ---
 
-## 11. Performance Optimizations
+## 12. Performance Optimizations
 
 ### Parallel Rule Matching
 - `scanLineForRegexRules` partitions rules across `NumCPU` goroutine workers
@@ -570,7 +634,7 @@ type Detector interface {
 
 ---
 
-## 12. Version History
+## 13. Version History
 
 | Version | Theme | Key Changes |
 |---------|-------|-------------|
@@ -584,10 +648,12 @@ type Detector interface {
 | V2.0 | Recon Optimization | jsanalysis, enhanced endpoints (30+), CertSpotter, DNS bruteforce, 150+ juicy paths, internal link detection, professional output, pipe mode fix, performance optimizations |
 | V2.1 | Accuracy & Performance | Cross-rule dedup by secret value, bare-token FP filter (sorted alphabet, base58, placeholders), email FP fix, parallel rule matching (goroutine worker pool), mtime-based skip cache, --exclude-dir flag, streaming progress indicator |
 | V2.2 | Detection Expansion | aws_session_token_long (ASIA... 48+), JWT expiry detection (IsJWTExpired/ScanExpiredJWTs), terraform_state_secret, kubernetes kubeconfig (3 rules), GitHub Actions secrets (2 rules) |
+| 1.2.0 | Batch 1 — Hardening | Validator TLS verification on, same-origin-only credential forwarding, `internal/netguard` SSRF gate (+`--allow-private-ips`), webhook redaction + HTTPS default (+`--allow-insecure-webhook`), bounded gzip/archive reads, crawler visited-map race fix, `SYCK_SCAN_*` env binding with CLI precedence, `--workers` clamp, repo-wide gofmt |
+| 2.0.0 | Batch 2 — Detection Quality | All 9 decoders reachable via 4 new default-off flags, mixed-case hex + JWT decode-order fixes, decoded-scan truncation removed, recursion fan-out bound, per-rule `entropy_threshold` enforced in regex + decoded paths, 16 rules tightened/gated, `openai_legacy_key` + `slack_user_token` added, 5 subsumed dupes removed (202→199), severity normalization, per-occurrence dedup with `RuleNames` attribution, unified confidence scale, adaptive high-certainty names refreshed |
 
 ---
 
-## 13. Testing Strategy
+## 14. Testing Strategy
 
 ```bash
 # Run all tests with race detector
