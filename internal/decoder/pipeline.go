@@ -28,12 +28,12 @@ func DecodeAndRescan(
 	minSev finding.Severity,
 	flags Flags,
 ) []finding.Finding {
-	decoders := activeDecoders(flags)
+	decoders := PrecomputeDecoders(flags)
 	if len(decoders) == 0 {
 		return nil
 	}
 	var findings []finding.Finding
-	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders)
+	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders, make(map[string]int))
 	return findings
 }
 
@@ -52,10 +52,20 @@ func DecodeAndRescanWithDecoders(
 		return nil
 	}
 	var findings []finding.Finding
-	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders)
+	recursiveDecode(line, path, lineno, rs, minSev, &findings, 0, MaxRecursionDepth, decoders, make(map[string]int))
 	return findings
 }
 
+// recursiveDecode decodes text with each active decoder, scans every decoded
+// result, and recurses into it.
+//
+// visited is a per-line set of already-expanded decoded texts keyed by the
+// depth at which each was first expanded. A repeat is skipped only when it is
+// reached again at the same or a deeper depth — its remaining decode budget
+// is then no larger than the first visit's — so a text re-reached at a
+// shallower depth still gets its full budget. This bounds fan-out (the same
+// intermediate text is not re-expanded for every path that produces it)
+// without losing reachable secrets.
 func recursiveDecode(
 	text string,
 	path string,
@@ -66,6 +76,7 @@ func recursiveDecode(
 	depth int,
 	maxDepth int,
 	decoders []Decoder,
+	visited map[string]int,
 ) {
 	if depth >= maxDepth {
 		return
@@ -74,8 +85,12 @@ func recursiveDecode(
 	for _, dec := range decoders {
 		results := dec(text)
 		for _, res := range results {
+			if prev, seen := visited[res.Text]; seen && prev <= depth {
+				continue
+			}
+			visited[res.Text] = depth
 			scanDecoded(res.Text, path, lineno, res.SourceTag, rs, minSev, findings)
-			recursiveDecode(res.Text, path, lineno, rs, minSev, findings, depth+1, maxDepth, decoders)
+			recursiveDecode(res.Text, path, lineno, rs, minSev, findings, depth+1, maxDepth, decoders, visited)
 		}
 	}
 }
@@ -115,9 +130,9 @@ func scanDecodedChunk(
 	minSev finding.Severity,
 	findings *[]finding.Finding,
 ) {
-	if len(decodedText) > 500 {
-		decodedText = decodedText[:500]
-	}
+	// Scan the full chunk: scanDecoded already bounds the work by chunking
+	// at scanChunkSize, and truncating here silently dropped secrets past
+	// the cut point.
 	context := sourceTag + " decoded: " + decodedText
 
 	for _, rule := range rs.Rules {
