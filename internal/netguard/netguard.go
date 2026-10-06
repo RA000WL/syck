@@ -32,13 +32,18 @@ func mustCIDR(s string) *net.IPNet {
 // IsMetadataHost reports whether host is the well-known GCP metadata
 // hostname. The comparison is case-insensitive and a trailing dot is
 // tolerated, so "METADATA.GOOGLE.INTERNAL." matches.
+//
+// host must be a bare hostname as produced by url.URL.Hostname(). A
+// "host:port" pair will NOT match: the port is the caller's job to strip, and
+// passing url.URL.Host here would silently fail to deny the metadata host.
 func IsMetadataHost(host string) bool {
 	return strings.ToLower(strings.TrimSuffix(host, ".")) == metadataHost
 }
 
 // IsBlockedIP reports whether ip is in a range that must never be fetched:
-// 10/8, 172.16/12, 192.168/16, 127/8, ::1, 169.254/16, fe80::/10, and
-// 0.0.0.0/::. Literal IPs only — callers must have already handled DNS names.
+// 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, fe80::/10, ::1, and the
+// unspecified address (0.0.0.0 or ::, either family).
+// Literal IPs only — callers must have already handled DNS names.
 // A nil ip is not a literal IP and is reported as not blocked.
 func IsBlockedIP(ip net.IP) bool {
 	if ip == nil {

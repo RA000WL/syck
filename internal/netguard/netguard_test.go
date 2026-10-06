@@ -1,6 +1,9 @@
 package netguard
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
 
 // TestAllowFetchTable pins every behavior the AllowFetch doc comment claims:
 // the deny list, the CIDR boundaries around each entry, trailing-dot and
@@ -31,6 +34,14 @@ func TestAllowFetchTable(t *testing.T) {
 		{"deny/metadata-trailing-dot", "http://metadata.google.internal./", false},
 		{"deny/metadata-uppercase", "http://METADATA.GOOGLE.INTERNAL/", false},
 		{"deny/metadata-mixed-case-trailing-dot", "http://Metadata.Google.Internal./", false},
+
+		// --- deny: the metadata hostname is denied *with a port* too. AllowFetch
+		// passes u.Hostname() to IsMetadataHost, which strips the port, so an
+		// explicit port cannot smuggle the metadata host past the denylist. The
+		// IsMetadataHost contract is "bare hostname"; these rows are what make
+		// that contract observable at the URL level.
+		{"deny/metadata-with-port", "http://metadata.google.internal:8080/", false},
+		{"deny/metadata-uppercase-with-port", "HTTP://METADATA.GOOGLE.INTERNAL:8080/x", false},
 
 		// --- deny: 172.16.0.0/12 boundaries (first and last address are inside)
 		{"deny/172.16.0.0", "http://172.16.0.0/", false},
@@ -86,6 +97,11 @@ func TestAllowFetchTable(t *testing.T) {
 		// --- allow: relative references have no host to gate
 		{"allow/absolute-path", "/sitemap.xml", true},
 		{"allow/bare-relative", "sitemap.xml", true},
+		// AllowFetch("") is true because the empty input lands in the
+		// empty-host branch: url.Parse("") succeeds with an empty Hostname(),
+		// and the raw URL contains neither "://" nor a leading "//", so the
+		// "looked absolute but has no host" malformed case does not apply.
+		// Nothing is being fetched, so there is no target to gate.
 		{"allow/empty-string", "", true},
 	}
 
@@ -93,6 +109,149 @@ func TestAllowFetchTable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := AllowFetch(tc.raw); got != tc.want {
 				t.Errorf("AllowFetch(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIsBlockedIP exercises IsBlockedIP directly, one address at a time, so a
+// later "widen the ranges" edit cannot silently regress through AllowFetch.
+// Every range is pinned symmetrically: its first address, its last address, and
+// the address immediately below and immediately above it. Do not relax a case
+// to match a code change: a failing case is a security regression, not a
+// stale expectation.
+func TestIsBlockedIP(t *testing.T) {
+	cases := []struct {
+		name string
+		addr string // "" means a nil net.IP
+		want bool
+	}{
+		// A nil net.IP is not a literal IP, so there is nothing to block.
+		{"nil ip", "", false},
+
+		// --- 10.0.0.0/8
+		{"10/8 first address", "10.0.0.0", true},
+		{"10/8 last address", "10.255.255.255", true},
+		{"10/8 just below", "9.255.255.255", false},
+		{"10/8 just above", "11.0.0.0", false},
+
+		// --- 172.16.0.0/12
+		{"172.16/12 first address", "172.16.0.0", true},
+		{"172.16/12 last address", "172.31.255.255", true},
+		{"172.16/12 just below", "172.15.255.255", false},
+		{"172.16/12 just above", "172.32.0.0", false},
+
+		// --- 192.168.0.0/16
+		{"192.168/16 first address", "192.168.0.0", true},
+		{"192.168/16 last address", "192.168.255.255", true},
+		{"192.168/16 just below", "192.167.255.255", false},
+		{"192.168/16 just above", "192.169.0.0", false},
+
+		// --- 127.0.0.0/8 (reached via IsLoopback as well as the CIDR)
+		{"127/8 first address", "127.0.0.0", true},
+		{"127/8 last address", "127.255.255.255", true},
+		{"127/8 just below", "126.255.255.255", false},
+		{"127/8 just above", "128.0.0.0", false},
+
+		// --- 169.254.0.0/16 (reached via IsLinkLocalUnicast as well as the CIDR)
+		{"169.254/16 first address", "169.254.0.0", true},
+		{"169.254/16 last address", "169.254.255.255", true},
+		{"169.254/16 just below", "169.253.255.255", false},
+		{"169.254/16 just above", "169.255.0.0", false},
+
+		// --- fe80::/10 (IPv6 link-local). fe80:: is the first address and
+		// febf:ffff:...:ffff the last; fe7f:ffff:...:ffff is below the range and
+		// fec0:: is above it.
+		{"fe80::/10 first address", "fe80::", true},
+		{"fe80::/10 last address", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
+		{"fe80::/10 just below", "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
+		{"fe80::/10 just above", "fec0::1", false},
+
+		// --- ::1 (IPv6 loopback), pinned against its immediate neighbor
+		{"::1", "::1", true},
+		{"just above ::1", "::2", false},
+
+		// --- the unspecified address, in either family
+		{"unspecified 0.0.0.0", "0.0.0.0", true},
+		{"unspecified ::", "::", true},
+		{"just above unspecified v4", "0.0.0.1", false},
+
+		// --- a v4-mapped literal resolves to the IPv4 address and must still
+		// be matched against the IPv4 ranges
+		{"v4-mapped private", "::ffff:10.0.0.1", true},
+		{"v4-mapped public", "::ffff:8.8.8.8", false},
+
+		// --- routable addresses are not blocked
+		{"public v4", "8.8.8.8", false},
+		{"public v6", "2606:4700:4700::1111", false},
+
+		// --- IPv6 ranges that are NOT in the blocklist. fec0::/10 (deprecated
+		// site-local) sits just above fe80::/10 and fc00::/7 (ULA) sits below it;
+		// neither is covered, so a reader must not assume "private IPv6" is
+		// blocked. This mirrors the IPv4 side, where CGNAT 100.64.0.0/10 is also
+		// not in the list.
+		{"fec0::1 deprecated site-local is not blocked", "fec0::1", false},
+		{"fc00::1 ULA is not blocked", "fc00::1", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var ip net.IP
+			if tc.addr != "" {
+				ip = net.ParseIP(tc.addr)
+				if ip == nil {
+					t.Fatalf("test bug: %q is not a valid IP literal", tc.addr)
+				}
+			}
+			if got := IsBlockedIP(ip); got != tc.want {
+				t.Errorf("IsBlockedIP(%q) = %v, want %v", tc.addr, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIsMetadataHost exercises the hostname denylist directly, pinning the
+// parameter contract: host must be a BARE hostname as produced by
+// url.URL.Hostname(). A "host:port" pair must not match, because the port is
+// the caller's job to strip. Do not relax a case to match a code change: a
+// failing case is a security regression, not a stale expectation.
+func TestIsMetadataHost(t *testing.T) {
+	cases := []struct {
+		name string
+		host string
+		want bool
+	}{
+		// The one true positive, plus the two documented normalizations.
+		{"exact match", "metadata.google.internal", true},
+		{"trailing dot", "metadata.google.internal.", true},
+		{"uppercase", "METADATA.GOOGLE.INTERNAL", true},
+		{"mixed case with trailing dot", "Metadata.Google.Internal.", true},
+
+		// A host:port pair is NOT a bare hostname and must not match. A caller
+		// passing url.URL.Host instead of url.URL.Hostname() would silently
+		// allow the metadata host, which is why these are pinned.
+		{"host with port", "metadata.google.internal:8080", false},
+		{"uppercase host with port", "METADATA.GOOGLE.INTERNAL:8080", false},
+
+		// Other hostnames are not the metadata host.
+		{"unrelated hostname", "example.com", false},
+		{"unrelated hostname with trailing dot", "example.com.", false},
+		{"localhost", "localhost", false},
+		{"empty host", "", false},
+		{"bare dot", ".", false},
+
+		// Neighbouring hostnames that merely resemble the metadata host.
+		{"prefix attack", "xmetadata.google.internal", false},
+		{"suffix attack", "metadata.google.internal.evil.com", false},
+		// Exactly one trailing dot is trimmed, so a doubled dot does not match.
+		// That is not a bypass: a doubled-dot label is not a resolvable hostname.
+		{"double trailing dot", "metadata.google.internal..", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsMetadataHost(tc.host); got != tc.want {
+				t.Errorf("IsMetadataHost(%q) = %v, want %v", tc.host, got, tc.want)
 			}
 		})
 	}
