@@ -90,11 +90,12 @@ func TestScanHistoryNonRepoIsCleanError(t *testing.T) {
 	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
 
 	findings, err := ScanHistory(dir, cfg)
-	// Current behavior (pinned): ScanHistory swallows the git log failure and
-	// returns (nil, nil) — no panic, no findings. The brief anticipated a
-	// non-nil error here; that discrepancy is documented, not asserted, until
-	// the production code is deliberately changed.
-	t.Logf("ScanHistory on non-repo returned findings=%d err=%v", len(findings), err)
+	// Pinned defect behavior: ScanHistory swallows the git log failure and
+	// returns (nil, nil) — no panic, no findings, and no error telling the
+	// user the path isn't a repo.
+	if err != nil {
+		t.Errorf("pinned current behavior is err == nil for non-repo, got %v — if this fires, the defect was fixed; invert this assertion to require an error", err)
+	}
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d", len(findings))
 	}

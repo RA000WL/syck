@@ -52,6 +52,7 @@ func TestToolTypesAreDistinct(t *testing.T) {
 		{&KatanaTool{}, ToolKatana},
 	}
 	seen := make(map[ToolType]bool)
+	names := make(map[ToolType]bool)
 	if len(allTools()) != len(tests) {
 		t.Fatalf("expected %d tools, got %d", len(tests), len(allTools()))
 	}
@@ -63,6 +64,14 @@ func TestToolTypesAreDistinct(t *testing.T) {
 			t.Errorf("duplicate tool name %q", tc.want)
 		}
 		seen[tc.want] = true
+	}
+	// Assert uniqueness directly over the runtime Name() values — a
+	// uniqueness map over compile-time constant literals can never fire.
+	for _, tool := range allTools() {
+		if names[tool.Name()] {
+			t.Errorf("duplicate Name() %q across allTools()", tool.Name())
+		}
+		names[tool.Name()] = true
 	}
 }
 

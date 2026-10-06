@@ -26,7 +26,14 @@ func TestScanJSONNestedSecretKey(t *testing.T) {
 		t.Errorf("File = %q, want app.json", f.File)
 	}
 	// Line is part of the finding shape; current implementation reports 0.
-	t.Logf("finding: RuleName=%q File=%q Line=%d Secret=%q", f.RuleName, f.File, f.Line, f.Secret)
+	// Assert it explicitly so a line-number regression in the JSON walker
+	// (Batch 4c/4d) fails loudly instead of passing silently.
+	if f.Line != 0 {
+		t.Errorf("Line = %d, want 0 (current pinned behavior); update this assertion if the walker starts reporting lines", f.Line)
+	}
+	if f.Secret == "" {
+		t.Errorf("Secret is empty, want redacted/matched secret value")
+	}
 }
 
 func TestScanJSONNonSecretKeyIgnored(t *testing.T) {

@@ -19,11 +19,19 @@ func ScanHistory(repoPath string, cfg scanner.Config) ([]finding.Finding, error)
 	logCmd := exec.Command("git", "-C", repoPath, "log", "--all", "--format=%H", "--diff-filter=AM")
 	logOut, err := logCmd.Output()
 	if err != nil {
+		// TODO(security): non-repo paths return (nil, nil) here — `syck scan
+		// --git-history /not/a/repo` silently reports nothing instead of
+		// erroring. Fix must return a descriptive error.
 		return nil, nil
 	}
 	commits := strings.Fields(string(logOut))
 
 	for _, commit := range commits {
+		// TODO(security): diff-tree needs --root to enumerate the initial
+		// commit's files; without it, secrets in a repo's first commit are
+		// never scanned (a single-commit repo is completely unaudited).
+		// Fix must also remove the second-commit workaround in
+		// TestScanHistoryFindsCommittedSecret.
 		diffCmd := exec.Command("git", "-C", repoPath, "diff-tree", "--no-commit-id", "-r", "--name-only", commit)
 		diffOut, err := diffCmd.Output()
 		if err != nil {

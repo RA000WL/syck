@@ -54,6 +54,10 @@ func TestLoadExplicitMissingPathErrors(t *testing.T) {
 func TestLoadImplicitMissingIsNotAnError(t *testing.T) {
 	// No config anywhere is the normal case for a first run, so implicit
 	// discovery failure must be swallowed and defaults applied.
+	// Isolate discovery from the host: viper consults cwd ("." and
+	// ".syckrc*"), XDG_CONFIG_HOME, and HOME.
+	t.Chdir(t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	v, err := Load("")
 	if err != nil {

@@ -683,6 +683,15 @@ syck ruletest
 
 ---
 
+## 15. Known Defects (Deferred)
+
+Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`, but intentionally NOT fixed in Batch 4 because fixing them changes behavior:
+
+1. **Initial-commit blind spot** — `scanner.go` runs `git diff-tree` without `--root`, so the first commit of a repo yields no files. Secrets committed in a repo's FIRST commit are invisible to `--git-history`, and a single-commit repo is completely unaudited (silent false negative). Fix requires `--root` on the diff-tree call and removing the second-commit workaround in `TestScanHistoryFindsCommittedSecret`.
+2. **Non-repo silence** — `ScanHistory` returns `(nil, nil)` when `git log` fails (`scanner.go:22-24`), so `syck scan --git-history /not/a/repo` silently reports nothing instead of erroring. Fix must return a descriptive error, and `TestScanHistoryNonRepoIsCleanError`'s `err == nil` pin must be inverted.
+
+---
+
 ## Quick Reference for AI Agents
 
 When working on this codebase:
