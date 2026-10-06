@@ -148,11 +148,13 @@ func TestScanFileFallbackReportsFinding(t *testing.T) {
 
 func TestScanReaderHandlesLargeLine(t *testing.T) {
 	// Regression guard: ScanReader must scan stdin lines larger than the
-	// shared 256KB streaming pool buffer without erroring or losing findings.
+	// shared 256KB streaming pool buffer (and larger than the regressed 1MB)
+	// without erroring or losing findings.
+	// 2MB line: fails at 256KB, fails at the 1MB regression, passes at 10MB.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stdin.txt")
 	secret := "AKIAIOSFODNN7EXAMPLE"
-	payload := strings.Repeat("A", 512*1024) + secret + "\n"
+	payload := strings.Repeat("A", 2*1024*1024) + secret + "\n"
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
 	}

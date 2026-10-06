@@ -31,21 +31,32 @@ func NewRateLimiter(rps int) *RateLimiter {
 	}
 }
 
-// Wait blocks until a request can be made for the given host
+// Wait blocks until a request can be made for the given host.
+// r.mu guards the lastTime map only; it is never held across the sleep.
+// Under concurrent callers (parambrute's N fetch workers), holding it would
+// cap the limiter at N requests/sec overall rather than N per host.
 func (r *RateLimiter) Wait(host string) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
-	if last, ok := r.lastTime[host]; ok {
-		wait := r.minGap - time.Since(last)
-		if wait > 0 {
-			time.Sleep(wait)
+	wait := func() time.Duration {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if last, ok := r.lastTime[host]; ok {
+			return r.minGap - time.Since(last)
 		}
+		return 0
+	}()
+	if wait > 0 {
+		time.Sleep(wait)
 	}
-	r.lastTime[host] = time.Now()
+
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.lastTime[host] = time.Now()
+	}()
 }
 
 // Common parameter wordlist for brute-force discovery

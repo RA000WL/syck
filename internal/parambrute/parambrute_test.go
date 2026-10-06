@@ -84,6 +84,52 @@ func TestRateLimiter_Wait_DifferentHosts(t *testing.T) {
 	}
 }
 
+// TestRateLimiterAllowsPerHostOverlap pins the per-host shape under
+// concurrent callers: three hosts, each already served once, waited on
+// concurrently must overlap (~one minGap total) rather than stack (~three
+// minGap). A regression to sleeping under r.mu (every host queues behind the
+// sleeper) or to a single global timestamp fails here.
+func TestRateLimiterAllowsPerHostOverlap(t *testing.T) {
+	rl := NewRateLimiter(5) // 200ms minGap
+	if rl == nil {
+		t.Fatal("NewRateLimiter(5) = nil")
+	}
+	names := []string{"a.example.com", "b.example.com", "c.example.com"}
+	for _, host := range names {
+		rl.Wait(host) // prime; an unprimed host returns instantly
+	}
+	var wg sync.WaitGroup
+	start := time.Now()
+	for _, host := range names {
+		wg.Add(1)
+		go func(h string) {
+			defer wg.Done()
+			rl.Wait(h)
+		}(host)
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+	if elapsed >= 350*time.Millisecond {
+		t.Errorf("3 hosts waited %v; want < 350ms (per-host waits must overlap)", elapsed)
+	}
+	if elapsed < 100*time.Millisecond {
+		t.Errorf("3 hosts waited %v; want >= 100ms (minGap not enforced)", elapsed)
+	}
+}
+
+// TestRateLimiterSameHostRespectsGap is the other half of the contract:
+// releasing the mutex during the sleep must not drop per-host limiting.
+func TestRateLimiterSameHostRespectsGap(t *testing.T) {
+	rl := NewRateLimiter(5) // 200ms minGap
+	rl.Wait("solo.example.com")
+	start := time.Now()
+	rl.Wait("solo.example.com")
+	elapsed := time.Since(start)
+	if elapsed < 180*time.Millisecond {
+		t.Errorf("repeat wait took %v; want >= ~180ms", elapsed)
+	}
+}
+
 // --- DefaultConfig ---
 
 func TestDefaultConfig(t *testing.T) {

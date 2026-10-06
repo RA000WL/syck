@@ -3,6 +3,43 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — Batch 3: performance
+
+### Fixed
+
+- Rate limiter no longer sleeps while holding its mutex (crawler and
+  parambrute). Previously `time.Sleep` ran under the lock, so one host's
+  wait forced every other host to queue — capping the limiter at a global
+  N req/s. A latent bug in the crawler (single call site) but live in
+  parambrute, whose N fetch workers genuinely contend: `--rate-limit`
+  silently collapsed to a global rate there.
+- `--workers` is now clamped inside the scanner, so library callers can
+  no longer deadlock or panic on 0/negative values.
+
+### Changed
+
+- SQLite caches now use WAL mode + a 5s busy timeout + a single writer
+  connection; cache-write errors are reported under `--debug` instead of
+  silently dropped.
+  **WAL caveat:** SQLite creates `-wal` and `-shm` sidecar files next to
+  `--cache-db` / `--url-cache-db`. Copying or moving only the `.db` file
+  without its sidecars can lose pending findings/verdicts/mtimes — copy
+  the whole set together, or close the scan first.
+- Streaming scan buffers reduced 10MB → 256KB per worker (~100MB → ~2.5MB
+  at the default concurrency). `ScanReader` (stdin) keeps a 10MB one-shot
+  buffer, so large minified-JS lines on stdin still scan without falling
+  back or truncating.
+- Response bodies are read through a bounded reader; oversized archives
+  are skipped with a clear error instead of being truncated mid-directory.
+- Crawl limit is enforced via an atomic budget so `--crawl-limit` cannot
+  overshoot; auto-harvested `.js.map` URLs now respect scope.
+
+### Benchmarks
+
+- The per-line goroutine regex fan-out was benchmarked against a sequential
+  alternative and **kept**: sequential measured ~31% slower (median
+  235291 vs 179737 ns/op) despite allocating 2 vs 29 allocs/op.
+
 ## [2.0.0] — Batch 2: detection quality
 
 Two prior batches landed before this release: Batch 1 (security hardening + CI

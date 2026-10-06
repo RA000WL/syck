@@ -27,6 +27,12 @@ import (
 
 const maxEndpointBuf = 10 << 20
 
+// stdinScanBufferBytes is ScanReader's one-shot buffer. It is NOT pooled:
+// ScanReader runs once per invocation, so a fresh 10MB allocation per call is
+// cheaper than the fallback path it protects against, and it preserves the
+// pre-Batch-3 capability of handling stdin lines up to 10MB (minified JS).
+const stdinScanBufferBytes = 10 << 20
+
 var streamingBufPool = sync.Pool{
 	New: func() interface{} {
 		b := make([]byte, 256<<10)
@@ -979,10 +985,7 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	scanner := bufio.NewScanner(r)
-	// ScanReader is a one-shot call (not per-worker), so give it its own
-	// larger buffer instead of the shared 256KB pool: stdin can legitimately
-	// carry long single lines (e.g. minified JS) and must not lose findings.
-	buf := make([]byte, 1<<20)
+	buf := make([]byte, stdinScanBufferBytes)
 	scanner.Buffer(buf, len(buf))
 
 	var linesBuf strings.Builder
