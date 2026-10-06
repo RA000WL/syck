@@ -23,23 +23,27 @@
 - **Regex-vs-CIDR semantic drift.** The old `privateIP10RE` matched the *text* `10.x.x.x` anywhere in the URL, including a path segment or inside a longer hostname. A CIDR check parses the *host*. These differ for inputs like `http://foo.com/10.0.0.1/x` and bare `10.0.0.1` with no scheme. See the mapping table in Task 4 — it is written out explicitly because guessing here changes recon output.
 - **Security regression in `netguard`.** `AllowFetch` is Batch 1 security code. Any change must be a pure extraction, and the widened test table must be committed *before* the extraction so a regression is attributable.
 
-## The one intentional behavior change in this batch
+## The declared behavior changes in this batch
 
-Read this before Task 4. Batch 4's contract is zero observable behavior change, and this batch holds to it everywhere **except one input class**, which the approved spec already implied and which is called out here so it is a decision rather than a surprise.
+Read this before Task 4. Batch 4's contract is zero observable behavior change. This batch holds to it **except for exactly four URL inputs**, all verified against the unmodified `classifyInternal`, and called out here so each is a decision rather than a surprise.
 
-`recon`'s current `localhostRE` is `\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`. That regex is sloppy in two specific ways:
-
-- it matches only `127.0.0.X` — it **misses** `127.1.2.3`, which is loopback
-- it **misses** `::1`, which is loopback
-
-`internalurl.IsLoopback` is specified as `127.0.0.0/8, ::1, 0.0.0.0, localhost` — the correct set. Delegating therefore classifies two classes of URL that were previously silent:
+**Widening — 2 inputs.** `recon`'s `localhostRE` is `\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`, which under-matches: it misses `::1` and any loopback outside `127.0.0.x`. `IsLoopback` is the correct set.
 
 - `http://[::1]/x` → now `"localhost"` (was `""`)
 - `http://127.1.2.3/x` → now `"localhost"` (was `""`)
 
-There is no way to express the old behavior through a correct `IsLoopback` predicate, because the old behavior was the sloppiness. The alternatives are (a) accept the fix, or (b) keep a regex that deliberately under-matches. This plan takes (a).
+There is no way to express the old behavior through a correct `IsLoopback`, because the old behavior *is* the sloppiness. The alternatives are (a) accept the fix or (b) keep a regex that deliberately under-matches. This plan takes (a).
 
-**Requirement:** the delta must be recorded in `CHANGELOG.md` under `[Unreleased]` in Task 4, and the Task 3 characterization table must carry `http://[::1]/x` as an **explicit expected-`"localhost"`** row with a comment saying this is the intentional delta — not as a silently-absent case. If a reviewer cannot find both the code change and its CHANGELOG line from the commit alone, the task is not done.
+**Narrowing — 2 inputs.** `privateIP*RE` and `cloudMetadataRE` are raw-**text** matches, so they fire on an address appearing anywhere in the URL. The shared predicates are host-**parsed** (required to reuse `netguard`'s CIDR list without duplicating it), so an address in a path no longer classifies.
+
+- `http://foo.com/10.0.0.1/x` → now `""` (was `"private_ip"`)
+- `http://foo.com/169.254.169.254/x` → now `""` (was `"cloud_metadata"`)
+
+This is a deliberate trade: single-sourcing the CIDR list is the point of the package, and reusing `netguard` is the only way to get it without a second copy. A private IP in a path is a different signal from a private-IP host.
+
+**Everything else is unchanged**, including `http://metadata.google.internal/`, which stays `"internal_host"` — `k8sServiceRE` matches it and `internal_host` is tested before `cloud_metadata`, so the metadata hostname never reaches the metadata branch. (An earlier draft of this plan claimed it changed. It does not.)
+
+**Requirement:** all four must be recorded in `CHANGELOG.md` under `[Unreleased]` in Task 4, and each must appear in the Task 3 characterization table as an explicit row with a comment naming the delta — not as a silently-absent case. If a reviewer cannot find both the code change and its CHANGELOG line from the commit alone, the task is not done.
 
 ---
 
@@ -126,7 +130,13 @@ Expected: all Step 1 cases still pass, gofmt empty, vet clean. Any change in res
   func IsSensitivePort(rawURL string) bool // 3306 5432 6379 27017 9200 9300 11211 5984 8500 8600 8200, \b-terminated
   ```
 
-**`IsInternalPath` is a union, not a copy.** `recon` produces its `internal` category from two regexes with different token lists (`internalRE`: internal/private/intranet/corp; `internalPathRE`: debug/trace/admin/internal/private/staging/dev/test/sandbox/legacy/hidden). Taking either one alone drops real matches. The union is 13 distinct tokens: `admin, corp, debug, dev, hidden, internal, intranet, legacy, private, sandbox, staging, test, trace`, matched as `(?i)/(?:...)(?:\b|/|$)`. The trailing group must be `\b|/|$`, not `/|$` — the looser rule is a strict superset, so it reproduces the union exactly.
+**`IsInternalPath` is a union, and the trailing rule is per-token.** `recon` produces its `internal` category from two regexes with different token lists *and different trailing rules*: `internalRE` = `(?i)/(internal|private|intranet|corp)(\b|/|$)` uses a word boundary; `internalPathRE` = `(?i)/(?:debug|trace|admin|internal|private|staging|dev|test|sandbox|legacy|hidden)(?:/|$)` does not. Taking either list alone drops real matches, so the union is 13 distinct tokens — but each token must keep the trailing rule of the regex it came from:
+
+```go
+regexp.MustCompile(`(?i)/(?:(?:internal|private|intranet|corp)(?:\b|/|$)|(?:debug|trace|admin|staging|dev|test|sandbox|legacy|hidden)(?:/|$))`)
+```
+
+Applying `\b` to **all 13** tokens is wrong and overmatches: it makes `/admin?x=1`, `/sandbox.json`, and `/test.html` classify as `internal` when they never did. Applying `/|$` to all 13 is also wrong — it drops `/internal-api` and `/corp-y`, which `internalRE`'s `\b` always matched. A 400k-input differential confirms the per-token form has **zero** mismatches against the two originals while the all-`\b` form has 484.
 
 **`IsSensitivePort` needs its `\b`.** `:(?:3306|5432|...)\b` — without the terminator, port `33060` matches `3306` and every long port in a URL becomes a finding.
 
@@ -203,14 +213,18 @@ Pin the category string for at least one input per category, plus the empty-stri
 | `http://localhost:3000/` | `localhost` |
 | `http://127.0.0.5/` | `localhost` |
 | `http://[::1]/x` | `""` **today** — Task 4 changes this to `localhost` |
+| `http://127.1.2.3/x` | `""` **today** — Task 4 changes this to `localhost` |
 | `http://169.254.169.254/` | `cloud_metadata` |
-| `http://metadata.google.internal/` | `""` **today** — Task 4 changes this to `cloud_metadata` |
+| `http://foo.com/169.254.169.254/x` | `cloud_metadata` **today** — the old regex matches raw text; Task 4 changes this to `""` |
+| `http://metadata.google.internal/` | `internal_host` — **not** `""`. It matches `k8sServiceRE` (`metadata.` + `google.` + `internal\b`), and `internal_host` is tested **before** `cloud_metadata`, so the metadata hostname never reaches the metadata branch. Unchanged by Task 4. |
 | `http://docker_host/` | `container_service` |
 | `http://h:5432/` | `sensitive_port` |
 | `http://h:33060/` | `""` — the `\b` terminator keeps this from matching `:3306` |
 | `https://example.com/api/users` | `""` |
 
 The four rows marked **today** carry a comment naming the Task 4 delta. They start at the current value so the test is a true characterization; Task 4 updates exactly those four and nothing else.
+
+Note that `http://foo.com/169.254.169.254/x` is in the table precisely because it exercises the text-vs-host split: it is `cloud_metadata` today only because the old regex matches raw text anywhere in the string.
 
 Also pin the **precedence** explicitly, since `classifyInternal` is an ordered if-chain: an input that matches two categories must return the earlier one. `http://internal.corp:5432/` matches both `internal` and `sensitive_port` and must return `internal`. `http://10.0.0.1:5432/` matches both `private_ip` and `sensitive_port` and must return `private_ip`.
 
@@ -242,15 +256,15 @@ git commit -m "test(recon): characterize classifyInternal categories and precede
 
 | Category | Current regex(es) | Predicate | Merge note |
 |---|---|---|---|
-| `internal` | `internalRE` = `(?i)/(internal\|private\|intranet\|corp)(\b\|/\|$)` **OR** `internalPathRE` = `(?i)/(?:debug\|trace\|admin\|internal\|private\|staging\|dev\|test\|sandbox\|legacy\|hidden)(?:/\|$)` | `IsInternalPath` | The union has **13** tokens — neither list alone. Trailing rule must be `\b\|/\|$`: `(?:/\|$)` ⊂ `\b\|/\|$`, so the looser rule makes the union exact. Do not use `(?:/\|$)` — it would drop `/corp` and `/intranet`. |
+| `internal` | `internalRE` = `(?i)/(internal\|private\|intranet\|corp)(\b\|/\|$)` **OR** `internalPathRE` = `(?i)/(?:debug\|trace\|admin\|internal\|private\|staging\|dev\|test\|sandbox\|legacy\|hidden)(?:/\|$)` | `IsInternalPath` | 13-token union with a **per-token trailing rule** — see the note above. Neither a single list nor a single trailing rule reproduces both originals. |
 | `internal_host` | `internalHostRE` = `(?i)(internal\.\|corp\.\|\.local)` **OR** `k8sServiceRE` = `(?i)(?:[a-z0-9-]+\.){1,3}(?:svc\|cluster\|local\|internal)\b` | `IsInternalHost` | Union, not either alone. Note `k8sServiceRE` also matches `.local`/`.internal` suffixes — a superset of `internalHostRE` on those. |
 | `private_ip` | `privateIP10RE` / `privateIP172RE` / `privateIP192RE` | `IsPrivateHost` | Text-match on the raw URL becomes a host parse. See the drift note below. |
 | `localhost` | `localhostRE` | `IsLoopback` | **The one intentional delta** — see the section above. |
-| `cloud_metadata` | `cloudMetadataRE` = `\b169\.254\.169\.254\b` | `IsCloudMetadata` | Also adds `metadata.google.internal`, which the old regex did **not** match. Same delta treatment: CHANGELOG it. |
+| `cloud_metadata` | `cloudMetadataRE` = `\b169\.254\.169\.254\b` | `IsCloudMetadata` | Host-parsed, so `http://foo.com/169.254.169.254/x` stops matching (declared delta). The metadata **hostname** half is already shadowed by `internal_host` upstream — see the precedence note below; it changes nothing. |
 | `container_service` | `dockerServiceRE` = `(?i)(?:docker\|container)[_.]?(?:host\|name\|id\|service)\b` | keep local | No shared predicate — this vocabulary appears nowhere else. Leave the regex. |
 | `sensitive_port` | `sensitivePortRE` = `:(?:3306\|5432\|6379\|27017\|9200\|9300\|11211\|5984\|8500\|8600\|8200)\b` | `IsSensitivePort` | Keep the `\b` terminator; a port list without it matches `:33060`. |
 
-**Known drift for `private_ip`:** the old regexes matched the text `10.x.x.x` anywhere, so `http://foo.com/10.0.0.1/x` and a bare `10.0.0.1` both classified as `private_ip`. `IsPrivateHost` parses the host, so `http://foo.com/10.0.0.1/x` becomes `""`. Pin that input in the Task 3 table with its **current** value and let the delegation change it — a private IP in a path is not a private-IP host, so the new answer is the better one. CHANGELOG it alongside the loopback delta.
+**Known drift for the raw-text IP regexes:** `privateIP*RE` and `cloudMetadataRE` match the *text* `10.x.x.x` / `169.254.169.254` anywhere in the URL, so `http://foo.com/10.0.0.1/x` and `http://foo.com/169.254.169.254/x` both classify today. The shared predicates parse the host, so both become `""`. A bare `10.0.0.1` with no scheme is **unaffected** — `internalurl`'s `hostOf` falls back to the lowercased input, so it still classifies. Pin the two path inputs in the Task 3 table at their **current** values and let the delegation change them; a private IP in a path is a different signal from a private-IP host. Both are CHANGELOG entries.
 
 - [ ] **Step 1: Replace the seven checks, preserving order exactly**
 
@@ -261,11 +275,11 @@ Delete only the regexes whose sole consumer is `classifyInternal`. **Check with 
 - [ ] **Step 2: Verify behavior is unchanged apart from the declared deltas**
 
 Run: `go test ./internal/recon/ -count=1 -v`
-Expected: the Task 3 characterization table passes with **only** the rows marked as intentional deltas updated — `http://[::1]/x`, `http://127.1.2.3/x`, `http://metadata.google.internal/` (now `cloud_metadata`), and `http://foo.com/10.0.0.1/x` (now `""`). **Any other row that changes is a bug in the mapping above** — fix the mapping, not the test.
+Expected: the Task 3 characterization table passes with **only** the four delta rows updated — `http://[::1]/x` and `http://127.1.2.3/x` (now `localhost`), and `http://foo.com/10.0.0.1/x` and `http://foo.com/169.254.169.254/x` (now `""`). **Any other row that changes is a bug in the mapping above** — fix the mapping, not the test.
 
 - [ ] **Step 3: Record the deltas in `CHANGELOG.md`**
 
-Under `[Unreleased]`, note that recon's internal-surface detection now recognizes IPv6 loopback (`[::1]`), non-`127.0.0.x` loopback addresses, the GCP metadata hostname, and no longer reports a bare private IP appearing in a URL path as a `private_ip` surface finding.
+Under `[Unreleased]`, note the four declared changes: recon's internal-surface detection now recognizes IPv6 loopback (`[::1]`) and loopback addresses outside `127.0.0.x`, and no longer reports a bare private or metadata IP appearing in a URL **path** as a `private_ip` / `cloud_metadata` surface finding. State the reason for the narrowing — the shared predicates parse the host so the CIDR list is not duplicated — so a future reader does not "restore" the text match and reintroduce the second copy.
 
 - [ ] **Step 4: Run the wider gates**
 
