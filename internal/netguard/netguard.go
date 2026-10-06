@@ -40,6 +40,27 @@ func IsMetadataHost(host string) bool {
 	return strings.ToLower(strings.TrimSuffix(host, ".")) == metadataHost
 }
 
+// IsPrivateIP reports whether ip is in one of the three RFC 1918 private
+// ranges: 10/8, 172.16/12, 192.168/16. It excludes loopback, link-local, and
+// the unspecified address, all of which IsBlockedIP covers.
+//
+// The split exists because the two questions are different. "Must this never
+// be fetched?" is wide (IsBlockedIP). "Is this address a private-network
+// host?" is narrow (IsPrivateIP), and it is what a surface classifier needs:
+// a loopback URL is categorized as loopback, not as private, and conflating
+// the two would change recon's output. A nil ip is reported as not private.
+func IsPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, n := range []*net.IPNet{private10, private172, private192} {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsBlockedIP reports whether ip is in a range that must never be fetched:
 // 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, fe80::/10, ::1, and the
 // unspecified address (0.0.0.0 or ::, either family).
