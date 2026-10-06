@@ -73,7 +73,9 @@ syck-go/
 │
 ├── cmd/                            # CLI layer (cobra)
 │   ├── root.go                     # Root command, version flags, persistent flags
-│   ├── scan.go                     # Main scan command — 67 flags, orchestrates pipeline
+│   ├── scan.go                     # Package stub — implementation split below
+│   ├── scan_config.go              # scanCmd, 67 flags + init() registration, clampWorkers/parseSize/loadWordlist/parseExcludeDir
+│   ├── scan_run.go                 # runScan — mode dispatch and pipeline orchestration
 │   ├── recon.go                    # Recon command — subdomain discovery
 │   ├── list_rules.go               # List all detection rules
 │   ├── ruletest.go                 # Rule quality testing harness
@@ -95,7 +97,14 @@ syck-go/
 │   │
 │   ├── scanner/                    # Core scanning engine
 │   │   ├── scanner.go              # Config struct (60+ fields)
-│   │   ├── scan.go                 # ScanPaths, ScanFile, ScanReader, ScanURLs, ScanContent
+│   │   ├── scan_paths.go           # ScanPaths — parallel file walk, worker pool, dedup
+│   │   ├── scan_file.go            # ScanFile / ScanBinaryFile — per-file entry points
+│   │   ├── scan_content.go         # ScanContent — in-memory string scanning
+│   │   ├── scan_read.go            # ScanReader — stdin/file stream entry point
+│   │   ├── scan_stream.go          # Streaming scan path + whole-file fallback
+│   │   ├── scan_urls.go            # ScanURLs — crawl + per-URL scanning
+│   │   ├── scan_util.go            # Shared scan helpers (text detect, skip dirs, JWT expiry, new-only filter)
+│   │   ├── helpers.go              # Per-line scan helpers + URL/crawl/recon analyzers
 │   │   ├── pipeline.go             # V1 Pipeline type (8 typed stages)
 │   │   ├── stage_*.go              # Individual pipeline stages
 │   │   ├── multiline.go            # Multi-line pattern matching (sliding window)
@@ -240,7 +249,7 @@ syck-go/
 The CLI uses the V6 inline orchestration path:
 
 ```
-cmd/scan.go
+cmd/scan_run.go
   │
   ├── File paths  → scanner.ScanPaths()  → filepath.Walk + parallel ScanFile()
   ├── URLs        → scanner.ScanURLs()   → crawler.Crawl() BFS + per-URL scanning
@@ -382,8 +391,8 @@ type Detector interface {
 
 | Package | Responsibility |
 |---------|----------------|
-| `cmd/` | CLI layer: flag parsing, config loading, pipeline orchestration |
-| `scanner/` | Core engine: parallel file walk, per-line scanning with goroutine workers, pipeline stages |
+| `cmd/` | CLI layer: flag parsing (`scan_config.go`), config loading, pipeline orchestration (`scan_run.go`) |
+| `scanner/` | Core engine: parallel file walk (`scan_paths.go`), per-file/content/reader entry points (`scan_file.go`, `scan_content.go`, `scan_read.go`), URL scanning (`scan_urls.go`), streaming (`scan_stream.go`), shared helpers (`scan_util.go`, `helpers.go`), goroutine workers, pipeline stages |
 | `rules/` | YAML rule loading, thread-safe compilation, validation |
 | `entropy/` | Shannon entropy, per-alphabet thresholds, media filter |
 | `decoder/` | 9 decoder types + recursive pipeline (depth 3) |
@@ -701,7 +710,7 @@ When working on this codebase:
 3. **Go version**: 1.26+
 4. **Rules file**: `internal/rules/builtin.yaml`
 5. **Entry point**: `main.go` → `cmd.Execute()`
-6. **Core scanning**: `internal/scanner/scan.go`
+6. **Core scanning**: `internal/scanner/scan_paths.go` (file walk), `scan_file.go`, `scan_urls.go`, `scan_read.go`
 7. **JS analysis**: `internal/jsanalysis/analyze.go`
 8. **Subdomain discovery**: `internal/discovery/subdomain.go`
 9. **Output**: 7 formats via `internal/formatters/`
