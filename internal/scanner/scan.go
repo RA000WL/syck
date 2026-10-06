@@ -99,7 +99,9 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				// Record mtime after scan
 				if mtimeCache != nil {
 					if fi, ferr := os.Stat(path); ferr == nil {
-						mtimeCache.RecordFileMtime(path, fi.ModTime().Unix())
+						if mErr := mtimeCache.RecordFileMtime(path, fi.ModTime().Unix()); mErr != nil && cfg.Debug {
+							fmt.Fprintf(os.Stderr, "[debug] record mtime %s: %v\n", path, mErr)
+						}
 					}
 				}
 				filesScanned.Add(1)
@@ -181,7 +183,9 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 				// Record mtime after scan
 				if mtimeCache != nil {
 					if fi, ferr := os.Stat(fp); ferr == nil {
-						mtimeCache.RecordFileMtime(fp, fi.ModTime().Unix())
+						if mErr := mtimeCache.RecordFileMtime(fp, fi.ModTime().Unix()); mErr != nil && cfg.Debug {
+							fmt.Fprintf(os.Stderr, "[debug] record mtime %s: %v\n", fp, mErr)
+						}
 					}
 				}
 				filesScanned.Add(1)

@@ -1,8 +1,12 @@
 package correlator
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/adaptive"
@@ -283,7 +287,9 @@ func TestMtimeCache(t *testing.T) {
 	}
 
 	// Record mtime
-	c.RecordFileMtime("/test/file.js", 1000)
+	if err := c.RecordFileMtime("/test/file.js", 1000); err != nil {
+		t.Fatalf("record mtime: %v", err)
+	}
 
 	// Same mtime → should skip
 	if !c.ShouldSkipFile("/test/file.js", 1000) {
@@ -296,8 +302,153 @@ func TestMtimeCache(t *testing.T) {
 	}
 
 	// Update mtime
-	c.RecordFileMtime("/test/file.js", 2000)
+	if err := c.RecordFileMtime("/test/file.js", 2000); err != nil {
+		t.Fatalf("update mtime: %v", err)
+	}
 	if !c.ShouldSkipFile("/test/file.js", 2000) {
 		t.Fatal("expected ShouldSkipFile=true after mtime update")
+	}
+}
+
+// TestOpenCacheAppliesPragmas locks in the concurrency hardening: WAL journal
+// (readers never block the writer), a busy timeout (a contended write waits
+// instead of failing instantly), and a single-writer connection cap so scan
+// worker goroutines serialize on one SQLite connection.
+func TestOpenCacheAppliesPragmas(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pragma.db")
+
+	c, err := OpenCache(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer c.Close()
+
+	var mode string
+	if err := c.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Errorf("journal_mode = %q, want %q", mode, "wal")
+	}
+
+	var busyTimeout int
+	if err := c.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Errorf("busy_timeout = %d, want 5000", busyTimeout)
+	}
+
+	if got := c.db.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1", got)
+	}
+}
+
+// TestOpenCachePragmaFailureIsNotFatal locks in graceful degradation: switching
+// journal mode needs a write lock, so a read-only database file makes the WAL
+// pragma fail. That must degrade to the pre-hardening journal mode, not turn a
+// previously openable cache into an error.
+func TestOpenCachePragmaFailureIsNotFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions")
+	}
+	dbPath := filepath.Join(t.TempDir(), "readonly.db")
+
+	// Build a complete schema with the raw driver so the fixture is not in
+	// WAL mode (a WAL database needs a writable -shm file just to be read).
+	seed, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE findings (fingerprint TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, rule_name TEXT DEFAULT '', file TEXT DEFAULT '', secret TEXT DEFAULT '')`,
+		`CREATE TABLE verdicts (id INTEGER PRIMARY KEY AUTOINCREMENT, fingerprint TEXT NOT NULL, verdict TEXT NOT NULL, created_at TEXT)`,
+		`CREATE TABLE learned_weights (rule_name TEXT NOT NULL, file_pattern TEXT NOT NULL, tp_weighted REAL NOT NULL, fp_weighted REAL NOT NULL, sample_count INTEGER NOT NULL, tier INTEGER NOT NULL, modifier REAL NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (rule_name, file_pattern))`,
+		`CREATE TABLE file_mtimes (file_path TEXT PRIMARY KEY, mtime INTEGER NOT NULL)`,
+		`INSERT INTO file_mtimes (file_path, mtime) VALUES ('/a.js', 1)`,
+	} {
+		if _, err := seed.Exec(stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatalf("seed close: %v", err)
+	}
+	if err := os.Chmod(dbPath, 0444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dbPath, 0644) })
+
+	c, err := OpenCache(dbPath)
+	if err != nil {
+		t.Fatalf("open read-only cache: %v", err)
+	}
+	defer c.Close()
+
+	// Reads still work; the WAL pragma was skipped, not fatal.
+	if !c.ShouldSkipFile("/a.js", 1) {
+		t.Error("expected cached mtime to still be readable on read-only db")
+	}
+	if got := c.db.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1 (still capped)", got)
+	}
+}
+
+// TestConcurrentRecordFileMtime reproduces the scan-worker pattern: many
+// goroutines writing mtimes concurrently. Before WAL + busy_timeout this
+// returned "database is locked" and the write was silently dropped, degrading
+// the incremental-scan cache.
+func TestConcurrentRecordFileMtime(t *testing.T) {
+	const (
+		workers = 8
+		writes  = 50
+	)
+
+	dbPath := filepath.Join(t.TempDir(), "concurrent.db")
+	c, err := OpenCache(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer c.Close()
+
+	var (
+		mu   sync.Mutex
+		errs []error
+		wg   sync.WaitGroup
+	)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < writes; i++ {
+				path := fmt.Sprintf("/repo/worker-%d/file-%d.js", worker, i)
+				if err := c.RecordFileMtime(path, int64(1000+i)); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if strings.Contains(err.Error(), "database is locked") {
+			t.Errorf("concurrent write failed with lock contention: %v", err)
+			continue
+		}
+		t.Errorf("concurrent RecordFileMtime: %v", err)
+	}
+	if len(errs) > 0 {
+		t.Errorf("got %d errors from %d concurrent writes, want 0", len(errs), workers*writes)
+	}
+
+	// Every write must have landed — a dropped write silently degrades the cache.
+	var count int
+	if err := c.db.QueryRow("SELECT COUNT(*) FROM file_mtimes").Scan(&count); err != nil {
+		t.Fatalf("count file_mtimes: %v", err)
+	}
+	if count != workers*writes {
+		t.Errorf("file_mtimes rows = %d, want %d", count, workers*writes)
 	}
 }

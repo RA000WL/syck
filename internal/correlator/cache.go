@@ -14,11 +14,38 @@ type Cache struct {
 	db *sql.DB
 }
 
+// tuneSQLite hardens a SQLite pool for concurrent use. SQLite allows a single
+// writer at a time, and scan workers hit the cache from every goroutine, so the
+// pool is capped at one connection: writers serialize on the connection instead
+// of racing and losing to SQLITE_BUSY. WAL keeps readers off the writer's lock
+// and busy_timeout makes a contended write wait instead of failing instantly.
+// journal_mode is a persistent property of the database file; busy_timeout is
+// per-connection, which the single-connection cap makes stable for the pool's
+// lifetime.
+//
+// The pragmas are best-effort and never fail the open. Switching journal mode
+// needs a write lock, so a read-only cache file reports "attempt to write a
+// readonly database" and SQLite quietly keeps the previous journal mode — the
+// pre-hardening behavior. Every caller already treats an unusable cache as "no
+// cache" rather than a fatal error, so failing here would only turn a working
+// (if write-less) cache into a disabled one.
+func tuneSQLite(db *sql.DB) {
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+	} {
+		db.Exec(pragma) // errors deliberately ignored, see above
+	}
+}
+
 func OpenCache(path string) (*Cache, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open cache db: %w", err)
 	}
+	tuneSQLite(db)
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS findings (
 		fingerprint TEXT PRIMARY KEY,
 		first_seen TEXT NOT NULL,
@@ -231,8 +258,9 @@ func (c *Cache) ShouldSkipFile(path string, mtime int64) bool {
 }
 
 // RecordFileMtime stores a file's modification time for incremental scanning.
-func (c *Cache) RecordFileMtime(path string, mtime int64) {
-	c.db.Exec("INSERT OR REPLACE INTO file_mtimes (file_path, mtime) VALUES (?, ?)", path, mtime)
+func (c *Cache) RecordFileMtime(path string, mtime int64) error {
+	_, err := c.db.Exec("INSERT OR REPLACE INTO file_mtimes (file_path, mtime) VALUES (?, ?)", path, mtime)
+	return err
 }
 
 // WeightedStatRow is a row from the stats query.

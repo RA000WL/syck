@@ -17,6 +17,18 @@ func OpenURLCache(path string) (*URLCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open url cache db: %w", err)
 	}
+	// Crawl workers record from every goroutine; single-writer cap + WAL +
+	// busy timeout so a contended write waits instead of failing SQLITE_BUSY.
+	// Best-effort: a read-only db file cannot switch journal mode and SQLite
+	// keeps the previous one, which must not turn a usable cache into an error.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+	} {
+		db.Exec(pragma) // errors deliberately ignored, see above
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
 		url_hash TEXT PRIMARY KEY,
 		url TEXT NOT NULL,

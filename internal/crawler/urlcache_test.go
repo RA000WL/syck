@@ -1,7 +1,9 @@
 package crawler
 
 import (
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -121,5 +123,84 @@ func TestContentHash_DifferentContent(t *testing.T) {
 	h2 := ContentHash("content-b")
 	if h1 == h2 {
 		t.Error("different content should produce different hashes")
+	}
+}
+
+// TestOpenURLCacheAppliesPragmas mirrors the correlator cache: crawl workers hit
+// the URL cache concurrently, so it needs the same WAL + busy timeout +
+// single-writer cap.
+func TestOpenURLCacheAppliesPragmas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	cache, err := OpenURLCache(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	var mode string
+	if err := cache.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Errorf("journal_mode = %q, want %q", mode, "wal")
+	}
+
+	var busyTimeout int
+	if err := cache.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Errorf("busy_timeout = %d, want 5000", busyTimeout)
+	}
+
+	if got := cache.db.Stats().MaxOpenConnections; got != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1", got)
+	}
+}
+
+func TestConcurrentURLCacheRecord(t *testing.T) {
+	const (
+		workers = 8
+		writes  = 50
+	)
+
+	path := filepath.Join(t.TempDir(), "concurrent.db")
+	cache, err := OpenURLCache(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	var (
+		mu   sync.Mutex
+		errs []error
+		wg   sync.WaitGroup
+	)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < writes; i++ {
+				url := fmt.Sprintf("https://example.com/w%d/p%d", worker, i)
+				if _, err := cache.Record(url, 200, "body"); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		t.Errorf("concurrent Record: %v", err)
+	}
+
+	count, err := cache.Count()
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != workers*writes {
+		t.Errorf("crawled_urls rows = %d, want %d", count, workers*writes)
 	}
 }
