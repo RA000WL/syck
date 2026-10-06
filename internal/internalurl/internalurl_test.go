@@ -223,11 +223,10 @@ func TestIsCloudMetadata(t *testing.T) {
 		{"metadata-prefix-attack", "http://xmetadata.google.internal/", false},
 		{"metadata-suffix-attack", "http://metadata.google.internal.evil.com/", false},
 
-		// HOST-scoped, same drift class as IsInternalHost: recon's
-		// cloudMetadataRE text-matches the IP anywhere in the URL, so
-		// recon calls the next two rows cloud_metadata today.
+		// PARSED, so a metadata IP in a path is not a metadata host. recon's
+		// cloudMetadataRE text-matches the IP anywhere, so this row is a real
+		// Task 4 delta and is CHANGELOG'd there.
 		{"DRIFT-metadata-in-path", "http://foo.com/169.254.169.254/x", false},
-		{"DRIFT-metadata-name-in-path", "http://foo.com/metadata.google.internal/", false},
 		{"public-ip", "https://8.8.8.8/", false},
 		{"empty", "", false},
 	}
@@ -243,6 +242,10 @@ func TestIsCloudMetadata(t *testing.T) {
 // TestIsInternalHost pins the union of recon's internalHostRE and
 // k8sServiceRE. Either regex alone drops real matches: "svc.cluster" only
 // matches the k8s one, "api.corp.example.com" only the host one.
+//
+// RAW-TEXT, so the path-position rows below are deliberate: this predicate
+// reproduces recon's regexes exactly, and host-parsing it would have made
+// them stop matching for no gain in netguard reuse.
 func TestIsInternalHost(t *testing.T) {
 	cases := []struct {
 		name string
@@ -268,13 +271,13 @@ func TestIsInternalHost(t *testing.T) {
 		{"internal-token-in-path", "https://example.com/internal/", false},
 		{"empty", "", false},
 
-		// IsInternalHost is HOST-scoped: it reads the URL's authority, not
-		// its text. recon's two regexes match the whole string, so these two
-		// rows are UNDECLARED Task 4 drift — recon calls both internal_host
-		// today, and the host-scoped predicate calls neither. Flagged for the
-		// Task 4 CHANGELOG alongside the loopback and private-IP deltas.
-		{"DRIFT-internal-as-path-label", "https://example.com/x.internal/y", false},
-		{"DRIFT-svc-in-path", "https://example.com/a.b.svc/x", false},
+		// These match today (recon's k8sServiceRE text-matches the whole URL)
+		// and must keep matching. They were DRIFT rows while this predicate
+		// was host-scoped; raw-text matching removed the drift class.
+		{"internal-as-path-label", "https://example.com/x.internal/y", true},
+		{"svc-in-path", "https://example.com/a.b.svc/x", true},
+		{"local-in-path", "https://example.com/x.local", true},
+		{"metadata-name-in-path", "http://foo.com/metadata.google.internal/", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -328,24 +331,21 @@ func TestIsInternalPath(t *testing.T) {
 		// A token with no leading slash is not a path token.
 		{"no-leading-slash", "internal/x", false},
 
-		// SPECIFIED OVER-MATCH. The brief specifies the trailing group as
-		// \b|/|$ and justifies it as "reproducing the union exactly". That
-		// justification is wrong, and these rows are the proof: the union
-		// does not match them, the spec'd regex does. \b fires at the
-		// boundary before ?, #, -, . and & for the nine tokens that came
-		// only from internalPathRE, whose trailing rule was strictly /|$.
-		// Kept as-is because the regex is the specification; flagged in the
-		// Task 2 report as drift Task 4 must CHANGELOG.
-		{"OVERMATCH-admin-before-query", "/admin?x=1", true},
-		{"OVERMATCH-debug-before-query", "/debug?a=b", true},
-		{"OVERMATCH-sandbox-before-dot", "/sandbox.json", true},
-		{"OVERMATCH-legacy-before-dot", "/legacy.tar", true},
-		{"OVERMATCH-trace-before-fragment", "/trace#x", true},
-		// \b is still required by the four internalRE tokens, which is what
-		// rules out the tighter (?:/|$) form the brief warns against.
-		{"internal-before-hyphen", "/internal-api", true},
-		{"intranet-before-hyphen", "/intranet-tools", true},
-		{"corp-before-dot", "/corp.example.com", true},
+		// The 13 tokens must NOT share one trailing rule. The four
+		// internalRE tokens carry \b; the nine internalPathRE-only tokens
+		// carry the stricter (?:/|$). Applying \b to all 13 over-matched
+		// these five rows; applying (?:/|$) to all 13 would under-match the
+		// three below. Both directions are pinned so neither regression can
+		// return.
+		{"strict-admin-before-query", "/admin?x=1", false},
+		{"strict-debug-before-query", "/debug?a=b", false},
+		{"strict-sandbox-before-dot", "/sandbox.json", false},
+		{"strict-legacy-before-dot", "/legacy.tar", false},
+		{"strict-trace-before-fragment", "/trace#x", false},
+		{"loose-internal-before-hyphen", "/internal-api", true},
+		{"loose-intranet-before-hyphen", "/intranet-tools", true},
+		{"loose-corp-before-dot", "/corp.example.com", true},
+		{"loose-private-before-hyphen", "/private-v2", true},
 
 		{"public-path", "/api/v1/users", false},
 		{"public-url", "https://example.com/api/users", false},

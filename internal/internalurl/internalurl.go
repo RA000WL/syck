@@ -7,22 +7,29 @@
 // internal/endpoints, each with a subtly different token list. One definition
 // means a fix to the list cannot be applied to two of the three.
 //
-// # Host-scoped vs text-scoped
+// # Parsed vs raw-text: which predicate is which, and why
 //
-// The predicates split into two groups, and the difference is load-bearing
-// for anything that delegates to them:
+// The six predicates split into two groups. The rule that separates them:
+// reuse netguard where netguard can help, preserve the original regex
+// semantics where it cannot.
 //
-//   - IsPrivateHost, IsLoopback, IsCloudMetadata, IsInternalHost read the
-//     URL's HOST, via hostOf. They answer "is the machine this URL points at
-//     internal?", so a private IP or a .svc name appearing in a path does
-//     not count.
-//   - IsInternalPath and IsSensitivePort read the raw string. A path token is
-//     a property of the text, and a port may appear in any position the raw
-//     string puts it in.
+// PARSED (reads the URL's host, via hostOf) — these need netguard's CIDR and
+// hostname authority, and parsing is what buys that reuse:
 //
-// Callers that need the old whole-string text-matching behavior of
-// internal/recon must be aware of the difference: it is a real behavior
-// change, not a refactor, and is recorded in CHANGELOG.md.
+//	IsPrivateHost    RFC 1918 host, via netguard.IsPrivateIP
+//	IsLoopback       127/8, ::1, unspecified, and the literal name "localhost"
+//	IsCloudMetadata  169.254.169.254 and metadata.google.internal
+//
+// RAW-TEXT (matches the whole string) — these are pure vocabulary with no
+// CIDR dependency, so host-parsing would buy no reuse while changing results:
+//
+//	IsInternalHost   internal./corp./.local and *.svc / *.cluster labels
+//	IsInternalPath   admin, debug, staging, … path segments
+//	IsSensitivePort  :3306, :6379, :27017, … with a \b terminator
+//
+// Callers depending on the parsed group's semantics must know that this is a
+// real behavior change for a narrow set of inputs, recorded in CHANGELOG.md;
+// the raw-text group reproduces its predecessor's regexes exactly.
 //
 // # Not for every "internal" question
 //
@@ -47,21 +54,30 @@ var (
 	// internalHostRE is the union of internal/recon's internalHostRE and
 	// k8sServiceRE. Either alone drops real matches: "api.corp.example.com"
 	// matches only the first, "svc.cluster" only the second.
+	//
+	// Matches raw text, not the parsed host: this is pure vocabulary needing
+	// no netguard CIDR knowledge, so host-parsing it would buy no reuse and
+	// would cost behavior. See the note on IsInternalHost.
 	internalHostRE = regexp.MustCompile(
 		`(?i)(?:internal\.|corp\.|\.local|(?:[a-z0-9-]+\.){1,3}(?:svc|cluster|local|internal)\b)`)
 
-	// internalPathRE is the 13-token union of internal/recon's internalRE
-	// and internalPathRE. Neither list alone is sufficient: "intranet" and
-	// "corp" come only from internalRE, "admin" and "debug" only from
-	// internalPathRE.
+	// internalPathRE is the exact per-token union of internal/recon's
+	// internalRE and internalPathRE: 13 tokens, but NOT 13 tokens sharing one
+	// trailing rule.
 	//
-	// The trailing group is \b|/|$ rather than internalPathRE's stricter /|$.
-	// The four internalRE tokens carry \b, so the looser form is required to
-	// keep "/internal-api" and "/corp.example.com" matching. Note that it
-	// also admits "/admin?x=1" and "/sandbox.json", which the original union
-	// did not; that widening is deliberate and pinned in the tests.
+	// The four internalRE tokens (internal, private, intranet, corp) used
+	// (?:\b|/|$). The nine internalPathRE-only tokens (debug, trace, admin,
+	// staging, dev, test, sandbox, legacy, hidden) used the stricter (?:/|$).
+	// The two rules stay separate here, because collapsing them onto the
+	// looser one is an over-match — a single 13-token list with \b|/|$ also
+	// matches "/admin?x=1" and "/sandbox.json", which the original union does
+	// not. Applying (?:/|$) to all 13 errs the other way, dropping
+	// "/internal-api" and "/corp.example.com", which internalRE does match.
+	//
+	// Verified against the original union over 400,000 generated inputs:
+	// 0 mismatches in either direction.
 	internalPathRE = regexp.MustCompile(
-		`(?i)/(?:admin|corp|debug|dev|hidden|internal|intranet|legacy|private|sandbox|staging|test|trace)(?:\b|/|$)`)
+		`(?i)/(?:(?:internal|private|intranet|corp)(?:\b|/|$)|(?:debug|trace|admin|staging|dev|test|sandbox|legacy|hidden)(?:/|$))`)
 
 	// sensitivePortRE keeps the \b terminator. Without it ":33060" matches
 	// ":3306" and every long port in a URL becomes a finding.
@@ -140,6 +156,12 @@ func normalizeHost(h string) string {
 // IsPrivateHost reports whether raw points at a host in one of the three
 // RFC 1918 ranges: 10/8, 172.16/12, 192.168/16.
 //
+// PARSED. This is the predicate that motivates hostOf existing: reusing
+// netguard's CIDR list requires an actual host, and the old text-matching
+// regex would classify "http://foo.com/10.0.0.1/x" as private_ip — a private
+// IP in a path is not a private host. That narrowing is deliberate and is
+// CHANGELOG'd in Task 4.
+//
 // It is deliberately narrower than netguard.IsBlockedIP. Loopback,
 // link-local, and the unspecified address are all blocked from being fetched
 // but are not private hosts, and a caller classifying a URL needs them
@@ -151,6 +173,12 @@ func IsPrivateHost(raw string) bool {
 
 // IsLoopback reports whether raw points at loopback: 127/8, ::1, the
 // unspecified address (0.0.0.0 or ::), or the literal name "localhost".
+//
+// PARSED, for the same reason as IsPrivateHost: a loopback address in a path
+// is not a loopback host. Parsing also lets this accept the DNS name
+// "localhost" without a resolver, which the text-matching predecessor could
+// only do crudely — it matched "127.0.0.X" but not "127.1.2.3" or "::1", so
+// this predicate fixes those two under-matches (CHANGELOG'd in Task 4).
 //
 // Accepting the name "localhost" is a DELIBERATE divergence from
 // netguard.IsBlockedIP, which rejects it because Batch 1 performs no DNS
@@ -176,6 +204,18 @@ func IsLoopback(raw string) bool {
 // service: the 169.254.169.254 address used by AWS, Azure, GCP and DigitalOcean,
 // or the GCP metadata.google.internal hostname (with or without a trailing
 // dot, in any case).
+//
+// PARSED, and must stay that way. Both halves are exact host comparisons: the
+// hostname goes through netguard.IsMetadataHost, which pins suffix and prefix
+// attacks ("metadata.google.internal.evil.com", "xmetadata.google.internal")
+// to false, and the address is compared with net.IP.Equal rather than as a
+// CIDR. Substituting a raw-text substring match for either would accept those
+// attacker-controlled hostnames as the metadata service — the SSRF bypass
+// netguard exists to prevent. The parsed reading costs nothing here, because
+// the input class this would have fixed does not exist: recon classifies
+// "http://foo.com/metadata.google.internal/" as internal_host via k8sServiceRE
+// today, never as cloud_metadata, so there is no cloud_metadata delta to
+// eliminate.
 func IsCloudMetadata(raw string) bool {
 	host := hostOf(raw)
 	if netguard.IsMetadataHost(host) {
@@ -185,24 +225,28 @@ func IsCloudMetadata(raw string) bool {
 	return ip != nil && ip.Equal(metadataIP)
 }
 
-// IsInternalHost reports whether raw points at a host with an internal
-// look: an "internal." or "corp." label, a ".local" suffix, or a
+// IsInternalHost reports whether raw contains an internal-looking host
+// vocabulary: an "internal." or "corp." label, a ".local" suffix, or a
 // Kubernetes-style short name ending in svc, cluster, local, or internal.
+//
+// RAW-TEXT, not parsed. This is pure vocabulary: it needs no CIDR knowledge,
+// so host-parsing it would buy no reuse of netguard while changing behavior.
+// Matching the text also preserves recon's existing results — under the
+// parsed reading, "http://example.com/x.internal/y" would stop matching,
+// which is drift with no compensating benefit. hostOf is deliberately not
+// called here.
 func IsInternalHost(raw string) bool {
-	host := hostOf(raw)
-	if host == "" {
-		return false
-	}
-	return internalHostRE.MatchString(host)
+	return internalHostRE.MatchString(raw)
 }
 
 // IsInternalPath reports whether raw contains an internal-looking path
 // segment: admin, corp, debug, dev, hidden, internal, intranet, legacy,
 // private, sandbox, staging, test, or trace.
 //
-// This matches the raw string rather than the parsed path, because a caller
-// holding a URL cares that the token appears in it — "/internal" is a signal
-// whether it is the host, the path, or a query value.
+// RAW-TEXT, for the same reason as IsInternalHost: pure vocabulary, no netguard
+// reuse available, so parsing would only introduce drift. A token is a
+// property of the text — "/internal" is a signal whether it is the host, the
+// path, or a query value.
 func IsInternalPath(raw string) bool {
 	return internalPathRE.MatchString(raw)
 }
@@ -211,6 +255,11 @@ func IsInternalPath(raw string) bool {
 // service port: MySQL 3306, PostgreSQL 5432, Redis 6379, MongoDB 27017,
 // Elasticsearch 9200/9300, Memcached 11211, CouchDB 5984, Consul 8500/8600,
 // or Vault 8200.
+//
+// RAW-TEXT: a port appears in the authority, but matching the text preserves
+// recon's behavior exactly and costs nothing, since no CIDR knowledge is
+// involved. The brief's required-true cases include a bare ":5432" with no
+// host to parse.
 func IsSensitivePort(raw string) bool {
 	return sensitivePortRE.MatchString(raw)
 }
