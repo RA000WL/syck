@@ -42,26 +42,27 @@ func TestParseOutputEmptyInput(t *testing.T) {
 }
 
 func TestToolTypesAreDistinct(t *testing.T) {
-	expected := map[ToolType]ToolType{
-		ToolSubfinder: ToolSubfinder,
-		ToolAmass:     ToolAmass,
-		ToolHttpx:     ToolHttpx,
-		ToolKatana:    ToolKatana,
+	tests := []struct {
+		tool ExternalTool
+		want ToolType
+	}{
+		{&SubfinderTool{}, ToolSubfinder},
+		{&AmassTool{}, ToolAmass},
+		{&HttpxTool{}, ToolHttpx},
+		{&KatanaTool{}, ToolKatana},
 	}
 	seen := make(map[ToolType]bool)
-	tools := allTools()
-	if len(tools) != len(expected) {
-		t.Fatalf("expected %d tools, got %d", len(expected), len(tools))
+	if len(allTools()) != len(tests) {
+		t.Fatalf("expected %d tools, got %d", len(tests), len(allTools()))
 	}
-	for _, tool := range tools {
-		name := tool.Name()
-		if _, ok := expected[name]; !ok {
-			t.Errorf("unexpected tool name %q", name)
+	for _, tc := range tests {
+		if got := tc.tool.Name(); got != tc.want {
+			t.Errorf("%T.Name() = %v, want %v", tc.tool, got, tc.want)
 		}
-		if seen[name] {
-			t.Errorf("duplicate tool name %q", name)
+		if seen[tc.want] {
+			t.Errorf("duplicate tool name %q", tc.want)
 		}
-		seen[name] = true
+		seen[tc.want] = true
 	}
 }
 
@@ -114,17 +115,18 @@ func TestExtraArgsAreSplitNotShellInterpreted(t *testing.T) {
 	// touch command arrive as distinct literal argv elements — the shell
 	// metacharacters are NOT interpreted as a command.
 	wantExtra := []string{"-x", "-y;", "touch", marker}
-	for _, w := range wantExtra {
-		found := false
-		for _, got := range res.Output {
-			if got == w {
-				found = true
-				break
-			}
+	idx := -1
+	for i, got := range res.Output {
+		if got == "-x" {
+			idx = i
+			break
 		}
-		if !found {
-			t.Errorf("expected literal arg %q in argv echo %v", w, res.Output)
-		}
+	}
+	if idx < 0 {
+		t.Fatalf("extra args not found at all in argv echo %v", res.Output)
+	}
+	if got := res.Output[idx:]; !reflect.DeepEqual(got, wantExtra) {
+		t.Errorf("extra-args subslice = %v, want %v (full argv %v)", got, wantExtra, res.Output)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Errorf("shell metacharacters interpreted: marker file %s exists", marker)
