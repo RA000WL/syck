@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// rps=5 => minGap = 200ms. A wait that is inside its sleep must not block
-// an unrelated host's wait, otherwise --rate-limit N collapses from
-// "N requests/sec per host" into "N requests/sec across the whole crawl".
+// rps=5 => minGap = 200ms. A wait that is inside its sleep must not block an
+// unrelated host's wait; under concurrent callers that would cap the limiter
+// at N requests/sec overall instead of N per host.
 const testRPS = 5
 
 // TestRateLimiterSleepsOutsideLock is the core pin for this fix: while one
@@ -16,9 +16,13 @@ const testRPS = 5
 // immediately instead of queueing on the mutex that the sleeper holds.
 //
 // Discrimination (this is the assertion that fails before the fix):
-//   - before: hostRateLimiter.Wait held h.mu across time.Sleep, so the probe
-//     below blocked on h.mu.Lock() for the remainder of the sleeper's ~200ms.
+//   - before: Wait held h.mu across time.Sleep, so the probe below blocked
+//     on h.mu.Lock() for the remainder of the sleeper's ~200ms.
 //   - after: the sleep happens with h.mu released, so the probe costs ~0.
+//
+// The crawler calls Wait from a single place (the BFS dequeue loop), so this
+// drives the limiter under concurrent callers directly rather than through a
+// crawl — the mutex is never contended in the production path today.
 //
 // The threshold (100ms against a 200ms minGap) sits far from both outcomes,
 // so this measures lock scope rather than scheduler jitter and stays reliable
@@ -57,8 +61,8 @@ func TestRateLimiterSleepsOutsideLock(t *testing.T) {
 	}
 }
 
-// TestRateLimiterAllowsPerHostOverlap pins the end-to-end shape the fix is
-// for: three hosts, each already served once, waited on concurrently must
+// TestRateLimiterAllowsPerHostOverlap pins the per-host shape under concurrent
+// callers: three hosts, each already served once, waited on concurrently must
 // overlap (~one minGap total) rather than stack (~three minGap). A regression
 // to a single global timestamp, or to dropping the sleep entirely, fails here.
 func TestRateLimiterAllowsPerHostOverlap(t *testing.T) {
@@ -110,10 +114,15 @@ func TestRateLimiterSameHostRespectsGap(t *testing.T) {
 	rl.Wait("solo.example.test")
 	elapsed := time.Since(start)
 
-	// A skipped wait (nil limiter, dropped sleep, timestamp never written)
-	// shows up here as a near-instant second wait.
-	if elapsed < rl.minGap {
-		t.Errorf("repeat wait on the same host took %v; want >= minGap %v", elapsed, rl.minGap)
+	// Bound sits below minGap on purpose: the first Wait publishes lastTime at
+	// T_w, and start is taken a few hundred ns later, so the second wait has
+	// already aged past T_w and sleeps minGap minus that sliver — the exact
+	// invariant floor is a hair under minGap, and asserting on minGap itself
+	// would lean on time.Sleep overshoot to pass. 20ms of headroom is still
+	// ~180ms above the ~0ms a dropped sleep or an unpublished timestamp gives.
+	if elapsed < rl.minGap-20*time.Millisecond {
+		t.Errorf("repeat wait on the same host took %v; want >= ~%v (minGap %v minus the start-slack)",
+			elapsed, rl.minGap-20*time.Millisecond, rl.minGap)
 	}
 }
 
