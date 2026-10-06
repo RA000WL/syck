@@ -60,7 +60,7 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 		allFindings   []finding.Finding
 		mu            sync.Mutex
 		wg            sync.WaitGroup
-		sem           = make(chan struct{}, cfg.Workers)
+		sem           = make(chan struct{}, EffectiveWorkers(cfg.Workers))
 		filesScanned  atomic.Int64
 		totalFindings atomic.Int64
 	)

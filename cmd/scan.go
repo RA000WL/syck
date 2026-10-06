@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -779,12 +778,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 // clampWorkers returns n when positive, otherwise a sane default of
 // max(runtime.NumCPU(), 2) so a zero/negative --workers value never
-// yields a zero-size worker pool.
+// yields a zero-size worker pool. Delegates to scanner.EffectiveWorkers so
+// the CLI and library callers share one definition.
 func clampWorkers(n int) int {
-	if n > 0 {
-		return n
-	}
-	return max(runtime.NumCPU(), 2)
+	return scanner.EffectiveWorkers(n)
 }
 
 func parseSize(s string) int64 {
