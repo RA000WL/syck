@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/RA000WL/syck/internal/netguard"
@@ -113,11 +114,30 @@ type crawler struct {
 	visited        map[string]bool
 	sitemapDomains map[string]bool // domains that have had sitemaps fetched
 	queue          []queueEntry
+	// budget is the remaining number of URLs the crawl may claim. It is
+	// decremented atomically (CompareAndSwap) at the single claim point so
+	// concurrent workers cannot overshoot cfg.Limit.
+	budget atomic.Int64
 	// queueMu protects queue. Lock order wherever both are needed is
 	// queueMu -> mu; never acquire queueMu while holding mu.
 	queueMu     sync.Mutex
 	debug       bool
 	initialHost string
+}
+
+// claimBudget atomically decrements the budget and reports whether a slot
+// was available. This is the one place budget is consumed, keeping the
+// total number of claimed URLs <= the initial budget (cfg.Limit).
+func (c *crawler) claimBudget() bool {
+	for {
+		b := c.budget.Load()
+		if b <= 0 {
+			return false
+		}
+		if c.budget.CompareAndSwap(b, b-1) {
+			return true
+		}
+	}
 }
 
 type queueEntry struct {
@@ -172,6 +192,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		sitemapDomains: make(map[string]bool),
 		debug:          cfg.Debug,
 	}
+	c.budget.Store(int64(cfg.Limit))
 
 	// Initialize robots.txt cache if enabled
 	if cfg.RespectRobots {
@@ -210,7 +231,7 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 
 	// BFS loop with parallel fetching
 	var wg sync.WaitGroup
-	for c.visitedCount() < cfg.Limit {
+	for c.budget.Load() > 0 {
 		entry := c.nextURL()
 		if entry == nil {
 			// Wait for in-flight requests to finish before checking again
@@ -233,6 +254,9 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			}
 		}
 
+		if !c.claimBudget() {
+			break
+		}
 		c.markVisited(entry.url)
 
 		// Rate limit per host
@@ -352,21 +376,35 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 			})
 
 			// V1.1: harvest source maps for JS files
-			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") && c.visitedCount() < cfg.Limit {
+			if c.config.Endpoints && strings.HasSuffix(e.url, ".js") && c.budget.Load() > 0 {
 				mapURL := e.url + ".map"
-				// Single-mutex discipline: check visited (under mu) and enqueue
-				// atomically. Lock order queueMu -> mu.
-				c.queueMu.Lock()
-				c.mu.Lock()
-				if !c.visited[mapURL] {
-					c.queue = append(c.queue, queueEntry{url: mapURL, depth: e.depth + 1})
+				// Apply the same scope/same-domain filters as normal links
+				// before enqueueing, so out-of-scope maps never consume a
+				// visited slot.
+				inScope := true
+				if cfg.Scope != nil && !cfg.Scope.MatchString(mapURL) {
+					inScope = false
 				}
-				c.mu.Unlock()
-				c.queueMu.Unlock()
+				if cfg.SameDomainOnly && c.initialHost != "" {
+					if parsed, err := url.Parse(mapURL); err != nil || parsed.Hostname() != c.initialHost {
+						inScope = false
+					}
+				}
+				if inScope {
+					// Single-mutex discipline: check visited (under mu) and enqueue
+					// atomically. Lock order queueMu -> mu.
+					c.queueMu.Lock()
+					c.mu.Lock()
+					if !c.visited[mapURL] {
+						c.queue = append(c.queue, queueEntry{url: mapURL, depth: e.depth + 1})
+					}
+					c.mu.Unlock()
+					c.queueMu.Unlock()
+				}
 			}
 
 			// Enqueue discovered URLs
-			if e.depth < cfg.MaxDepth && c.visitedCount() < cfg.Limit {
+			if e.depth < cfg.MaxDepth && c.budget.Load() > 0 {
 				base, _ := url.Parse(e.url)
 				newURLs := ExtractURLs(content, base, contentType)
 				c.enqueueURLs(newURLs, e.depth+1)
