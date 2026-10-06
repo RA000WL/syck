@@ -37,7 +37,7 @@ func ScanArchive(data []byte, filename string) ([]ArchiveMember, error) {
 
 func scanZip(data []byte) ([]ArchiveMember, error) {
 	if len(data) > maxArchiveTotalBytes {
-		data = data[:maxArchiveTotalBytes]
+		return nil, fmt.Errorf("archive too large: %d bytes (max %d), skipped", len(data), maxArchiveTotalBytes)
 	}
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -77,7 +77,7 @@ func scanZip(data []byte) ([]ArchiveMember, error) {
 
 func scanTarGzip(data []byte) ([]ArchiveMember, error) {
 	if len(data) > maxArchiveTotalBytes {
-		data = data[:maxArchiveTotalBytes]
+		return nil, fmt.Errorf("archive too large: %d bytes (max %d), skipped", len(data), maxArchiveTotalBytes)
 	}
 	gzr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -89,7 +89,7 @@ func scanTarGzip(data []byte) ([]ArchiveMember, error) {
 
 func scanTar(data []byte) ([]ArchiveMember, error) {
 	if len(data) > maxArchiveTotalBytes {
-		data = data[:maxArchiveTotalBytes]
+		return nil, fmt.Errorf("archive too large: %d bytes (max %d), skipped", len(data), maxArchiveTotalBytes)
 	}
 	return scanTarReader(tar.NewReader(bytes.NewReader(data)))
 }
