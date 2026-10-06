@@ -29,7 +29,7 @@ const maxEndpointBuf = 10 << 20
 
 var streamingBufPool = sync.Pool{
 	New: func() interface{} {
-		b := make([]byte, 10<<20)
+		b := make([]byte, 256<<10)
 		return &b
 	},
 }
@@ -979,7 +979,9 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	scanner := bufio.NewScanner(r)
-	buf := make([]byte, 10<<20)
+	bp := streamingBufPool.Get().(*[]byte)
+	defer streamingBufPool.Put(bp)
+	buf := *bp
 	scanner.Buffer(buf, len(buf))
 
 	var linesBuf strings.Builder
