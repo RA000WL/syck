@@ -51,19 +51,39 @@ func newHostRateLimiter(rps int) *hostRateLimiter {
 	}
 }
 
+// Wait blocks until the per-host rate limit permits another request.
+//
+// h.mu guards the lastTime map only; it is never held across the sleep.
+// Holding it across time.Sleep made every host's wait queue behind whichever
+// host happened to be sleeping, turning --rate-limit N into roughly
+// N requests/sec for the whole crawl instead of N per host.
+//
+// Same-host semantics are preserved: each caller reads its own host's
+// timestamp under the lock, sleeps out its own remaining gap, then re-takes
+// the lock to publish its completion time. Two callers racing on the *same*
+// host between the unlock and the re-lock may both sleep the same gap and
+// wake together; that burst is bounded by minGap (the next wait for that
+// host measures from the freshly published timestamp) and does not affect
+// the long-run per-host rate.
 func (h *hostRateLimiter) Wait(host string) {
 	if h == nil {
 		return
 	}
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	wait := time.Duration(0)
 	if last, ok := h.lastTime[host]; ok {
-		wait := h.minGap - time.Since(last)
-		if wait > 0 {
-			time.Sleep(wait)
-		}
+		wait = h.minGap - time.Since(last)
 	}
+	h.mu.Unlock()
+
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+
+	h.mu.Lock()
 	h.lastTime[host] = time.Now()
+	h.mu.Unlock()
 }
 
 type CrawledURL struct {
