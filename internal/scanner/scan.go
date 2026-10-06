@@ -979,9 +979,10 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 
 func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 	scanner := bufio.NewScanner(r)
-	bp := streamingBufPool.Get().(*[]byte)
-	defer streamingBufPool.Put(bp)
-	buf := *bp
+	// ScanReader is a one-shot call (not per-worker), so give it its own
+	// larger buffer instead of the shared 256KB pool: stdin can legitimately
+	// carry long single lines (e.g. minified JS) and must not lose findings.
+	buf := make([]byte, 1<<20)
 	scanner.Buffer(buf, len(buf))
 
 	var linesBuf strings.Builder

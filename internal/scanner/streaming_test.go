@@ -3,7 +3,6 @@ package scanner
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -106,18 +105,20 @@ func TestScanFileFallback_ErrTooLong(t *testing.T) {
 func TestStreamingPoolBufferSize(t *testing.T) {
 	bp := streamingBufPool.Get().(*[]byte)
 	defer streamingBufPool.Put(bp)
-	if len(*bp) > 256<<10 {
-		t.Fatalf("pooled streaming buffer = %d bytes, want <= %d (256KB)", len(*bp), 256<<10)
+	if len(*bp) != 256<<10 {
+		t.Fatalf("pooled streaming buffer = %d bytes, want exactly %d (256KB)", len(*bp), 256<<10)
 	}
 }
 
-func TestMegaLineStillScanned(t *testing.T) {
+func TestScanFileFallbackReportsFinding(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mega.txt")
 
 	secret := "AKIAIOSFODNN7EXAMPLE"
 	// 2MB single-line file: exceeds the 256KB scanner buffer, so ScanFile
-	// must still report the finding via the scanFileFallback path.
+	// must still report the finding via the scanFileFallback path. This
+	// guards the presence of the fallback, not the buffer size (see
+	// TestStreamingPoolBufferSize for that).
 	payload := strings.Repeat("A", 2*1024*1024) + secret + "\n"
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
@@ -145,38 +146,35 @@ func TestMegaLineStillScanned(t *testing.T) {
 	}
 }
 
-func TestScanReaderReusesPooledBuffer(t *testing.T) {
+func TestScanReaderHandlesLargeLine(t *testing.T) {
+	// Regression guard: ScanReader must scan stdin lines larger than the
+	// shared 256KB streaming pool buffer without erroring or losing findings.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stdin.txt")
-	if err := os.WriteFile(path, []byte("hello world\n"), 0o644); err != nil {
+	secret := "AKIAIOSFODNN7EXAMPLE"
+	payload := strings.Repeat("A", 512*1024) + secret + "\n"
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
 	cfg := Config{Rules: loadMinimalRules(t)}
-
-	run := func() {
-		f, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		if _, err := ScanReader(f, cfg); err != nil {
-			t.Fatal(err)
+	findings, err := ScanReader(f, cfg)
+	if err != nil {
+		t.Fatalf("ScanReader must not fail on >256KB line: %v", err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Secret == secret {
+			found = true
+			break
 		}
 	}
-
-	run() // warm up pool
-	runtime.GC()
-	var m1 runtime.MemStats
-	runtime.ReadMemStats(&m1)
-	const N = 5
-	for i := 0; i < N; i++ {
-		run()
-	}
-	var m2 runtime.MemStats
-	runtime.ReadMemStats(&m2)
-	avg := (m2.TotalAlloc - m1.TotalAlloc) / N
-	if avg > 1<<20 {
-		t.Fatalf("ScanReader allocates ~%d bytes/call, want far below 10MB (pooled buffer)", avg)
+	if !found {
+		t.Fatalf("expected finding %q from large stdin line, got %d findings", secret, len(findings))
 	}
 }
 
