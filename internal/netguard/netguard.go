@@ -29,6 +29,37 @@ func mustCIDR(s string) *net.IPNet {
 	return n
 }
 
+// IsMetadataHost reports whether host is the well-known GCP metadata
+// hostname. The comparison is case-insensitive and a trailing dot is
+// tolerated, so "METADATA.GOOGLE.INTERNAL." matches.
+func IsMetadataHost(host string) bool {
+	return strings.ToLower(strings.TrimSuffix(host, ".")) == metadataHost
+}
+
+// IsBlockedIP reports whether ip is in a range that must never be fetched:
+// 10/8, 172.16/12, 192.168/16, 127/8, ::1, 169.254/16, fe80::/10, and
+// 0.0.0.0/::. Literal IPs only — callers must have already handled DNS names.
+// A nil ip is not a literal IP and is reported as not blocked.
+func IsBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, n := range []*net.IPNet{private10, private172, private192, loopbackV4, linkLocalV4, linkLocalV6} {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	if ip.IsLoopback() {
+		// Covers 127.0.0.0/8 and ::1.
+		return true
+	}
+	if ip.IsUnspecified() {
+		// 0.0.0.0 (and ::): not routable, never a legitimate fetch target.
+		return true
+	}
+	return ip.IsLinkLocalUnicast()
+}
+
 // AllowFetch reports whether rawURL is safe to fetch as a secondary resource
 // (sitemap child, sourcemap, redirect target). It returns false for literal
 // IPs in 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local ranges,
@@ -54,30 +85,13 @@ func AllowFetch(rawURL string) bool {
 	}
 
 	// Hostname denylist (case-insensitive, trailing dot tolerated).
-	normalized := strings.ToLower(strings.TrimSuffix(host, "."))
-	if normalized == metadataHost {
+	if IsMetadataHost(host) {
 		return false
 	}
 
 	// Literal-IP checks only (no DNS resolution in Batch 1).
 	if ip := net.ParseIP(host); ip != nil {
-		for _, n := range []*net.IPNet{private10, private172, private192, loopbackV4, linkLocalV4, linkLocalV6} {
-			if n.Contains(ip) {
-				return false
-			}
-		}
-		if ip.IsLoopback() {
-			// Covers 127.0.0.0/8 and ::1.
-			return false
-		}
-		if ip.IsUnspecified() {
-			// 0.0.0.0 (and ::): not routable, never a legitimate fetch target.
-			return false
-		}
-		if ip.IsLinkLocalUnicast() {
-			return false
-		}
-		return true
+		return !IsBlockedIP(ip)
 	}
 
 	return true
