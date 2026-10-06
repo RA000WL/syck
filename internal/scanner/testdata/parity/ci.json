@@ -1,0 +1,6 @@
+{
+  "name": "ci-pipeline",
+  "github_token": "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789",
+  "retries": 3,
+  "timeout_seconds": 300
+}

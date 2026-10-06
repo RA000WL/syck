@@ -1,0 +1,7 @@
+# syck parity fixture: stripe secret key in YAML.
+service: payments
+stripe:
+  publishable_key: "pk_live_4eC39HqLyjWDarjtT1zdp7dc"
+  secret_key: "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+  webhook_secret: "whsec_4eC39HqLyjWDarjtT1zdp7dc"
+retries: 3

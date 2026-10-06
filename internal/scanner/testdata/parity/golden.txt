@@ -1,0 +1,14 @@
+.env:3	aws_access_key_id	CRITICAL
+.env:4	env_aws_secret	CRITICAL
+.env:5	dotenv_file_secret	INFO
+.env:5	postgres_url	INFO
+app.js:4	aws_access_key_id	CRITICAL
+ci.json:0	json_github_personal_access_token	CRITICAL
+ci.json:3	github_personal_access_token	CRITICAL
+config.yaml:4	stripe_publishable_key	MEDIUM
+config.yaml:5	stripe_secret_key	CRITICAL
+config.yaml:6	generic_secret	HIGH
+config.yaml:6	stripe_webhook_signing_secret	HIGH
+main.go:4	jwt_in_source	MEDIUM
+main.go:4	jwt_token	HIGH
+script.py:6	base64_env_aws_secret	CRITICAL
