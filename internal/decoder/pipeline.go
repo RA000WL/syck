@@ -186,7 +186,24 @@ func scanDecodedChunk(
 			// batch; they stay exactly where they were, so each filter runs once
 			// and the whole block reads in the plain path's order
 			// (helpers.go:555-563).
-			if entropy.IsFalsePositiveToken(secret) {
+			//
+			// The Token filter is skipped for multi_line rules. Its design
+			// domain is single-line token-shaped spans, and its hyphen
+			// heuristic (>= 3 hyphens and len > 20, aimed at feature-flag names)
+			// has no way to tell a full PEM block from a feature flag: a PEM
+			// block is nothing but hyphens and base64. The decoder iterates
+			// every rule, the multi_line ones included, and those rules exist so
+			// that base64-decoded content can be scanned at all — so applying
+			// Token here suppressed the CRITICAL rsa/ec/openssh/pgp private-key
+			// rules on the one path whose whole purpose is finding them.
+			// Internal/scanner/multiline.go, which applies no filters, still
+			// reports those blocks from plain files, so this was a decoded-path
+			// loss rather than a policy.
+			//
+			// Secret and Email are NOT exempted: they are span-shape-agnostic
+			// (placeholders and email addresses are false positives at any
+			// length and arity).
+			if !rule.MultiLine && entropy.IsFalsePositiveToken(secret) {
 				continue
 			}
 			if entropy.IsFalsePositiveEmail(secret) {
