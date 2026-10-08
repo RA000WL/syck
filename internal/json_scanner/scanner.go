@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/RA000WL/syck/internal/decoder"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
@@ -68,6 +69,9 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 		// Check if key matches known secret-key names
 		if secretKeyRE.MatchString(keyName) {
 			e := entropy.Shannon(v)
+			// This 3.0 belongs to the key-name heuristic, not to any rule, so it
+			// stays literal. Do not "unify" it with the rule-match gate below:
+			// there is no `rule` here to read an entropy_threshold from.
 			if len(v) >= 8 && !isAllDigits(v) && e >= 3.0 {
 				*findings = append(*findings, finding.Finding{
 					File:     path,
@@ -100,7 +104,11 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 					secret = v[m[0]:]
 				}
 				e := entropy.Shannon(secret)
-				if e < 2.0 {
+				// Rule-match gate: honor the rule's own entropy_threshold when it
+				// sets one, else the global 2.0 floor. Deliberately NOT the same
+				// gate as the secret-key-NAME heuristic above, which has no rule
+				// behind it and keeps its own 3.0.
+				if e < decoder.RuleEntropyFloor(rule.EntropyThreshold) {
 					continue
 				}
 				*findings = append(*findings, finding.Finding{

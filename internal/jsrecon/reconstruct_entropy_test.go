@@ -78,21 +78,23 @@ func containsSecret(findings []finding.Finding, want string) bool {
 	return false
 }
 
-// TestReconstructEntropyFloorHardcodedToTwo pins CURRENT behavior: reconstruct.go:411
-// applies the global 2.0 floor to every rule, so a match in [2.0, 3.0) — which
-// env_generic_secret's own 3.0 threshold should suppress, and which the main
-// file-scanning path already suppresses — is still reported here.
-func TestReconstructEntropyFloorHardcodedToTwo(t *testing.T) {
+// TestReconstructEntropyFloorHonorsRuleThreshold guards reconstruct.go:412.
+// Before this gate consulted decoder.RuleEntropyFloor(rule.EntropyThreshold),
+// every rule here got the hardcoded global 2.0 floor, so a match in [2.0, 3.0)
+// was reported from reconstructed JS even though env_generic_secret's own 3.0
+// threshold suppresses it on the plain-file path. That disagreement is the bug;
+// the subtests below pin the fixed behavior in both directions.
+func TestReconstructEntropyFloorHonorsRuleThreshold(t *testing.T) {
 	requireReconEntropyBands(t)
 	rs, err := rules.LoadDefault()
 	if err != nil {
 		t.Fatalf("LoadDefault: %v", err)
 	}
 
-	t.Run("low_entropy_reported_despite_three_threshold", func(t *testing.T) {
+	t.Run("low_entropy_suppressed_by_rule_threshold", func(t *testing.T) {
 		got := ReconstructAndScan(jsReconstructedTo(reconLowSecret), "app.js", rs, finding.SeverityLow)
-		if !containsSecret(reconEnvGenericFindings(got), reconLowSecret) {
-			t.Fatalf("entropy %.4f in [2.0,3.0): hardcoded 2.0 floor still reports it; got %+v",
+		if containsSecret(reconEnvGenericFindings(got), reconLowSecret) {
+			t.Fatalf("entropy %.4f under env_generic_secret's 3.0 threshold: expected suppression, got %+v",
 				entropy.Shannon(reconLowSecret), got)
 		}
 	})

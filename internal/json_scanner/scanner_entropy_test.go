@@ -66,15 +66,17 @@ func countRule(findings []finding.Finding, ruleName string) int {
 	return n
 }
 
-// TestJSONRuleMatchEntropyFloorHardcodedToTwo pins CURRENT behavior at
-// scanner.go:103: the rule-match gate is the global 2.0 floor, so a match in
-// [2.0, 3.0) is reported even though env_generic_secret's own threshold is 3.0
-// and the main file-scanning path already suppresses it.
+// TestJSONRuleMatchEntropyFloorHonorsRuleThreshold guards the rule-match gate at
+// scanner.go:106. Before it consulted decoder.RuleEntropyFloor(rule.EntropyThreshold),
+// every rule got the hardcoded global 2.0 floor, so a match in [2.0, 3.0) was
+// reported from a JSON value even though env_generic_secret's own 3.0 threshold
+// suppresses it on the plain-file path. The subtests below pin the fixed
+// behavior in both directions.
 //
 // The JSON key is a neutral name ("cfg") that secretKeyRE does not match, so
-// the key-name heuristic at scanner.go:69 cannot contribute findings and the
+// the key-name heuristic at scanner.go:71 cannot contribute findings and the
 // ruleset branch is observed in isolation.
-func TestJSONRuleMatchEntropyFloorHardcodedToTwo(t *testing.T) {
+func TestJSONRuleMatchEntropyFloorHonorsRuleThreshold(t *testing.T) {
 	requireJSONEntropyBands(t)
 	rs, err := rules.LoadDefault()
 	if err != nil {
@@ -82,20 +84,20 @@ func TestJSONRuleMatchEntropyFloorHardcodedToTwo(t *testing.T) {
 	}
 	const ruleName = "json_env_generic_secret"
 
-	t.Run("low_entropy_a_reported", func(t *testing.T) {
+	t.Run("low_entropy_a_suppressed", func(t *testing.T) {
 		content := `{"cfg":"` + jsonLowSecretA + `"}`
 		got := ScanJSONFile("app.json", content, rs, finding.SeverityLow)
-		if n := countRule(got, ruleName); n != 1 {
-			t.Fatalf("entropy %.4f in [2.0,3.0): hardcoded 2.0 floor still reports it; got %d %s findings: %+v",
+		if n := countRule(got, ruleName); n != 0 {
+			t.Fatalf("entropy %.4f under env_generic_secret's 3.0 threshold: expected suppression, got %d %s findings: %+v",
 				entropy.Shannon(jsonLowSecretA), n, ruleName, got)
 		}
 	})
 
-	t.Run("low_entropy_b_reported", func(t *testing.T) {
+	t.Run("low_entropy_b_suppressed", func(t *testing.T) {
 		content := `{"cfg":"` + jsonLowSecretB + `"}`
 		got := ScanJSONFile("app.json", content, rs, finding.SeverityLow)
-		if n := countRule(got, ruleName); n != 1 {
-			t.Fatalf("entropy %.4f in [2.0,3.0): hardcoded 2.0 floor still reports it; got %d %s findings: %+v",
+		if n := countRule(got, ruleName); n != 0 {
+			t.Fatalf("entropy %.4f under env_generic_secret's 3.0 threshold: expected suppression, got %d %s findings: %+v",
 				entropy.Shannon(jsonLowSecretB), n, ruleName, got)
 		}
 	})

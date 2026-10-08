@@ -1,10 +1,11 @@
 package jsrecon
 
 import (
-	"github.com/RA000WL/syck/internal/entropy"
 	"regexp"
 	"strings"
 
+	"github.com/RA000WL/syck/internal/decoder"
+	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
 	"github.com/RA000WL/syck/internal/rules"
 )
@@ -409,7 +410,10 @@ func scanReconstructed(
 			}
 
 			e := entropy.Shannon(secret)
-			if e < 2.0 {
+			// Honor the rule's own entropy_threshold when it sets one; the
+			// global 2.0 floor applies otherwise. Same helper the decoded and
+			// plain-file scan paths use, so one rule cannot have two floors.
+			if e < decoder.RuleEntropyFloor(rule.EntropyThreshold) {
 				continue
 			}
 

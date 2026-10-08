@@ -9,6 +9,9 @@ import (
 
 // Characterization of the entropy gate at url_secrets.go:40 (`if e < 2.0`).
 //
+// UNCHANGED BY THIS BATCH. Unlike its two sibling paths, this one has no rule
+// to consult, so there was nothing to make generic — see the reasoning below.
+//
 // WHAT `e` IS COMPUTED OVER: the URL query parameter VALUE
 // (`e := entropy.Shannon(val)`), where `val := params.Get(param)`. It is not a
 // regex capture — there is no regex here at all.
