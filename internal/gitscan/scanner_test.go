@@ -254,6 +254,14 @@ func TestScanHistoryCollidingCrossCommitSecrets(t *testing.T) {
 	for i := 0; i < len(a) && i < len(b) && a[i] == b[i]; i++ {
 		shared++
 	}
+	// The gitscan key is RuleName+":"+Secret truncated at 80. firebase_fcm_key
+	// is 16 chars, so the collision needs secret-shared-prefix >= 63
+	// (16 + 1 + 63 = 80). Without this guard a fixture edit that silently
+	// dropped the shared prefix below 63 would leave the test passing while no
+	// longer exercising the defect it pins.
+	if shared < 63 {
+		t.Fatalf("fixture no longer collides at the 80-char key: shared prefix %d < 63", shared)
+	}
 	t.Logf("secret shared prefix: %d chars; RuleName+':'+secret shared prefix: %d+17=%d chars",
 		shared, shared, shared+17)
 
