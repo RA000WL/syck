@@ -68,11 +68,25 @@ formatters, and any finding-visible behavior change.
 - **3b:** streaming buffer pool reduced (still well above realistic
   line lengths; the `bufio.ErrTooLong` → `scanFileFallback` path
   already covers minified mega-lines); `ScanReader` reuses the pool;
-  `fetchURL` reads through a bounded `io.LimitReader` and returns
-  pooled scratch; archive oversize skips rather than slices.
+  `fetchURL` reads through a bounded `io.LimitReader`; archive
+  oversize skips rather than slices.
 - **3c:** sequential chunked regex matching if the benchmark agrees;
   one atomic crawl budget via `CompareAndSwap`; `.js.map` enqueue
   routed through the normal scope and domain filters.
+
+> **Correction, 2026-10-05 (Batch 4d).** The 3b entry above
+> originally also claimed `fetchURL` "returns pooled scratch". **That
+> half was never implemented** and does not exist in the shipped code:
+> `fetchURL` (`internal/crawler/crawler.go`) still does a plain
+> `io.ReadAll(io.LimitReader(...))`, which allocates a fresh buffer per
+> call and returns nothing to any pool — there is no `sync.Pool` left in
+> the package. Only the bounded-read half shipped. `crawler.BodyPool`
+> was the orphan hook for the unimplemented half, and Batch 4d Task 1
+> deleted it, so the code-level trace of this gap is gone; the remaining
+> work is queued in `ARCHITECTURE.md` §15 (deferred defect 5) instead.
+> For the same reason, the §4 testing line "3b: ... pool reuse confirmed
+> by a benchmark delta" overstates coverage — no `fetchURL` pool
+> benchmark exists. This dated record is otherwise left as written.
 
 If the 3c benchmark shows the current goroutine path is not slower,
 the regex change is reverted and only the crawl-budget and scope

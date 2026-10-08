@@ -143,6 +143,9 @@ syck-go/
 │   ├── correlator/                 # SQLite cross-run cache
 │   │   └── cache.go                # SHA256 fingerprinting, INSERT-or-UPDATE
 │   │
+│   ├── sqliteutil/                 # Shared SQLite open tuning (Batch 4d)
+│   │   └── sqliteutil.go           # Open — single-writer cap (SetMaxOpenConns(1)), WAL, busy_timeout=5000. Two consumers: correlator/ and crawler/urlcache.go. Pragmas are best-effort; a pragma failure never fails the open
+│   │
 │   ├── adaptive/                   # Adaptive confidence learning engine
 │   │   └── adaptive.go             # Tier types, Bayesian smoothing, modifier, weight store, decay
 │   │
@@ -167,7 +170,7 @@ syck-go/
 │   │   ├── cookies.go              # Cookie jar persistence
 │   │   ├── robots.go               # robots.txt parsing
 │   │   ├── useragent.go            # Random user-agent rotation (80+ strings)
-│   │   ├── encoding.go             # Character encoding detection + body pooling
+│   │   ├── encoding.go             # Character encoding detection (Content-Type, meta, BOM)
 │   │   ├── juicy.go                # High-value path probing (150+ paths)
 │   │   ├── cloud_storage.go        # S3/GCS/Azure URL detection
 │   │   ├── graphql_introspect.go   # GraphQL introspection probe
@@ -411,11 +414,12 @@ type Detector interface {
 | `confidence/` | Multi-signal confidence scorer |
 | `correlation/` | 8 multi-finding correlation detectors |
 | `correlator/` | SQLite cross-run cache + file mtime cache for incremental scanning |
+| `sqliteutil/` | Shared SQLite open tuning: single-writer cap, WAL, busy timeout |
 | `adaptive/` | Adaptive confidence learning |
 | `endpoints/` | 30+ endpoint extraction patterns + risk scoring |
 | `jsanalysis/` | JavaScript/source analysis (env vars, secrets, internal URLs) |
 | `discovery/` | Subdomain enumeration (crt.sh, CertSpotter, DNS bruteforce) |
-| `crawler/` | BFS web crawler, headless Chrome, archive extraction, body pooling |
+| `crawler/` | BFS web crawler, headless Chrome, archive extraction |
 | `jsrecon/` | JS string reconstruction (6 methods) + request analysis |
 | `json_scanner/` | JSON tree-walking scanner |
 | `gitscan/` | Git commit history walking |
@@ -705,7 +709,7 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 1-3 are each pinned by a test and intentionally NOT fixed, because fixing them changes behavior. Item 4 is not test-pinned (it is an unexercised gate, so there is nothing to pin); it is recorded because it is a real gap in Batch 1 security code that Batch 4c edited but did not introduce.
+Items 1-3 are each pinned by a test and intentionally NOT fixed, because fixing them changes behavior. Item 4 is not test-pinned (it is an unexercised gate, so there is nothing to pin); it is recorded because it is a real gap in Batch 1 security code that Batch 4c edited but did not introduce. Item 5 is a performance gap, not a defect — it is recorded because a spec shipped a false claim that the work was done.
 
 Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`:
 
@@ -719,6 +723,10 @@ One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanE
 One `internal/netguard` issue (Batch 1 code, not a test-pinned regression):
 
 4. **Link-local IPv6 with a zone escapes `AllowFetch`** — `AllowFetch("http://[fe80::1%25eth0]/")` returns `true`. `url.URL.Hostname()` yields `fe80::1%eth0` (the zone, percent-decoded) and `net.ParseIP` rejects the zone form, so the `fe80::/10` membership test never runs and `IsBlockedIP` is not even consulted. `internalurl.hostOf` inherits the same blind spot for the same reason. Pre-existing and byte-identical to the pre-Batch-4c code — the `internalurl` extraction did not introduce it, which is why Batch 4c left it alone — but it is Batch 1 security code in a package this branch edited. Fix in `AllowFetch` (strip the zone before parsing) with a widened `netguard_test.go` row; do NOT fix it by loosening `IsBlockedIP`, whose contract is a `net.IP` and which cannot see a zone at all.
+
+One `internal/crawler` gap (Batch 3 spec, work never implemented):
+
+5. **`fetchURL` scratch buffers are allocated per call and never pooled** — Batch 3's design spec listed "`fetchURL` reads through a bounded `io.LimitReader` and returns pooled scratch" as approved-and-completed work. Only the bounded-read half shipped. `fetchURL` (`internal/crawler/crawler.go`) still does a plain `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))`, so every crawled URL allocates a fresh grow-by-doubling buffer up to the 10MB cap, and the `ConvertToUTF8`/`string(utf8Body)` conversions allocate again on top. `grep -rn "sync.Pool" internal/crawler/` returns nothing — there is no pool in the package at all. The `crawler.BodyPool` var was the orphan hook for this unfinished half; Batch 4d Task 1 deleted it as dead code, which removed the last code-level trace of the gap, so it is recorded here instead. The Batch 3 `CHANGELOG.md` entry makes no pool claim and is accurate as written. **This is a memory optimization, not a refactor** — it needs its own batch, its own CHANGELOG entry, and its own benchmark (allocation/op and RSS on a crawl fixture) before and after; do NOT fold it into a change promising "no behavior change", because a pooled buffer that escapes a `Put` is a use-after-free class bug that `-race` does not reliably catch.
 
 ---
 
