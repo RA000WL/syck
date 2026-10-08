@@ -723,12 +723,13 @@ path), so the number is kept in place rather than removed. Item 6 is OPEN by
 unactionable rather than neglected — see its entry.
 
 Item 3 was closed by Batch 10, which changed behavior exactly as this entry
-predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
-is recorded because a spec shipped a false claim that the work was done. Items
-
-6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent*
-across paths and deliberately stopped there, so these three remain recorded
-rather than fixed.
+predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5
+**was** a performance gap, not a defect — it is recorded because a spec shipped a
+false claim that the work was done — and was fixed in Batch 11 on a measured
+benchmark (86 → 77 allocs/op, 19,595 → 11,010 B/op); its entry below is the record
+of the measurement, so nobody re-attempts it blind. Items 6 and 8 are Batch 5's
+adjacent gaps: Batch 5 made the entropy floor *consistent* across paths and
+deliberately stopped there, so these two remain recorded rather than fixed.
 
 Batch 8 then closed three of item 7's four paths (jsrecon, json_scanner,
 decoder), and Batch 9 closed the last one: `internal/scanner/multiline.go` now
@@ -778,7 +779,7 @@ Batch 10 made that edit; the resulting behavior is pinned by
 `TestLocalhostRE_SixInputs`:
 
 3. **CLOSED — `localhostRE` under-matched loopback hosts and carved subspans out
-   of longer ones.** The regex at `internal/jsanalysis/analyze.go` knew only
+   of longer ones. Closed by Batch 10 (`0bbb5c6`).** The regex at `internal/jsanalysis/analyze.go` knew only
    three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and
    required a `:port`, so a JS config value containing `LOCALHOST:8080`,
    `127.0.0.2:8080` or `[::1]:8080` yielded no `InternalURLs` finding — even
@@ -817,7 +818,8 @@ Batch 10 made that edit; the resulting behavior is pinned by
 One `internal/crawler` gap (Batch 3 spec, work never implemented):
 
 5. **CLOSED — `fetchURL` scratch buffers were allocated per call and never
-   pooled.** Batch 3's design spec listed "`fetchURL` reads through a bounded
+   pooled. Closed by Batch 11 (`eee2ce6`), benchmark-gated (86 → 77 allocs/op,
+   19,595 → 11,010 B/op).** Batch 3's design spec listed "`fetchURL` reads through a bounded
    `io.LimitReader` and returns pooled scratch" as approved-and-completed work.
    Only the bounded-read half shipped; `fetchURL`
    (`internal/crawler/crawler.go`) still did a plain
@@ -886,8 +888,9 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
   **21 of 21 reported, 0 suppressed** — the lowest scorer is 3.75, well above the 3.0 bar. The only strings the floor actually rejects are runs of repeated characters (`MY_SECRET=aaaaaaaa` at 2.7250). A rule carrying `entropy_threshold: 3.0` reads as "reject weak secrets"; in practice it rejects repeated characters and nothing else. Batch 5 made three paths agree on this threshold, which is a real consistency win, but the threshold being aligned is close to inert. **Any future work here should start from the measurement, not from the threshold's apparent intent** — and note that raising the floor would not help, since the key name's entropy dominates; only judging the value sub-span (or a length-plus-charset heuristic) would.
 
 7. **CLOSED — `internal/scanner/multiline.go` applied no entropy floor, no FP
-   filters and no `RequiresContext`; the last rule-matching path missing them.
-   Closed by Batch 9.** Batch 8 closed the other three and Batch 9 this one, so
+   filters and no `RequiresContext`; the last rule-matching path on the active
+   scan path missing them. Closed by Batch 9 (`b0a282a`).** Batch 8 closed the
+   other three and Batch 9 this one, so
    all four filters now apply on every rule-matching path, in the plain-file
    path's order (`helpers.go:529`, then `:555-563`): `internal/jsrecon/reconstruct.go`
    — `RequiresContext` at `:416`, the three `IsFalsePositive*` filters at

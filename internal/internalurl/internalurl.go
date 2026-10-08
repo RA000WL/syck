@@ -35,12 +35,17 @@
 //
 // The other two packages named in the original audit are deliberate non-callers.
 // internal/jsanalysis extracts config *values* from JS source rather than
-// classifying whole URLs, and its localhostRE is unanchored (see its comment and
-// ARCHITECTURE.md section 15). internal/endpoints extracts endpoint substrings
-// from ~30 patterns, one of which happens to contain internal-path vocabulary.
-// Neither has a whole URL to classify, so neither can delegate without
-// changing what it emits. Consequently this package has ONE production caller,
-// internal/recon's classifyInternal.
+// classifying whole URLs, so it has no whole URL to classify. Its localhostRE
+// **was** unanchored and emitted carved sub-spans; Batch 10 anchored it and
+// widened it to the same loopback vocabulary, so it now emits whole hosts —
+// which removes one of the two old obstacles to delegation. It is still not
+// delegated, because IsLoopback would also accept spellings this extractor
+// deliberately does not (portless hosts, 127.1, 2130706433, zoned IPv6), which
+// would change what it emits. That trade-off is recorded in ARCHITECTURE.md
+// section 15 item 3. internal/endpoints extracts endpoint substrings from
+// ~30 patterns, one of which happens to contain internal-path vocabulary.
+// Neither delegates without changing what it emits. Consequently this package
+// has ONE production caller, internal/recon's classifyInternal.
 //
 // # Parsed vs raw-text: which predicate is which, and why
 //

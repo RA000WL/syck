@@ -5,7 +5,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change)
 
-This section carries nine batches, so the title names them and flags the four
+This section carries nine batches, so the title names them and flags the seven
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -210,9 +210,9 @@ entry under "### Performance" below). Batch 11 closes ARCHITECTURE §15 item 5.
     `ExtractURLSecrets` takes no `*rules.RuleSet` and emits `url_*` names that
     are heuristics, not rules, so it structurally cannot honor a per-rule
     threshold. `TestURLSecretsRuleNamesAreNotBuiltinRules` pins that.
-  - `internal/scanner/multiline.go:35` keeps **no** entropy gate at all. It
-    runs `rule.MatchAll` and reports every span it matches, so on that live
-    path (`--multiline` defaults to true) there is no 2.0 floor to align and no
+  - `internal/scanner/multiline.go:35` kept **no** entropy gate at all. It
+    ran `rule.MatchAll` and reported every span it matched, so on that live
+    path (`--multiline` defaults to true) there was no 2.0 floor to align and no
     `entropy_threshold` to read. Out of this batch's blast radius for the same
     reason as above: no `multi_line: true` rule carries a threshold.
 
@@ -491,7 +491,7 @@ entry under "### Performance" below). Batch 11 closes ARCHITECTURE §15 item 5.
   This is not a policy change, and the earlier framing of it as "parity" was
   too weak. The single-line path does report nothing for the header line
   (`scanLineForRegexRules` on `-----BEGIN RSA PRIVATE KEY-----` → 0 findings),
-  but `internal/scanner/multiline.go` applies **no filters at all** and still
+  but `internal/scanner/multiline.go` applied **no filters at all** and still
   reports the full block as **CRITICAL** from a plain file: `ScanMultiLine`
   over a four-line block yields `rsa_private_key_multiline` at severity
   CRITICAL, and `syck scan` on a real PEM file reports `Total findings: 1`,
@@ -524,7 +524,8 @@ entry under "### Performance" below). Batch 11 closes ARCHITECTURE §15 item 5.
 
 - **Batch 9 — `internal/scanner/multiline.go` now applies the entropy floor,
   the `RequiresContext` guard and the `IsFalsePositive*` filters. Finding
-  counts go DOWN. This was the last rule-matching path with no filters at all.**
+  counts go DOWN. This was the last rule-matching path on the active scan path
+  with no filters at all.**
 
   The multi-line path is default-on (`--multiline` defaults to true and
   `internal/lsp/server.go:180` forces it on), so every span matched by any
