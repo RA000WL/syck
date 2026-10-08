@@ -2,15 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the three outlier rule-matching paths honor each rule's `entropy_threshold`, the way the two main paths already do. **One behavior change, affecting one rule.**
+**Goal:** Make the two outlier rule-matching paths honor each rule's `entropy_threshold`, the way the two main paths already do. **One behavior change, affecting one rule.**
+
+> **Amended after Task 2 (2026-10-06).** This plan originally named **three**
+> sites. `internal/scanner/url_secrets.go` turned out **not to run the ruleset
+> at all** — `ExtractURLSecrets(line, path, lineno)` takes no `*rules.RuleSet`
+> and emits `url_*` names that are not builtin rules, so `rule.EntropyThreshold`
+> is not readable there. That site is out of scope. The batch is **two** paths.
+> The implementer left it untouched and added a tripwire test
+> (`TestURLSecretsRuleNamesAreNotBuiltinRules`) so a future unification attempt
+> fails visibly. Do not "fix" `url_secrets.go` to match this plan's older text.
 
 **Spec:** `docs/superpowers/specs/2026-10-05-syck-batch5-entropy-floor-design.md`
 
 ## Global Constraints
 
 - Go 1.26+, module `github.com/RA000WL/syck`.
-- **Exactly three production edits**, each replacing a hardcoded `2.0` with `decoder.RuleEntropyFloor(rule.EntropyThreshold)`. Nothing else in production code.
-- **Four call sites exist; change three.** `json_scanner.go:71` keeps its `e >= 3.0` — it guards a key-name heuristic, not a rule match, and has no `rule` in scope. A test must pin that it stays.
+- **Exactly two production edits** (`jsrecon/reconstruct.go`, `json_scanner/scanner.go`), each replacing a hardcoded `2.0` with `decoder.RuleEntropyFloor(rule.EntropyThreshold)`. Nothing else in production code. `url_secrets.go` is **not** one of them — see the amendment above.
+- **Three call sites are in scope; change two.** `json_scanner.go:71` keeps its `e >= 3.0` — it guards a key-name heuristic, not a rule match, and has no `rule` in scope. A test must pin that it stays. `url_secrets.go:40` is out of scope entirely (amendment above).
 - **Characterize before changing.** Each site gets a test pinning its current behavior with an `env_generic_secret` match below and above 3.0 entropy, so the delta is measured rather than assumed.
 - **Parity will probably not catch this.** The parity fixtures are unlikely to contain `env_generic_secret`. Treat the per-path characterization tests as the real gate, and do not cite parity as evidence.
 - Gates after every task: `go build ./...`, `gofmt -l .` empty, `go vet ./...`, `go test -race ./...`, parity PASS, `go run . ruletest` 40/40.
@@ -26,7 +35,6 @@ State this in the CHANGELOG, because the surface reading is "fewer findings":
 ### Task 1: Characterize the three sites
 
 **Files:**
-- Create: `internal/scanner/url_secrets_entropy_test.go`
 - Create: `internal/jsrecon/reconstruct_entropy_test.go`
 - Create: `internal/json_scanner/scanner_entropy_test.go`
 
@@ -36,11 +44,11 @@ State this in the CHANGELOG, because the surface reading is "fewer findings":
 
 - [ ] **Step 1: Read the three call sites and their surroundings first**
 
-`internal/scanner/url_secrets.go:40`, `internal/jsrecon/reconstruct.go:411`, `internal/json_scanner/scanner.go:103`. Note that each computes `e := entropy.Shannon(...)` on the **captured secret**, not on the whole match — confirm that, because the threshold applies to the captured value.
+`internal/jsrecon/reconstruct.go:411`, `internal/json_scanner/scanner.go:103`. Note that each computes `e := entropy.Shannon(...)` on the **captured secret**, not on the whole match — confirm that, because the threshold applies to the captured value.
 
 - [ ] **Step 2: Write the characterization tests**
 
-For each site, drive it with a ruleset containing `env_generic_secret` and content that produces two matches — one whose captured value is below 3.0 entropy and one above. Assert the **current** behavior: both are reported, because the hardcoded floor is 2.0.
+For each in-scope site, drive it with a ruleset containing `env_generic_secret` and content that produces two matches — one whose captured value is below 3.0 entropy and one above. Assert the **current** behavior: both are reported, because the hardcoded floor is 2.0.
 
 Useful low-entropy and high-entropy value shapes: repeated characters (`aaaaaaaa`) sit well below 3.0; a long mixed alphanumeric string sits above. **Verify the actual entropy** with a throwaway `entropy.Shannon` call rather than assuming — if your "high" example is under 3.0 the test will encode the wrong thing.
 
@@ -52,7 +60,7 @@ Run: `go test ./internal/scanner/ ./internal/jsrecon/ ./internal/json_scanner/ -
 Expected: PASS against current behavior. If a case fails, you derived the expectation wrong — fix the expectation, not the code. Nothing in production may change.
 
 ```bash
-git add internal/scanner/url_secrets_entropy_test.go internal/jsrecon/reconstruct_entropy_test.go internal/json_scanner/scanner_entropy_test.go
+git add internal/jsrecon/reconstruct_entropy_test.go internal/json_scanner/scanner_entropy_test.go
 git commit -m "test: characterize the hardcoded 2.0 entropy floor in the three rule-matching paths"
 ```
 
@@ -61,9 +69,9 @@ git commit -m "test: characterize the hardcoded 2.0 entropy floor in the three r
 ### Task 2: Honor the per-rule threshold in all three paths
 
 **Files:**
-- Modify: `internal/scanner/url_secrets.go:40`
 - Modify: `internal/jsrecon/reconstruct.go:411`
 - Modify: `internal/json_scanner/scanner.go:103`
+- (NOT `internal/scanner/url_secrets.go` — it does not run the ruleset)
 
 **Interfaces:**
 - Consumes: `decoder.RuleEntropyFloor(th float64) float64` (already exists in `internal/decoder/pipeline.go:129`)
@@ -97,8 +105,8 @@ Expected: the below-3.0 cases now produce **no** finding; the above-3.0 cases st
 - [ ] **Step 4: Commit**
 
 ```bash
-git add internal/scanner/url_secrets.go internal/jsrecon/reconstruct.go internal/json_scanner/scanner.go
-git commit -m "fix(detection): honor per-rule entropy_threshold in url_secrets, jsrecon, json_scanner"
+git add internal/jsrecon/reconstruct.go internal/json_scanner/scanner.go
+git commit -m "fix(detection): honor per-rule entropy_threshold in jsrecon and json_scanner rule-match paths"
 ```
 
 ---

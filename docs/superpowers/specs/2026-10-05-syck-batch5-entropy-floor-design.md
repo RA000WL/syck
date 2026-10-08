@@ -19,10 +19,24 @@ The 4d queue recorded this as:
 
 | Site | Line | Current gate | Runs the ruleset? |
 |---|---|---|---|
-| `internal/scanner/url_secrets.go` | 40 | `if e < 2.0` | yes (`rs *rules.RuleSet`) |
 | `internal/jsrecon/reconstruct.go` | 411 | `if e < 2.0` | yes (`rule.MatchAll`) |
 | `internal/json_scanner/scanner.go` | 103 | `if e < 2.0` | yes (`rs *rules.RuleSet`) |
 | `internal/json_scanner/scanner.go` | 71 | `if e >= 3.0` | **no** — key-name heuristic, not a rule match |
+| ~~`internal/scanner/url_secrets.go`~~ | ~~40~~ | ~~`if e < 2.0`~~ | **no — see correction below** |
+
+> **Correction (2026-10-06, during Task 2).** An earlier draft of this table
+> listed `url_secrets.go` as running the ruleset. **It does not.**
+> `ExtractURLSecrets(line, path, lineno)` takes no `*rules.RuleSet`; it matches
+> with a local `urlRE` and emits `url_*` rule names that **are not builtin
+> rules** (`grep -c "name: url_" internal/rules/builtin.yaml` → 0). There is no
+> `rule` in scope, so `rule.EntropyThreshold` cannot be read. Plumbing a
+> ruleset in would require an exported-signature change and would be
+> observably a no-op, since no `url_*` rule defines a threshold.
+>
+> **This batch therefore changes two paths, not three.** `url_secrets.go` keeps
+> its `2.0` floor, with a tripwire test asserting its `url_*` names are not
+> builtin rules — so a future attempt to unify it fails visibly rather than
+> silently misreading a heuristic as a rule match.
 
 The two paths that already do it correctly, generically across every rule:
 
@@ -45,7 +59,33 @@ For `env_generic_secret` only, a match whose captured value has Shannon entropy 
 
 It remains reported via ordinary file scanning at no different rate than before, because `helpers.go`/`scan_stream.go` already applied the 3.0 floor there.
 
-Concrete examples now suppressed in those three paths: `MY_SECRET=aaaaaaaa`, `DB_PASSWORD=hunter2hunter2` — low-entropy values that the main scanner has always suppressed for this rule.
+Measured examples, now suppressed on those two paths:
+
+| Input | Span entropy | Outcome |
+|---|---|---|
+| `MY_SECRET=aaaaaaaa` | 2.7250 | suppressed (was reported) |
+| `DB_PASSWORD=hunter2hunter` | 4.0080 | **still reported** — an earlier draft of this spec wrongly cited this as a suppressed example |
+
+> **Correction (2026-10-06, during Task 2).** An earlier draft cited
+> `DB_PASSWORD=hunter2hunter2` as suppressed. It measures **4.0080**, above the
+> 3.0 floor, and is still reported. The example was wrong.
+
+### The 3.0 floor is weaker than it looks
+
+> **Finding (2026-10-06, Task 2).** `env_generic_secret`'s pattern has **zero
+> capturing groups**, and `MatchAll` wraps `FindAllStringIndex` — so the span
+> the threshold is applied to is the **whole `KEY=value` string**, not the value.
+> The key name supplies most of the entropy:
+>
+> | String | Shannon |
+> |---|---|
+> | `MY_SECRET=aaaaaaaa` (whole span) | 2.7250 |
+> | `aaaaaaaa` (value alone) | 0.0000 |
+>
+> So a completely uniform 8-character secret scores **2.7250**, not 0. The 3.0
+> floor does not mean "reject low-entropy secrets" — it means "reject spans that
+> are low-entropy *including their key name*." Whether that is the intent is a
+> detection-quality question this batch does **not** answer. Queued separately.
 
 This must appear in `CHANGELOG.md` under `[Unreleased]`, framed as consistency, with the note that the *same* input was already suppressed on the main file-scanning path.
 
