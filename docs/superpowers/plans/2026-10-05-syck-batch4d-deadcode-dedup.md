@@ -22,7 +22,8 @@ These were on the 4d queue and were checked against the code. They are **not** d
 
 - **`crawler.visitedCount` is not dead.** It is exercised by the white-box race test at `internal/crawler/crawler_test.go:136,161-162`. Deleting it would delete test coverage of the visited-map synchronization.
 - **`ConfidenceStage` is not drifting.** `internal/scanner/stage_confidence.go:16-24` deliberately rescores only when `Confidence == 0`, with a comment explaining that a scan site with more inputs than the stage can see already set the score, and that re-deriving the band would let band and number disagree. That is a considered design, not an oversight.
-- **`crawler` has no literal-`10` worker clamp.** The 4d queue said "parambrute/crawler"; only parambrute has one.
+
+> **Correction (final review): the third "ruled out" item was wrong and has been removed from this list.** An earlier draft of this plan asserted "**`crawler` has no literal-`10` worker clamp.** … only parambrute has one." That is **false**: `internal/crawler/crawler.go:157-158` clamps `cfg.Concurrency` to a bare `10`. The original grounding grep searched for `runtime.NumCPU()` patterns, which found nothing, and the absence of that pattern was mistaken for the absence of the clamp — the literal never mentions `NumCPU`, so the grep could not have found it. `grep -rn "Concurrency = 10\|Concurrency: 10" --include=*.go .` shows two code sites, `parambrute.go` and `crawler.go`. The `crawler` half of the dedup is in scope and is covered by Task 3.
 
 ---
 
@@ -110,37 +111,42 @@ git commit -m "refactor(sqlite): single-source WAL/busy_timeout/single-writer se
 
 ---
 
-### Task 3: Name `parambrute`'s concurrency default, and say why it is not `EffectiveWorkers`
+### Task 3: Name `parambrute`'s and `crawler`'s concurrency defaults, and say why they are not `EffectiveWorkers`
 
 **Files:**
 - Modify: `internal/parambrute/parambrute.go` — extract the literal `10` into a named constant with a doc comment
+- Modify: `internal/crawler/crawler.go` — same, for the crawler's `<= 0` fallback
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: an unexported constant. No exported surface change.
+- Produces: two unexported constants (one per package). No exported surface change.
 
-**Read this before touching it.** `internal/parambrute/parambrute.go` uses the literal `10` twice — `DefaultConfig`'s `Concurrency: 10` at line 153, and the `<= 0` fallback `cfg.Concurrency = 10` at line 169. Meanwhile the scanner uses `scanner.EffectiveWorkers` (`internal/scanner/workers.go:13`), which falls back to `max(runtime.NumCPU(), 2)`.
+**Read this before touching it.** `internal/parambrute/parambrute.go` uses the literal `10` twice — `DefaultConfig`'s `Concurrency: 10` at line 153, and the `<= 0` fallback `cfg.Concurrency = 10` at line 169. `internal/crawler/crawler.go` has the same shape at lines 157-158 (`cfg.Concurrency <= 0` → `10`). Meanwhile the scanner uses `scanner.EffectiveWorkers` (`internal/scanner/workers.go:13`), which falls back to `max(runtime.NumCPU(), 2)`.
 
-**These are deliberately different and must not be unified.** `EffectiveWorkers` sizes a **CPU-bound** pool; parambrute issues **network** requests, where `NumCPU` is a poor predictor of a good request concurrency and a fixed modest number is the safer default. Forcing parambrute onto `EffectiveWorkers` would make its default change with the host's core count — a behavior change, and a probably-worse one.
+**These are deliberately different and must not be unified.** `EffectiveWorkers` sizes a **CPU-bound** pool; parambrute and crawler both issue **network** requests (BFS crawling waits on remote servers), where `NumCPU` is a poor predictor of a good request concurrency and a fixed modest number is the safer default. Forcing either onto `EffectiveWorkers` would make its default change with the host's core count — a behavior change, and a probably-worse one.
 
-Also note `parambrute` should not import `internal/scanner` to reach that helper: `scanner` is one of the largest packages in the repo, and importing all of it for a five-line function is worse coupling than a duplicated literal.
+Also note neither package should import `internal/scanner` to reach that helper: `scanner` is one of the largest packages in the repo, and importing all of it for a five-line function is worse coupling than a duplicated literal.
+
+The two packages keep **separate** constants with the same name and the same value: they are separate packages with independent tuning histories, and sharing one would require a third package to host it.
+
+`crawler` also has a second, distinct default two lines below, `cfg.HostConcurrency <= 0` → `2`, which sizes the per-host semaphore. That is a *different* knob with a *different* value (per-host politeness cap, not pool size) and keeps its own constant; the two must not be unified into one number.
 
 So the fix is to remove the *duplication*, not the difference:
 
-- [ ] **Step 1: Extract the constant**
+- [ ] **Step 1: Extract the constants**
 
-Declare one unexported constant, e.g. `defaultConcurrency = 10`, and use it at both sites. Add a doc comment that states the value is a fixed default because the work is network-bound, and explicitly records that this is intentionally **not** `scanner.EffectiveWorkers`'s `NumCPU`-based fallback, with the reason.
+Declare one unexported `defaultConcurrency = 10` in each package and use it at the `<= 0` fallback (and at `DefaultConfig` in parambrute). Add a doc comment that states the value is a fixed default because the work is network-bound, and explicitly records that this is intentionally **not** `scanner.EffectiveWorkers`'s `NumCPU`-based fallback, with the reason. In `crawler`, name the per-host default separately (`defaultHostConcurrency = 2`) rather than folding it into `defaultConcurrency`.
 
 - [ ] **Step 2: Verify no behavior change**
 
-Run: `go build ./... && go test -race ./internal/parambrute/ -count=1 && go vet ./internal/parambrute/`
+Run: `go build ./... && go test -race ./internal/parambrute/ ./internal/crawler/ -count=1 && go vet ./internal/parambrute/ ./internal/crawler/`
 Expected: green. The resolved concurrency for any input must be unchanged — this is a rename plus a comment.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add internal/parambrute/parambrute.go
-git commit -m "refactor(parambrute): name the concurrency default; record why it is not NumCPU-based"
+git add internal/parambrute/parambrute.go internal/crawler/crawler.go
+git commit -m "refactor(parambrute,crawler): name the concurrency defaults; record why they are not NumCPU-based"
 ```
 
 ---

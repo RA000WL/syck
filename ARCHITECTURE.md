@@ -655,8 +655,7 @@ per-secret collapse destroyed.
 - **TLS**: Min version TLS 1.2, max TLS 1.3
 
 ### Crawler (`internal/crawler/`)
-- **Body pooling**: Reuses response buffers via `sync.Pool`
-- **Pre-allocated buffers**: 64KB initial capacity, grows dynamically
+- **Bounded reads**: Bodies read through `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))` with a 10MB hard cap; the read buffer is allocated per call and is not pooled (see §15 item 5)
 - **Connection headers**: Keep-alive explicitly set
 - **10MB read limit**: Prevents memory exhaustion
 

@@ -80,6 +80,22 @@ func TestOpenPragmaFailureIsNotFatal(t *testing.T) {
 	}
 	defer db.Close()
 
+	// Assert the fixture is actually in the degraded state before asserting
+	// anything else about it. t.TempDir() is writable, so if SQLite ever
+	// managed to apply the WAL pragma here, this test would go on to pass
+	// green while never exercising the error-ignoring path it exists to
+	// cover — a vacuous test that only looks like coverage. journal_mode is
+	// persistent in the file and the seed above never set it, so a successful
+	// switch is the only way to get "wal" back.
+	var mode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode == "wal" {
+		t.Fatalf("journal_mode = %q: WAL pragma unexpectedly succeeded on the read-only fixture, so the error-ignoring path was never exercised and this test is vacuous", mode)
+	}
+	t.Logf("journal_mode = %q (WAL pragma failed as intended)", mode)
+
 	// Reads still work; the WAL pragma was skipped, not fatal.
 	var v int
 	if err := db.QueryRow("SELECT v FROM t WHERE k = ?", "/a.js").Scan(&v); err != nil {

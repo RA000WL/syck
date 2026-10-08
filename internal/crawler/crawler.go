@@ -36,6 +36,27 @@ type CrawlConfig struct {
 	URLCache        *URLCache
 }
 
+// defaultConcurrency is the fixed fetch concurrency used when the caller does
+// not configure one.
+//
+// The crawler's workers spend nearly all their time waiting on remote servers
+// (BFS over HTTP fetches), so the pool is **network-bound**, not CPU-bound.
+// This is deliberately NOT scanner.EffectiveWorkers, whose fallback is
+// max(runtime.NumCPU(), 2): that helper sizes a CPU-bound pool, and reusing it
+// here would make the crawler's default vary with the host's core count — a
+// behavior change, and probably a worse default besides. Importing
+// internal/scanner to reach that helper would also be worse coupling than a
+// named constant is.
+const defaultConcurrency = 10
+
+// defaultHostConcurrency is the per-host fetch cap used when the caller does
+// not configure one. It is a deliberately *smaller and different* number from
+// defaultConcurrency: that one sizes the total worker pool, this one bounds how
+// many of those workers may hit a single host at once so a crawl stays polite
+// to the site it is crawling. The two are separate knobs with separate reasons
+// and must not be unified into one value.
+const defaultHostConcurrency = 2
+
 type hostRateLimiter struct {
 	mu       sync.Mutex
 	lastTime map[string]time.Time
@@ -155,10 +176,10 @@ func Crawl(initialURLs []string, cfg CrawlConfig) []CrawledURL {
 		cfg.MaxDepth = 3
 	}
 	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = 10
+		cfg.Concurrency = defaultConcurrency
 	}
 	if cfg.HostConcurrency <= 0 {
-		cfg.HostConcurrency = 2
+		cfg.HostConcurrency = defaultHostConcurrency
 	}
 
 	// Build HTTP client with optional cookie jar
