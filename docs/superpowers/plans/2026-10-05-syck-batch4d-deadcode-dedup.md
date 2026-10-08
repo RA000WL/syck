@@ -226,12 +226,28 @@ git commit -m "perf(crawler): hoist per-call regex compiles in DetectEncoding to
 
 **Files:** none — verification only.
 
-- [ ] **Step 1: Run every gate**
+- [ ] **Step 1: Fix the stale rule count in the user-facing root help**
+
+Found during Task 4/5's review, and the implementer reported it **backwards** — so read this carefully rather than trusting the queued description.
+
+Batch 2 removed 5 subsumed duplicate rules, reducing 202 → 199. The rule count is now **199**, and `ARCHITECTURE.md` is correct in all four places it appears (lines 34, 91, 278, 453) plus its own changelog entry at line 676. **The stale figure is in `cmd/root.go:13`**, the root command's user-facing help string:
+
+```go
+Long: `Syck is a modular secret scanner with 202 detection rules,
+```
+
+Verify for yourself before changing anything: `grep -cE "^\s*- name:" internal/rules/builtin.yaml` should be 199, and `grep -rn "202 detection rules\|202 rules" --include=*.go --include=*.md .` should find this line and nothing else that matters.
+
+Fix it to 199. Then check whether `README.md` or any other user-facing surface repeats the wrong number — a stale count in the README is the same bug in a second location.
+
+Capture `syck --help` before and after. **This one legitimately changes output** — it is a correction, not a no-op — so state that explicitly in your report rather than claiming byte-identity the way Task 4 could.
+
+- [ ] **Step 2: Run every gate**
 
 Run: `gofmt -l . && go build ./... && go vet ./... && go test -race ./... && go test ./internal/scanner/ -run TestParity -count=1 && go run . ruletest 2>&1 | tail -1`
 Expected: gofmt empty, build OK, vet clean, all tests pass, parity PASS, `40 tested, 40 PASSED`.
 
-- [ ] **Step 2: Confirm the branch is genuinely behavior-neutral**
+- [ ] **Step 3: Confirm the branch is genuinely behavior-neutral**
 
 Run: `git diff --stat <4d-base>..HEAD` and account for every changed file. Any file not anticipated by Tasks 1-4 is a scope violation — investigate before accepting.
 
