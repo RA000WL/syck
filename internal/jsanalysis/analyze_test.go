@@ -3,6 +3,7 @@ package jsanalysis
 import (
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1393,7 +1394,7 @@ func TestLocalhostRE_Characterization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := AnalyzeJS(tt.line, "config.js").InternalURLs
-			if !equalStrings(got, tt.want) {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("InternalURLs = %q, want %q", got, tt.want)
 			}
 		})
@@ -1402,8 +1403,15 @@ func TestLocalhostRE_Characterization(t *testing.T) {
 
 // TestLocalhostRE_UnanchoredSubspanExtraction pins the two properties of
 // localhostRE that make delegating it to a host-parsing predicate impossible
-// without changing the finding set. Both are deliberate here: this test exists
-// to keep them visible, because they are the reason the regex stays.
+// without changing the finding set. They are pinned to keep them visible,
+// because they are the reason the regex stays.
+//
+// PINNING IS NOT ENDORSEMENT. Neither behavior below is a considered policy;
+// both are limitations of an unanchored literal regex. Rows 1-2 in particular —
+// "my-localhost:8080" emitted as the finding "localhost:8080" — are a
+// suspected DEFECT, reporting a truncated span as though it were the host the
+// author typed. They are frozen here so a later fix is a visible, deliberate
+// edit rather than silent drift; see ARCHITECTURE.md section 15.
 //
 //  1. UNANCHORED. The regex has no \b or (?<![\w.-]) guard, so it extracts a
 //     SUFFIX of a longer host: "my-localhost:8080" is emitted as the finding
@@ -1474,21 +1482,9 @@ func TestLocalhostRE_UnanchoredSubspanExtraction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := AnalyzeJS(tt.line, "config.js").InternalURLs
-			if !equalStrings(got, tt.want) {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("InternalURLs = %q, want %q", got, tt.want)
 			}
 		})
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

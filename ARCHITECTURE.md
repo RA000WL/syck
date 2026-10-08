@@ -694,10 +694,16 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`, but intentionally NOT fixed in Batch 4 because fixing them changes behavior:
+Each item below is pinned by a test and intentionally NOT fixed in Batch 4, because fixing it changes behavior.
+
+Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`:
 
 1. **Initial-commit blind spot** — `scanner.go` runs `git diff-tree` without `--root`, so the first commit of a repo yields no files. Secrets committed in a repo's FIRST commit are invisible to `--git-history`, and a single-commit repo is completely unaudited (silent false negative). Fix requires `--root` on the diff-tree call and removing the second-commit workaround in `TestScanHistoryFindsCommittedSecret`.
 2. **Non-repo silence** — `ScanHistory` returns `(nil, nil)` when `git log` fails (`scanner.go:22-24`), so `syck scan --git-history /not/a/repo` silently reports nothing instead of erroring. Fix must return a descriptive error, and `TestScanHistoryNonRepoIsCleanError`'s `err == nil` pin must be inverted.
+
+One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanExtraction`:
+
+3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
 
 ---
 
