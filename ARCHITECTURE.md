@@ -710,20 +710,72 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 1-3 are each pinned by a test and intentionally NOT fixed, because fixing them changes behavior. Item 4 is not test-pinned (it is an unexercised gate, so there is nothing to pin); it is recorded because it is a real gap in Batch 1 security code that Batch 4c edited but did not introduce. Item 5 is a performance gap, not a defect — it is recorded because a spec shipped a false claim that the work was done. Items 6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent* across paths and deliberately stopped there, so these three remain recorded rather than fixed.
+Items 3, 5, 6, 7 and 8 below remain open, plus a narrowed item 4. **The
+numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
+6 and removed, and their numbers are kept as gaps so that existing
+cross-references (`§15 item 1`) stay resolvable rather than silently
+repointing at a different defect.
 
-Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`:
+Item 3 is pinned by a test and intentionally NOT fixed, because fixing it
+changes behavior. Item 4 was partially fixed in Batch 6 and survives as a
+narrower gap in `internalurl`. Item 5 is a performance gap, not a defect — it
+is recorded because a spec shipped a false claim that the work was done. Items
+6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent*
+across paths and deliberately stopped there, so these three remain recorded
+rather than fixed.
 
-1. **Initial-commit blind spot** — `scanner.go` runs `git diff-tree` without `--root`, so the first commit of a repo yields no files. Secrets committed in a repo's FIRST commit are invisible to `--git-history`, and a single-commit repo is completely unaudited (silent false negative). Fix requires `--root` on the diff-tree call and removing the second-commit workaround in `TestScanHistoryFindsCommittedSecret`.
-2. **Non-repo silence** — `ScanHistory` returns `(nil, nil)` when `git log` fails (`scanner.go:22-24`), so `syck scan --git-history /not/a/repo` silently reports nothing instead of erroring. Fix must return a descriptive error, and `TestScanHistoryNonRepoIsCleanError`'s `err == nil` pin must be inverted.
+Batch 6 removed items 1 and 2 from this list — both `internal/gitscan` security
+defects, each reproduced before it was fixed:
+
+- **(was item 1) initial-commit blind spot** — `git diff-tree` ran without
+  `--root`, so a secret committed in the root commit and deleted in a later one
+  was scanned by nothing. Note the correction: this list previously also
+  claimed "a single-commit repo is completely unaudited," which was **wrong** —
+  `cmd/scan_run.go:414` runs the working-tree scan and then appends history
+  findings, so a single-commit repo was covered for anything present on disk.
+  The reproduced defect was narrower. Fixed by `6335a55`.
+- **(was item 2) non-repo silence** — `ScanHistory` returned `(nil, nil)` when
+  `git log` failed. Fixed by `97a35d6`. The caller still downgrades the error to
+  a stderr warning and exits 0; promoting it to a fatal error was deliberately
+  left as a separate decision with its own blast radius.
+
+Item 4's `netguard` half is also fixed, by `fab705d`, along with the four legacy
+`inet_aton` IPv4 spellings (`2130706433`, `127.1`, `010.0.0.1`, `0x7f.0.0.1`)
+that were never recorded here because they had not yet been reproduced. What
+remains of item 4 is below.
+
+See `CHANGELOG.md` `[Unreleased]` for the user-visible effect of item 1:
+`--git-history` now reports secrets that were committed and later deleted, so
+finding counts go **up**.
 
 One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanExtraction`:
 
 3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
 
-One `internal/netguard` issue (Batch 1 code, not a test-pinned regression):
+One `internal/internalurl` gap — the residue of a former item 4 (Batch 6 fixed
+its `netguard` half; see above):
 
-4. **Link-local IPv6 with a zone escapes `AllowFetch`** — `AllowFetch("http://[fe80::1%25eth0]/")` returns `true`. `url.URL.Hostname()` yields `fe80::1%eth0` (the zone, percent-decoded) and `net.ParseIP` rejects the zone form, so the `fe80::/10` membership test never runs and `IsBlockedIP` is not even consulted. `internalurl.hostOf` inherits the same blind spot for the same reason. Pre-existing and byte-identical to the pre-Batch-4c code — the `internalurl` extraction did not introduce it, which is why Batch 4c left it alone — but it is Batch 1 security code in a package this branch edited. Fix in `AllowFetch` (strip the zone before parsing) with a widened `netguard_test.go` row; do NOT fix it by loosening `IsBlockedIP`, whose contract is a `net.IP` and which cannot see a zone at all.
+4. **`internalurl` still misclassifies zone-scoped and legacy-IPv4 hosts that `netguard` now denies** — this item used to cover `netguard.AllowFetch` too, and that half is fixed. What is left is that `internal/internalurl` did **not** get the same treatment: `IsPrivateHost` and `IsLoopback` each call `net.ParseIP(hostOf(raw))` directly, so they inherit every spelling `net.ParseIP` rejects. Measured today:
+
+   | input | `hostOf` | `IsPrivateHost` | `IsLoopback` | `AllowFetch` |
+   |---|---|---|---|---|
+   | `http://[fe80::1%25eth0]/x` | `fe80::1%eth0` | `false` | `false` | **denied** |
+   | `http://127.1/` | `127.1` | `false` | `false` | **denied** |
+   | `http://2130706433/` | `2130706433` | `false` | `false` | **denied** |
+   | `http://127.0.0.1/` | `127.0.0.1` | `false` | `true` | denied |
+
+   The divergence is the problem: Batch 4c moved `classifyInternal` onto these
+   predicates specifically so one address could not be classified one way by
+   recon and another by the fetch gate, and for these spellings it still can.
+   `netguard` now owns the resolution logic (`literalIP`, in `netguard.go`) but
+   it is unexported, so `internalurl` cannot call it. **Do NOT fix this by
+   duplicating the legacy parser inside `internalurl`** — that reintroduces the
+   second copy of the address vocabulary that Batch 4c deleted. The fix is to
+   export one resolver from `netguard` and have `internalurl` route through it,
+   which touches a package Batch 4c deliberately kept to one production caller,
+   so it needs its own batch. Scope note: `fe80::1` *without* a zone is not a gap
+   here — `IsPrivateHost` is RFC 1918 by contract and link-local is
+   `IsBlockedIP`'s job, not its own.
 
 One `internal/crawler` gap (Batch 3 spec, work never implemented):
 

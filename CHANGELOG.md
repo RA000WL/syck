@@ -3,13 +3,15 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency
 
-This section carries three batches, so the title names them and flags the
-breaking one. Batch 4c (below, first) **changes** recon's internal-surface
-output, including a class of input that no longer produces a High-severity
-finding — read it first if you are diffing finding counts between versions.
-Batch 3 (performance work) follows and is not breaking. Batch 5 (last) is a
+This section carries four batches, so the title names them and flags the two
+that change visible output. **Read the Batch 6 entry first if you are diffing
+finding counts between versions: it makes syck report findings it previously
+stayed silent about, so finding counts go UP.** Batch 6 is listed first for
+that reason and is not breaking in the API sense. Batch 4c **changes** recon's
+internal-surface output, including a class of input that no longer produces a
+High-severity finding. Batch 3 (performance work) is not breaking. Batch 5 is a
 detection-consistency fix that **removes** findings on two paths; it is not
 breaking and touches no public API.
 
@@ -199,6 +201,115 @@ breaking and touches no public API.
     path (`--multiline` defaults to true) there is no 2.0 floor to align and no
     `entropy_threshold` to read. Out of this batch's blast radius for the same
     reason as above: no `multi_line: true` rule carries a threshold.
+
+### Fixed
+
+- **Batch 6 — `--git-history` now scans the initial commit, so secrets that
+  were committed and later deleted are now reported. Finding counts go UP.**
+
+  **This is the one line of this batch that changes what users see, so it is
+  stated first and plainly: this batch makes a security tool report things it
+  previously stayed silent about.** If you committed a secret and later deleted
+  it, `syck scan --git-history` now reports it. Expect the count to rise, not
+  fall, and re-scan before concluding anything about what an earlier version
+  told you — a clean result from an older version is not evidence of a clean
+  history.
+
+  `internal/gitscan/scanner.go` ran `git diff-tree` without `--root`, which
+  enumerates no files for the root commit. A secret added in commit 1 and
+  `git rm`'d in a later commit was therefore scanned by **nothing**: absent from
+  the working tree, and absent from every commit's file list. syck reported
+  `Total findings: 0` and exited 0, so CI passed on a repository that still
+  contained the secret in its history.
+
+  Reproduced on a two-commit repo (secret in commit 1, `git rm`'d in commit 2),
+  before and after:
+
+  | | `Total findings` | exit |
+  |---|---|---|
+  | before (`37d6c18`) | `0` | `0` |
+  | after | `1` — `AKIAIOSFODNN7EXAMPLE` at `git:ed83212c:config.txt` | `2` |
+
+  Exit `2`, not `1`: the finding is CRITICAL, and `cmd/scan_run.go:575` documents
+  the default mapping as exit 1 for any finding, exit 2 for CRITICAL.
+
+  The fix is one flag — `--root` on the `diff-tree` call, which diffs the root
+  commit against the empty tree and changes nothing for any other commit.
+
+  **Correction to previously shipped documentation.** `ARCHITECTURE.md` §15
+  described this defect as meaning "a single-commit repo is completely
+  unaudited." That was wrong in practice and is retracted: `cmd/scan_run.go:414`
+  runs the ordinary working-tree scan and then *appends* history findings, so a
+  single-commit repo was always covered for anything present on disk. The
+  narrower, reproduced defect is the one above. `TestScanHistoryFindsCommittedSecret`
+  used to commit the secret in a *second* commit to route around this bug; that
+  workaround is removed, so the test now exercises the real single-commit case.
+
+  **No duplicate reporting.** Because the root commit's files are now listed, a
+  secret that survives into a later commit appears in two diffs. The existing
+  `seen` map absorbs it; `TestScanHistoryNoDoubleReportForRootAndLaterCommit`
+  pins exactly one finding for a secret present in commits 1 and 3.
+
+- **Batch 6 — `syck scan --git-history` on a non-repository now says so.**
+  `gitscan.ScanHistory` returned `(nil, nil)` when `git log` failed, which is
+  indistinguishable from a clean scan: `syck scan --git-history /not/a/repo`
+  printed `Total findings: 0`, exit 0, and never mentioned that nothing had
+  been scanned. It now returns an error naming the path and git's own stderr,
+  which the caller prints on stderr:
+
+  ```
+  WARNING: git history scan failed: gitscan: git log failed in "/tmp/notarepo": exit status 128: fatal: not a git repository (or any of the parent directories): .git
+  ```
+
+  Path shown verbatim from a reproduced run.
+
+  The exit code is still 0 — deliberately unchanged, because promoting this to a
+  fatal error is a separate decision with its own blast radius. Note that the
+  warning appears *alongside* `Total findings: 0`, not instead of it, so a user
+  who only reads the summary still sees zero; read stderr. The old
+  `TestScanHistoryNonRepoIsCleanError` pinned the defect by asserting
+  `err == nil`; that assertion is inverted and the test is now named
+  `TestScanHistoryNonRepoErrors`, which also requires the message to name the
+  offending path and to carry git's own stderr.
+
+- **Batch 6 — five `netguard.AllowFetch` SSRF bypasses are closed.** The gate
+  rejected a URL only when `net.ParseIP` accepted its host, and `net.ParseIP`
+  rejects both the legacy `inet_aton` IPv4 spellings and zone-scoped IPv6. Every
+  form below was allowed:
+
+  | URL | Denotes | Now |
+  |---|---|---|
+  | `http://2130706433/` | `127.0.0.1` (bare 32-bit integer) | denied |
+  | `http://127.1/` | `127.0.0.1` (2-part) | denied |
+  | `http://010.0.0.1/` | ambiguous — `8.0.0.1` if octal, `10.0.0.1` if decimal | denied |
+  | `http://0x7f.0.0.1/` | `127.0.0.1` (hex) | denied |
+  | `http://[fe80::1%25eth0]/` | link-local IPv6 with a zone | denied |
+
+  The first, second and fourth rows are *computed*: the legacy parser resolves
+  them to an address, which then goes through `IsBlockedIP` like any other
+  literal. `010.0.0.1` is different — the two plausible readings disagree, so
+  the parser refuses to resolve it at all and the host is denied on ambiguity
+  (pinned by `netguard_test.go`, which expects an empty address for it).
+
+  `AllowFetch` now resolves the address those hosts denote and routes it through
+  the **same** existing `IsBlockedIP` check — the checks are not waived or
+  loosened. `url.URL.Hostname()` percent-decodes `%25`, so the zone arrives as
+  `fe80::1%eth0`; the zone is stripped and the remainder re-parsed, which also
+  stops `2130706433%foo` from using a zone to smuggle an address past.
+
+  The legacy parser runs only for hosts that could not possibly be DNS names
+  (dot-separated parts that are all decimal digits, empty, or `0x`-prefixed
+  hex). No registry delegates an all-numeric top-level domain (RFC 3696 §2), so
+  that shape is safe to treat as address-shaped. A host of that shape which
+  resolves to no valid address is **denied on ambiguity** rather than assumed to
+  be a name. `netguard` only ever got tighter: a legacy spelling that denotes a
+  public address stays allowed (`134744072` → `8.8.8.8`, `1.2.3` → `1.2.0.3`),
+  and DNS names are untouched, including the pinned
+  `AllowFetch("http://localhost/") == true`.
+
+  No DNS resolution was added — the "a DNS name that resolves to a private
+  address is not detected" gap recorded under the Batch 4c entry above is
+  unchanged.
 
 ### Benchmarks
 
