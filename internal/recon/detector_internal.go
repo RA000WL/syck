@@ -4,19 +4,19 @@ import (
 	"regexp"
 
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/internalurl"
 )
 
-var internalRE = regexp.MustCompile(`(?i)/(internal|private|intranet|corp)(\b|/|$)`)
-var internalHostRE = regexp.MustCompile(`(?i)(internal\.|corp\.|\.local)`)
-var privateIP10RE = regexp.MustCompile(`\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`)
-var privateIP172RE = regexp.MustCompile(`\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b`)
-var privateIP192RE = regexp.MustCompile(`\b192\.168\.\d{1,3}\.\d{1,3}\b`)
-var localhostRE = regexp.MustCompile(`\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`)
-var cloudMetadataRE = regexp.MustCompile(`\b169\.254\.169\.254\b`)
-var k8sServiceRE = regexp.MustCompile(`(?i)(?:[a-z0-9-]+\.){1,3}(?:svc|cluster|local|internal)\b`)
+// dockerServiceRE has no home in internal/internalurl: the
+// docker|container + host|name|id|service vocabulary appears nowhere else in
+// the codebase, so extracting it would create a one-caller home for a
+// regex. It stays here until a second caller exists.
+//
+// The other six categories delegate to internalurl, which owns the RFC 1918
+// CIDR list (netguard) and the internal-path/host/port vocabulary. Do not
+// reintroduce a local copy: see the [Unreleased] CHANGELOG entry for why the
+// IP and metadata checks are host-parsed rather than text-matched.
 var dockerServiceRE = regexp.MustCompile(`(?i)(?:docker|container)[_.]?(?:host|name|id|service)\b`)
-var internalPathRE = regexp.MustCompile(`(?i)/(?:debug|trace|admin|internal|private|staging|dev|test|sandbox|legacy|hidden)(?:/|$)`)
-var sensitivePortRE = regexp.MustCompile(`:(?:3306|5432|6379|27017|9200|9300|11211|5984|8500|8600|8200)\b`)
 
 type InternalDetector struct{}
 
@@ -44,25 +44,39 @@ func (InternalDetector) Detect(urls []string) []SurfaceFinding {
 	return out
 }
 
+// classifyInternal returns the internal-surface category for a URL, or "" if it
+// looks public.
+//
+// The order of the branches IS the behavior: it is a precedence chain, not a
+// set of independent checks, and the first match wins. Reordering it changes
+// output silently — e.g. "http://internal.corp:5432/" must report "internal",
+// not "sensitive_port". TestClassifyInternalCharacterization pins the order
+// with explicit two-branch rows; do not reorder without updating it.
+//
+// Each predicate comes from internal/internalurl. Note that the IP, loopback,
+// and metadata predicates parse the URL's host rather than text-matching the
+// whole string (so a private IP or 169.254.169.254 appearing in a *path* no
+// longer classifies), while the path/host/port predicates stay raw-text. The
+// split and the resulting behavior deltas are documented in CHANGELOG.md.
 func classifyInternal(url string) string {
 	// Check for internal paths
-	if internalRE.MatchString(url) || internalPathRE.MatchString(url) {
+	if internalurl.IsInternalPath(url) {
 		return "internal"
 	}
 	// Check for internal hostnames
-	if internalHostRE.MatchString(url) || k8sServiceRE.MatchString(url) {
+	if internalurl.IsInternalHost(url) {
 		return "internal_host"
 	}
 	// Check for private IPs (potential SSRF)
-	if privateIP10RE.MatchString(url) || privateIP172RE.MatchString(url) || privateIP192RE.MatchString(url) {
+	if internalurl.IsPrivateHost(url) {
 		return "private_ip"
 	}
 	// Check for localhost/loopback
-	if localhostRE.MatchString(url) {
+	if internalurl.IsLoopback(url) {
 		return "localhost"
 	}
 	// Check for cloud metadata endpoint (high severity - SSRF target)
-	if cloudMetadataRE.MatchString(url) {
+	if internalurl.IsCloudMetadata(url) {
 		return "cloud_metadata"
 	}
 	// Check for Docker/K8s references
@@ -70,7 +84,7 @@ func classifyInternal(url string) string {
 		return "container_service"
 	}
 	// Check for sensitive database/service ports
-	if sensitivePortRE.MatchString(url) {
+	if internalurl.IsSensitivePort(url) {
 		return "sensitive_port"
 	}
 	return ""

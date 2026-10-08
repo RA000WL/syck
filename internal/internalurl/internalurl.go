@@ -102,6 +102,10 @@ var (
 // literal. Any of those failures would turn a security predicate into a
 // silent no-op.
 //
+// A leading scheme is stripped, but only a real one: a "://" appearing after
+// the path, query, or fragment has already begun belongs to that component and
+// is not a scheme.
+//
 // A raw string with no host component at all (a bare path, an empty string)
 // yields "".
 func hostOf(raw string) string {
@@ -119,8 +123,18 @@ func hostOf(raw string) string {
 
 	// No scheme/authority, or a parse error: the string may itself be a bare
 	// host, with or without a port or a trailing path.
+	//
+	// A "://" is a scheme only if nothing has opened the path, query, or
+	// fragment first. Stripping at the first "://" ANYWHERE lets a query that
+	// carries an absolute URL take over the host: for
+	// "localhost?u=http://169.254.169.254/" the old code returned
+	// "169.254.169.254", so recon reported that URL as a High-severity cloud
+	// metadata surface instead of the Low localhost one. Requiring the scheme
+	// to precede the first /, ? or # keeps the authority the user typed.
 	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[i+len("://"):]
+		if j := strings.IndexAny(s, "/?#"); j < 0 || j > i {
+			s = s[i+len("://"):]
+		}
 	}
 	if i := strings.IndexAny(s, "/?#"); i >= 0 {
 		s = s[:i]

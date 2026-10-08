@@ -5,6 +5,69 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — Batch 3: performance
 
+### Changed
+
+- Recon's internal-surface detection (`classifyInternal`) now delegates to the
+  shared `internal/internalurl` predicates instead of ten local regexes. Six
+  of the seven categories move; `container_service` keeps its local regex
+  because the `docker|container` + `host|name|id|service` vocabulary appears
+  nowhere else in the codebase. The branch **order is unchanged** and is a
+  precedence chain — `internal` → `internal_host` → `private_ip` → `localhost`
+  → `cloud_metadata` → `container_service` → `sensitive_port`.
+
+  Five behavior deltas, all in `classifyInternal`'s categories:
+
+  | Input | Was | Now | Direction |
+  |---|---|---|---|
+  | `http://[::1]/x` | `""` | `localhost` | widened (fix) |
+  | `http://127.1.2.3/x` | `""` | `localhost` | widened (fix) |
+  | `http://LOCALHOST/api` | `""` | `localhost` | widened (fix) |
+  | `http://foo.com/10.0.0.1/x` | `private_ip` | `""` | narrowed |
+  | `http://foo.com/169.254.169.254/x` | `cloud_metadata` | `""` | narrowed |
+
+  These five were verified as the *only* differences over a 320,292-URL
+  differential corpus of the old regex chain against the new predicates: every
+  mismatch fell into one of the five classes above, with zero unexplained.
+
+  **Loopback detection is now correct for IPv6, for all of 127/8, and for the
+  case-insensitive name.** The old regex hardcoded
+  `localhost|127\.0\.0\.\d+|0\.0\.0\.0` and carried no `(?i)` flag, so `[::1]`,
+  `127.1.2.3` and `http://LOCALHOST/api` all matched nothing.
+  `internalurl.IsLoopback` parses the host and uses `ip.IsLoopback()`, which
+  covers `::1` and the whole of `127/8`, and it compares the (lowercased) host
+  against the name `localhost` — hostnames are case-insensitive per RFC 4343.
+  These three widenings only ever **add** Low-severity findings.
+
+  **A private or metadata IP appearing in a URL *path* is no longer reported.**
+  `http://foo.com/10.0.0.1/x` is no longer a `private_ip` finding and
+  `http://foo.com/169.254.169.254/x` is no longer a `cloud_metadata` finding.
+  **This narrowing is deliberate — do not restore the old text match.** The
+  shared predicates parse the URL's host, which is what lets them call
+  `netguard`'s CIDR list instead of keeping a second, independently editable
+  copy of the RFC 1918 ranges and the metadata address. A private IP in a path
+  is a different signal from a private-IP host: the host here is `foo.com`, a
+  public name. A bare `10.0.0.1` with no scheme is unaffected — `hostOf` falls
+  back to the lowercased input, so it still classifies. The same split applies
+  to the loopback and metadata checks, so a `169.254.169.254` or `127.0.0.5`
+  sitting in a path no longer classifies either.
+
+  Reinstating a text match for these two cases would re-duplicate the CIDR
+  list that `internalurl` exists to centralize — the exact duplication this
+  batch removed. If a future input class genuinely needs a path-scoped IP
+  match, add a separate, explicitly-named check rather than reverting this one.
+
+- `internalurl`'s host extractor no longer mistakes a `://` inside a URL's path,
+  query, or fragment for a scheme. It previously stripped a scheme by taking the
+  first `://` anywhere in the string, so a scheme-less URL whose query carried an
+  absolute URL had its host read out of that query:
+  `localhost?u=http://169.254.169.254/` yielded the host
+  `169.254.169.254`. Through the delegated predicates that turned a loopback URL
+  into a **High**-severity cloud-metadata finding driven purely by
+  attacker-supplied query text — a false escalation. `hostOf` now strips a scheme
+  only when the `://` appears before the first `/`, `?`, or `#`; a later one
+  belongs to that component. Genuine schemes still strip, so
+  `http://10.0.0.1/x` is still a `private_ip` host.
+
 ### Fixed
 
 - Rate limiter no longer sleeps while holding its mutex (crawler and

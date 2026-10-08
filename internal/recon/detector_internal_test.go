@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/RA000WL/syck/internal/finding"
+	"github.com/RA000WL/syck/internal/internalurl"
 )
 
 func TestInternalDetectorPositive(t *testing.T) {
@@ -23,18 +24,25 @@ func TestInternalDetectorNegative(t *testing.T) {
 }
 
 // TestClassifyInternalCharacterization pins the exact category string
-// classifyInternal returns for representative inputs, as of the commit before
-// Batch 4c Task 4 rewrites its body to delegate to internal/internalurl.
+// classifyInternal returns for representative inputs.
 //
-// Every expectation below was derived by reading the regexes in
-// detector_internal.go, not by observing the function's output. The function is
-// an ordered if-chain, so the first branch whose regexes match the RAW STRING
-// wins; that ordering is itself part of the pinned behavior (see the
-// precedence block at the end).
+// classifyInternal delegates to internal/internalurl and applies an ordered
+// if-chain, so the first branch that matches the URL wins. That ordering is
+// itself part of the pinned behavior: the PRECEDENCE block at the end exists
+// because reordering the chain would change output while every
+// per-category row here still passed.
 //
-// The four rows marked "TASK 4 DELTA" carry the value the function returns
-// TODAY. Task 4 is expected to change exactly those four and nothing else; if
-// a rewrite moves any other row, it is a regression, not a delta.
+// Provenance. The non-DELTA expectations below were derived by reading the
+// regexes this function used before Batch 4c Task 4 — not by observing its
+// output — and Task 4 proved them still exact: an ablation that restored the
+// old regexes for only the three drifting branches (private_ip, localhost,
+// cloud_metadata) and kept the new predicates for the other four matched the
+// pre-Task-4 function on 320,292 generated URLs with zero differences.
+//
+// Rows marked DELTA are the intentional behavior changes Task 4 made; each
+// note says what changed and why. Rows marked HOSTFIX are the internalurl
+// hostOf scheme-boundary fix, which Task 4 also made — they state the
+// corrected value. Those prefixes are the only rows that were allowed to move.
 func TestClassifyInternalCharacterization(t *testing.T) {
 	tests := []struct {
 		name string
@@ -42,83 +50,95 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 		want string
 		note string
 	}{
-		// --- internal: internalRE only -------------------------------
-		// internalRE = `(?i)/(internal|private|intranet|corp)(\b|/|$)`.
-		// The "/internal" here is the scheme's second slash followed by the
-		// host, and \b holds between "l" and ".".
+		// --- internal ---------------------------------------------------
+		// internalurl.IsInternalPath is the per-token union of the two regexes
+		// this branch used to run: four tokens with a \b|/|$ tail (internal,
+		// private, intranet, corp) and nine with the stricter (?:/|$) tail
+		// (debug, trace, admin, staging, dev, test, sandbox, legacy, hidden).
+		// "internal" here is the scheme's second slash followed by the host,
+		// and \b holds between "l" and ".".
 		{"internal-host-label", "http://internal.corp/api", "internal",
-			"internalRE alone: /internal\b"},
-		// "intranet" is in internalRE but NOT in internalPathRE, so this
-		// row proves the branch is a union and not just internalPathRE.
+			"IsInternalPath via the 'internal' token + the \\b tail"},
+		// "intranet" is one of the four \b-tail tokens and NOT one of the nine
+		// (?:/|$) tokens, so this row pins that the union keeps two tails
+		// rather than collapsing onto one.
 		{"internal-intranet-regex-only", "http://x.com/intranet", "internal",
-			"internalRE only — internalPathRE has no 'intranet' token"},
+			"IsInternalPath: 'intranet' is a \\b-tail token, not one of the nine (?:/|$) tokens"},
 
-		// --- internal: internalPathRE only ----------------------------
-		// internalPathRE = `(?i)/(?:debug|trace|admin|internal|private|
-		// staging|dev|test|sandbox|legacy|hidden)(?:/|$)`. The stricter
-		// (?:/|$) tail is why these need the path to end after the token.
+		// "admin"/"debug" are (?:/|$)-tail tokens, so they need the path to end
+		// after the token — which is why neither of these has a \b in its name.
 		{"internal-admin", "http://x.com/admin", "internal",
-			"internalPathRE only — internalRE has no 'admin' token"},
+			"IsInternalPath via the 'admin' token + the (?:/|$) tail"},
 		{"internal-debug", "http://x.com/debug", "internal",
-			"internalPathRE only — internalRE has no 'debug' token"},
+			"IsInternalPath via the 'debug' token + the (?:/|$) tail"},
 
 		// --- internal_host ---------------------------------------------
-		// internalHostRE = `(?i)(internal\.|corp\.|\.local)`.
+		// internalurl.IsInternalHost is the union of internalHostRE
+		// (internal\.|corp\.|\.local) and k8sServiceRE
+		// ((?:[a-z0-9-]+\.){1,3}(?:svc|cluster|local|internal)\b). Raw-text,
+		// so the path-position rows further down stay true.
 		{"internal-host-internal-dot", "http://foo.internal/", "internal_host",
-			"internalHostRE via 'internal.'"},
-		// k8sServiceRE = `(?i)(?:[a-z0-9-]+\.){1,3}(?:svc|cluster|local|
-		// internal)\b`. "a.b." is two labels, then "svc" with \b before "/".
-		// internalHostRE does not match this string at all.
+			"IsInternalHost via the 'internal.' rule"},
+		// "a.b." is two labels, then "svc" with \b before "/". The internal.
+		// rule does not match this string at all.
 		{"internal-host-k8s-svc", "http://a.b.svc/x", "internal_host",
-			"k8sServiceRE only — internalHostRE has no svc rule"},
-		// THE TRAP ROW. "metadata." + "google." is two labels, then
-		// "internal" with \b before "/", so k8sServiceRE matches and
-		// internal_host is returned. internal_host is tested BEFORE
-		// cloud_metadata in the if-chain, so the metadata hostname NEVER
-		// reaches the metadata branch. This is internal_host, not
-		// cloud_metadata and not "" — and Task 4 does not change it.
+			"IsInternalHost via the k8s rule alone — the 'internal.' rule has no svc token"},
+		// THE TRAP ROW. "metadata." + "google." is two labels, then "internal"
+		// with \b before "/", so the k8s rule matches and internal_host is
+		// returned. internal_host is tested BEFORE cloud_metadata in the
+		// if-chain, so the metadata hostname NEVER reaches the metadata branch
+		// even though internalurl.IsCloudMetadata does match it. This is
+		// internal_host, not cloud_metadata and not "".
 		{"gcp-metadata-hostname", "http://metadata.google.internal/", "internal_host",
-			"PRECEDENCE: k8sServiceRE matches (metadata.google.internal) and " +
-				"internal_host precedes cloud_metadata, so the metadata branch " +
-				"is unreachable for this input. Unchanged by Task 4."},
+			"PRECEDENCE: the k8s rule matches (metadata.google.internal) and " +
+				"internal_host precedes cloud_metadata, so the cloud_metadata " +
+				"branch is unreachable for this input — IsCloudMetadata does " +
+				"return true for it, but the chain never asks."},
 
 		// --- private_ip -----------------------------------------------
-		// privateIP10RE = `\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`.
-		{"private-10", "http://10.0.0.1/x", "private_ip", "privateIP10RE"},
-		// privateIP172RE = `\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b`.
+		// internalurl.IsPrivateHost parses the host and delegates to
+		// netguard.IsPrivateIP, so the CIDR list is owned in one place.
+		{"private-10", "http://10.0.0.1/x", "private_ip", "IsPrivateHost via netguard 10/8"},
+		// 172.16/12 spans 172.16.0.0 through 172.31.255.255; this row is the
+		// lower bound.
 		{"private-172-16", "http://172.16.0.1/x", "private_ip",
-			"privateIP172RE lower bound of 172.16/12 (1[6-9])"},
-		{"private-192-168", "http://192.168.0.1/x", "private_ip", "privateIP192RE"},
-		// 172.32: the second octet 32 matches none of 1[6-9], 2\d (20-29)
-		// or 3[01] (30-31), so the whole regex fails. Falls through every
-		// remaining branch to "".
+			"IsPrivateHost via netguard 172.16/12, lower bound"},
+		{"private-192-168", "http://192.168.0.1/x", "private_ip", "IsPrivateHost via netguard 192.168/16"},
+		// 172.32 is outside 172.16/12, so the CIDR check fails and the input
+		// falls through every remaining branch to "".
 		{"outside-172-16-12", "http://172.32.0.1/x", "",
 			"negative: 172.32 is outside 172.16/12"},
 
 		// --- localhost -------------------------------------------------
-		// localhostRE = `\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`.
+		// internalurl.IsLoopback parses the host and accepts the name
+		// "localhost" plus anything ip.IsLoopback() or ip.IsUnspecified()
+		// covers (all of 127/8, ::1, 0.0.0.0, ::).
 		{"localhost-name", "http://localhost:3000/", "localhost",
-			"localhostRE via the literal name; :3000 is not a sensitive port"},
+			"IsLoopback via the literal name; :3000 is not a sensitive port"},
 		{"localhost-127-0-0-5", "http://127.0.0.5/", "localhost",
-			"localhostRE via 127\\.0\\.0\\.\\d+"},
+			"IsLoopback via ip.IsLoopback() on 127.0.0.5"},
 
 		// --- cloud_metadata --------------------------------------------
-		// cloudMetadataRE = `\b169\.254\.169\.254\b`. No earlier branch
-		// matches: not an internal token, no "internal."/"corp."/".local"
-		// label, no k8s suffix, and 169.254 is not RFC 1918.
+		// internalurl.IsCloudMetadata compares the parsed host for equality
+		// against 169.254.169.254 (net.IP.Equal) or netguard.IsMetadataHost.
+		// No earlier branch matches this input: no internal path token, no
+		// internal./corp./.local label, no k8s suffix, and 169.254.169.254 is
+		// link-local rather than RFC 1918.
 		{"metadata-ip", "http://169.254.169.254/", "cloud_metadata",
-			"cloudMetadataRE via \\\\b169\\\\.254\\\\.169\\\\.254\\\\b"},
+			"IsCloudMetadata via \\b169\\.254\\.169\\.254\\b host equality"},
 
 		// --- container_service -----------------------------------------
-		// dockerServiceRE = `(?i)(?:docker|container)[_.]?(?:host|name|id|
-		// service)\b`. "docker" + "_" + "host" + \b before "/".
+		// The one branch still using a local regex: the
+		// docker|container + host|name|id|service vocabulary appears nowhere
+		// else in the codebase, so it has no shared predicate to move to.
+		// "docker" + "_" + "host" + \b before "/".
 		{"docker-host", "http://docker_host/", "container_service",
-			"dockerServiceRE"},
+			"dockerServiceRE (local, not in internalurl)"},
 
 		// --- sensitive_port ---------------------------------------------
-		// sensitivePortRE = `:(?:3306|5432|...|8200)\b`.
+		// internalurl.IsSensitivePort keeps the \b terminator.
 		{"sensitive-port-5432", "http://h:5432/", "sensitive_port",
-			"sensitivePortRE"},
+			"IsSensitivePort"},
 		// ":33060" — the alternation matches ":3306" but \b cannot hold
 		// between "6" and "0", both word characters, so the branch fails.
 		{"port-33060-not-3306", "http://h:33060/", "",
@@ -128,122 +148,245 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 		{"public-url", "https://example.com/api/users", "",
 			"negative: matches no branch"},
 
-		// --- TASK 4 DELTAS: values below are what the code returns TODAY -
-		//
-		// Each row is here so Task 4's rewrite can be proven to move exactly
-		// these and nothing else. The four inputs are ones the current regex
-		// text-matches anywhere in the string, so a host-scoped predicate
-		// (which reads only the host) will stop matching them.
+		// --- TASK 4 DELTAS ---------------------------------------------
+		// Four rows below are the intentional behavior changes: the first two
+		// widen the localhost category, the last two narrow private_ip and
+		// cloud_metadata. Each note records what changed and why. Any OTHER
+		// row moving is a regression, not a delta.
 
-		// privateIP10RE text-matches the "10.0.0.1" in the PATH. The host is
-		// foo.com, a public name. TASK 4 DELTA: internalurl.IsPrivateHost is
-		// host-scoped (net.ParseIP(hostOf(raw))), so this becomes "".
-		{"DELTA-private-ip-in-path", "http://foo.com/10.0.0.1/x", "private_ip",
-			"TASK 4 DELTA -> \"\": privateIP10RE matches the private IP in the " +
-				"PATH; internalurl.IsPrivateHost parses the host (foo.com) instead."},
-		// Same story one branch later: cloudMetadataRE text-matches the
-		// metadata IP in the path, and nothing earlier in the chain fires.
-		// TASK 4 DELTA: internalurl.IsCloudMetadata is host-scoped, so this
-		// becomes "". This row is the text-vs-host split in one input.
-		{"DELTA-metadata-ip-in-path", "http://foo.com/169.254.169.254/x", "cloud_metadata",
-			"TASK 4 DELTA -> \"\": cloudMetadataRE matches the metadata IP in " +
-				"the PATH; internalurl.IsCloudMetadata compares the host (foo.com) for equality."},
-		// localhostRE has no rule for IPv6, so "[::1]" matches nothing.
-		// TASK 4 DELTA: internalurl.IsLoopback uses ip.IsLoopback(), which
-		// accepts ::1, so this becomes "localhost".
-		{"DELTA-ipv6-loopback", "http://[::1]/x", "",
-			"TASK 4 DELTA -> \"localhost\": localhostRE only spells out " +
-				"localhost|127\\\\.0\\\\.0\\\\.\\\\d+|0\\\\.0\\\\.0\\\\.0, no IPv6 literal."},
-		// Same over-match in reverse: "127.1.2.3" is a valid loopback address
-		// but the regex hardcodes the "0.0." middle octets.
-		// TASK 4 DELTA: internalurl.IsLoopback parses the IP and ip.IsLoopback()
-		// covers all of 127/8, so this becomes "localhost".
-		{"DELTA-loopback-non-0-0-octets", "http://127.1.2.3/x", "",
-			"TASK 4 DELTA -> \"localhost\": localhostRE requires the literal " +
+		// privateIP10RE used to text-match the "10.0.0.1" in the PATH. The host
+		// is foo.com, a public name, and a private IP in a path is a different
+		// signal from a private-IP host. internalurl.IsPrivateHost is
+		// host-scoped (net.ParseIP(hostOf(raw))), so the raw-text match is gone
+		// and the input is no longer a finding.
+		{"DELTA-private-ip-in-path", "http://foo.com/10.0.0.1/x", "",
+			"CHANGED private_ip -> \"\": privateIP10RE matched the private IP in " +
+				"the PATH; IsPrivateHost parses the host (foo.com) instead. The " +
+				"narrowing is deliberate so the RFC 1918 CIDR list stays owned by " +
+				"netguard instead of being copied into a second regex here."},
+		// Same story one branch later: cloudMetadataRE text-matched the
+		// metadata IP in the path, and nothing earlier in the chain fired.
+		// IsCloudMetadata compares the host, so this is no longer a finding.
+		// This row is the whole text-vs-host split in one input.
+		{"DELTA-metadata-ip-in-path", "http://foo.com/169.254.169.254/x", "",
+			"CHANGED cloud_metadata -> \"\": cloudMetadataRE matched the metadata " +
+				"IP in the PATH; IsCloudMetadata compares the host (foo.com) for " +
+				"equality. Same deliberate narrowing — see the note above."},
+		// localhostRE had no IPv6 rule, so "[::1]" matched nothing and the
+		// input reported no finding at all. IsLoopback uses ip.IsLoopback(),
+		// which accepts ::1.
+		{"DELTA-ipv6-loopback", "http://[::1]/x", "localhost",
+			"CHANGED \"\" -> \"localhost\": localhostRE spelled out only " +
+				"localhost|127\\.0\\.0\\.\\d+|0\\.0\\.0\\.0, with no IPv6 literal. " +
+				"ip.IsLoopback() covers ::1, so this is an under-match fixed."},
+		// Same over-restriction in reverse: 127.1.2.3 is a valid loopback
+		// address, but the old regex hardcoded the "0.0." middle octets.
+		// ip.IsLoopback() covers all of 127/8.
+		{"DELTA-loopback-non-0-0-octets", "http://127.1.2.3/x", "localhost",
+			"CHANGED \"\" -> \"localhost\": localhostRE required the literal " +
 				"\"127.0.0.\", but 127/8 is loopback per ip.IsLoopback()."},
 
-		// --- PRECEDENCE --------------------------------------------------
-		// classifyInternal is an ordered if-chain, so when an input matches
-		// two branches the EARLIER branch wins. Without these rows a Task 4
-		// refactor could reorder the chain and silently change which of two
-		// equally true categories is reported.
+		// --- ADDITIONAL DELTA FOUND BY THE 320k-URL PARITY CORPUS --------
+		// This one was NOT in Task 4's declared delta list. It was isolated
+		// by ablation to internal/internalurl rather than to the mapping in
+		// classifyInternal, and it is recorded in CHANGELOG.md.
 
-		// internalRE matches "/internal" AND sensitivePortRE matches ":5432".
-		// The internal branch is first in the chain, so it wins.
+		// internalurl.hostOf lowercases the host, so IsLoopback's literal-name
+		// check accepts "LOCALHOST". The old localhostRE was case-SENSITIVE
+		// (it carried no (?i) flag), so an uppercase host was silently missed.
+		// A hostname is case-insensitive per RFC 4343, so this is a fix, and it
+		// only ever ADDS a Low-severity finding — it cannot hide one.
+		{"DELTA-localhost-name-case-insensitive", "http://LOCALHOST/api", "localhost",
+			"UNDECLARED, \"\" -> \"localhost\": localhostRE had no (?i) flag and " +
+				"missed an uppercase host; hostOf lowercases, so IsLoopback " +
+				"matches. A widening, not a loss."},
+
+		// --- hostOf SCHEME-BOUNDARY FIX (internal/internalurl) ----------
+		// hostOf used to strip a scheme by taking the first "://" ANYWHERE in
+		// the string, so a scheme-less URL whose QUERY carries an absolute URL
+		// had its host extracted from inside the query. That is a bug in
+		// internalurl, not a consequence of this mapping — the old
+		// text-matching localhostRE was immune because it never parsed
+		// anything. It is FIXED here, so these rows state the correct value
+		// rather than pinning the defect.
+
+		// Before the fix hostOf returned "169.254.169.254" for this input, and
+		// the URL was reported as a High cloud_metadata surface instead of the
+		// Low localhost one: a false escalation, driven by attacker-supplied
+		// query text.
+		{"HOSTFIX-scheme-in-query-is-not-a-scheme", "localhost?u=http://169.254.169.254/", "localhost",
+			"hostOf only strips a \"://\" that appears before the first /, ?, " +
+				"or #, so the host stays \"localhost\". Was cloud_metadata (High) " +
+				"before the fix."},
+
+		// The observable direction of the same fix: pre-fix hostOf returned
+		// "b" here, so the loopback host was missed entirely.
+		{"HOSTFIX-scheme-in-path-keeps-loopback-host", "localhost/a://b", "localhost",
+			"the \"://\" is inside the path, so the host is \"localhost\", not \"b\""},
+
+		// The negative half of the same boundary: a public host is still
+		// public when a scheme-looking string follows it in the path. Before the
+		// fix hostOf returned "b" here too; both readings are non-internal, so
+		// this row is pinned to stop a future hostOf change from inventing a
+		// host out of the path.
+		{"HOSTFIX-scheme-in-path-keeps-public-host", "example.com/a://b", "",
+			"negative: the \"://\" belongs to the path, so the host is " +
+				"\"example.com\" and nothing classifies"},
+
+		// --- PRECEDENCE --------------------------------------------------
+		// classifyInternal is an ordered if-chain, so when an input matches two
+		// branches the EARLIER branch wins. These rows exist because a reorder
+		// would change output while every per-category row above still passed.
+		// Each one names the two competing branches.
+
+		// "/internal" and ":5432" both match; internal is tested first.
 		{"precedence-internal-over-sensitive-port", "http://internal.corp:5432/", "internal",
-			"PRECEDENCE: matches internal (internalRE) and sensitive_port " +
-				"(sensitivePortRE); internal is tested first and wins."},
-		// privateIP10RE matches "10.0.0.1" AND sensitivePortRE matches ":5432".
-		// private_ip is tested before localhost and before sensitive_port.
+			"PRECEDENCE: matches internal and sensitive_port; internal is " +
+				"tested first and wins."},
+		// private host and ":5432" both match; private_ip precedes
+		// sensitive_port.
 		{"precedence-private-ip-over-sensitive-port", "http://10.0.0.1:5432/", "private_ip",
 			"PRECEDENCE: matches private_ip and sensitive_port; private_ip is " +
 				"tested first and wins."},
-		// k8sServiceRE matches ".svc" AND sensitivePortRE matches ":3306".
-		// internal_host is tested before both private_ip and sensitive_port.
+		// ".svc" and ":3306" both match; internal_host precedes both
+		// private_ip and sensitive_port.
 		{"precedence-internal-host-over-sensitive-port", "http://a.b.svc:3306/", "internal_host",
 			"PRECEDENCE: matches internal_host and sensitive_port; " +
 				"internal_host is tested first and wins."},
-		// dockerServiceRE matches "docker_host" AND sensitivePortRE matches
-		// ":6379". container_service is immediately before sensitive_port.
+		// "docker_host" and ":6379" both match; container_service is
+		// immediately before sensitive_port.
 		{"precedence-container-service-over-sensitive-port", "http://docker_host:6379/", "container_service",
 			"PRECEDENCE: matches container_service and sensitive_port; " +
 				"container_service is tested first and wins."},
-		// localhostRE matches "127.0.0.5" AND internalPathRE matches "/admin".
-		// The internal branch is tested before localhost, so internal wins —
-		// note this is the OPPOSITE of the natural "loopback host is the more
-		// specific thing" intuition, which is exactly why it needs pinning.
+		// "127.0.0.5" and "/admin" both match; internal is tested before
+		// localhost, so internal wins — the OPPOSITE of the natural "loopback
+		// host is the more specific thing" intuition, which is exactly why it
+		// needs pinning.
 		{"precedence-internal-over-localhost", "http://127.0.0.5/admin", "internal",
-			"PRECEDENCE: matches internal (internalPathRE) and localhost " +
-				"(localhostRE); internal is tested first and wins."},
-		// cloudMetadataRE matches "169.254.169.254" AND dockerServiceRE
-		// matches "docker_host" in the same path. cloud_metadata is tested
-		// before container_service, so the SSRF-target category wins even
-		// though the docker token appears later in the string.
+			"PRECEDENCE: matches internal and localhost; internal is tested " +
+				"first and wins."},
+		// "169.254.169.254" and "docker_host" both match; cloud_metadata is
+		// tested before container_service, so the SSRF-target category wins
+		// even though the docker token appears later in the string.
 		{"precedence-metadata-over-container-service", "http://169.254.169.254/docker_host/", "cloud_metadata",
 			"PRECEDENCE: matches cloud_metadata and container_service; " +
 				"cloud_metadata is tested first and wins."},
+		// Both are host matches, and localhost is immediately before
+		// cloud_metadata. This row guards the one adjacent pair the rows above
+		// leave unpinned: the loopback host wins over a metadata IP sitting in
+		// its path. (The metadata-IP-in-path text match is gone as of the DELTA
+		// rows above; this input now matches only via its HOST, so it stays
+		// "localhost" before and after Task 4.)
+		{"precedence-localhost-over-metadata", "http://localhost/169.254.169.254", "localhost",
+			"PRECEDENCE: the host is loopback and 169.254.169.254 is in the path; " +
+				"localhost is tested before cloud_metadata and wins."},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := classifyInternal(tt.url); got != tt.want {
 				t.Errorf("classifyInternal(%q)\n  got  %q\n  want %q", tt.url, got, tt.want)
-				if tt.note != "" {
-					t.Logf("note: %s", tt.note)
-				}
+			}
+			if tt.note != "" {
+				t.Logf("note: %s", tt.note)
 			}
 		})
 	}
 }
 
-// TestClassifyInternalBranchCoverage guards against the table silently
-// ceasing to exercise a branch: each row below must be the FIRST branch in the
-// chain that matches its input. If a future edit inserts a branch ahead of one
-// of these, this test reports the change even if the category table above is
-// not updated in the same commit.
-func TestClassifyInternalBranchCoverage(t *testing.T) {
-	// Branch order in the if-chain, as the winning branch for a canonical
-	// input of that branch.
-	type branch struct {
-		name  string
-		input string
-		want  string
+// TestClassifyInternalBranchPrecedence is the executable form of "the branch
+// order is a precedence chain".
+//
+// Every row names an input where TWO OR MORE branch predicates are true at
+// once, so the reported category is decided by the chain's order rather than by
+// any single predicate. The test asserts both halves: that the earlier branch
+// wins, and — via losers — that the competing predicates really do match this
+// input. The second assertion is what the output-only category table cannot
+// check: if a branch's predicate stopped overlapping (or two branches were
+// accidentally given the same predicate), these rows fail even though
+// TestClassifyInternalCharacterization still passed.
+//
+// Coverage is deliberately spread over the whole chain, including the adjacent
+// pairs the PRECEDENCE block of the category table leaves unpinned. Swapping
+// the internal_host and private_ip branches, for example, changes no row of the
+// category table — every one of its internal_host inputs has a public host and
+// every private_ip input has a public name — but it flips the two rows below.
+func TestClassifyInternalBranchPrecedence(t *testing.T) {
+	branchPreds := []struct {
+		name string
+		pred func(string) bool
+	}{
+		{"internal", internalurl.IsInternalPath},
+		{"internal_host", internalurl.IsInternalHost},
+		{"private_ip", internalurl.IsPrivateHost},
+		{"localhost", internalurl.IsLoopback},
+		{"cloud_metadata", internalurl.IsCloudMetadata},
+		{"container_service", dockerServiceRE.MatchString},
+		{"sensitive_port", internalurl.IsSensitivePort},
 	}
-	branches := []branch{
-		{"internal", "http://x.com/admin", "internal"},
-		{"internal_host", "http://foo.internal/", "internal_host"},
-		{"private_ip", "http://10.0.0.1/x", "private_ip"},
-		{"localhost", "http://127.0.0.5/", "localhost"},
-		{"cloud_metadata", "http://169.254.169.254/", "cloud_metadata"},
-		{"container_service", "http://docker_host/", "container_service"},
-		{"sensitive_port", "http://h:5432/", "sensitive_port"},
-		{"none", "https://example.com/api/users", ""},
+	predOf := func(name string) func(string) bool {
+		for _, b := range branchPreds {
+			if b.name == name {
+				return b.pred
+			}
+		}
+		return func(string) bool { return false }
 	}
-	for _, b := range branches {
-		t.Run(b.name, func(t *testing.T) {
-			if got := classifyInternal(b.input); got != b.want {
-				t.Errorf("branch %s: classifyInternal(%q) = %q, want %q — the "+
-					"if-chain order may have changed", b.name, b.input, got, b.want)
+
+	tests := []struct {
+		name   string
+		url    string
+		winner string   // the branch the chain must report
+		losers []string // branches that also match, but come later in the chain
+	}{
+		{"internal-over-internal-host", "http://foo.internal/admin", "internal",
+			[]string{"internal_host"}},
+		{"internal-over-private-ip", "http://10.0.0.1/admin", "internal",
+			[]string{"private_ip"}},
+		{"internal-over-metadata", "http://169.254.169.254/admin", "internal",
+			[]string{"cloud_metadata"}},
+		{"internal-over-container-service", "http://docker_host/admin", "internal",
+			[]string{"container_service"}},
+		// The pair the category table cannot pin: its internal_host rows all
+		// have a public host and its private_ip rows all have a public name, so
+		// for it neither predicate is ever the sole decider.
+		{"internal-host-over-private-ip", "http://10.0.0.1/x.internal/y", "internal_host",
+			[]string{"private_ip"}},
+		{"internal-host-over-localhost", "http://localhost/x.internal", "internal_host",
+			[]string{"localhost"}},
+		// The trap in a second costume: the metadata IP is the HOST here and
+		// the internal-looking label is only in the path, yet internal_host
+		// still wins, because it precedes cloud_metadata in the chain. So the
+		// reported category is "internal_host", not "cloud_metadata" — the
+		// same shadowing the gcp-metadata-hostname row shows via a hostname.
+		{"internal-host-over-metadata", "http://169.254.169.254/x.internal/y", "internal_host",
+			[]string{"cloud_metadata"}},
+		{"localhost-over-container-service", "http://localhost/docker_host", "localhost",
+			[]string{"container_service"}},
+		// Three-way overlaps: loopback and metadata against both the container
+		// vocabulary and the port list, which sit after them in the chain.
+		{"localhost-over-container-service-and-sensitive-port",
+			"http://127.0.0.5/docker_host:6379", "localhost",
+			[]string{"container_service", "sensitive_port"}},
+		{"metadata-over-container-service-and-sensitive-port",
+			"http://169.254.169.254/docker_host:6379", "cloud_metadata",
+			[]string{"container_service", "sensitive_port"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyInternal(tt.url); got != tt.winner {
+				t.Errorf("classifyInternal(%q)\n  got  %q\n  want %q (the branch "+
+					"order may have changed)", tt.url, got, tt.winner)
+			}
+			// Guard the row itself: a "loser" that does not actually match
+			// would leave this row asserting nothing about precedence.
+			for _, loser := range tt.losers {
+				if !predOf(loser)(tt.url) {
+					t.Errorf("test bug: %s does not match %q, so this row proves "+
+						"nothing about precedence; pick an input both branches claim",
+						loser, tt.url)
+				}
 			}
 		})
 	}
@@ -251,8 +394,9 @@ func TestClassifyInternalBranchCoverage(t *testing.T) {
 
 // TestInternalDetectorSeverityMapping pins the category -> severity mapping
 // that (InternalDetector).Detect applies. This is user-visible output: the
-// severity lands in the recon report, and Task 4 changes the category strings
-// feeding it, so the mapping needs its own coverage.
+// severity lands in the recon report, and Task 4 changed the category strings
+// feeding it, so the mapping needs its own coverage — a typo in the branch
+// silently drops a High finding to Low and every category test still passes.
 func TestInternalDetectorSeverityMapping(t *testing.T) {
 	tests := []struct {
 		name string
@@ -269,6 +413,10 @@ func TestInternalDetectorSeverityMapping(t *testing.T) {
 		{"localhost-low", "http://127.0.0.5/", finding.SeverityLow},
 		{"container-service-low", "http://docker_host/", finding.SeverityLow},
 		{"sensitive-port-low", "http://h:5432/", finding.SeverityLow},
+		// The two loopback rows the DELTA rows above newly classify must also
+		// land on Low, not on an unset zero value.
+		{"ipv6-loopback-low", "http://[::1]/x", finding.SeverityLow},
+		{"loopback-127-1-2-3-low", "http://127.1.2.3/x", finding.SeverityLow},
 	}
 
 	d := InternalDetector{}

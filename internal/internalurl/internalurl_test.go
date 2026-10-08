@@ -69,6 +69,19 @@ func TestHostOf(t *testing.T) {
 		{"scheme-no-host", "http:///p", ""},
 		{"port-only", ":5432", ""},
 		{"scheme-relative-empty", "//", ""},
+
+		// A "://" is a scheme only BEFORE the path, query, or fragment
+		// opens. Stripping at the first "://" anywhere let a query carrying an
+		// absolute URL take over the host: this row used to yield
+		// "169.254.169.254", which made recon report a Low localhost URL as a
+		// High cloud_metadata one — a false escalation.
+		{"url-inside-query", "localhost?u=http://169.254.169.254/", "localhost"},
+		{"url-inside-path", "example.com/a://b", "example.com"},
+		{"url-inside-fragment", "example.com/x#f=http://10.0.0.1/", "example.com"},
+		// The positive control for the row above: a genuine leading scheme is
+		// still stripped, so the host-parsed predicates keep working on every
+		// input that has one.
+		{"genuine-scheme-still-stripped", "http://10.0.0.1/x", "10.0.0.1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
