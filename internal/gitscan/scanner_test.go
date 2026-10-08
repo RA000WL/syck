@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/finding"
@@ -41,14 +42,9 @@ func TestScanHistoryFindsCommittedSecret(t *testing.T) {
 	dir := t.TempDir()
 	git(t, dir, "init")
 
-	// First commit establishes a parent so `git diff-tree` (no --root flag in
-	// ScanHistory) can enumerate the second commit's files.
-	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("demo\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	git(t, dir, "add", "README.txt")
-	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init")
-
+	// Single commit: with --root, diff-tree enumerates the initial commit's
+	// files against the empty tree, so no parent commit is needed to route
+	// the secret into the history scan.
 	content := "aws_access_key_id = \"AKIAIOSFODNN7EXAMPLE\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.txt"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -72,6 +68,109 @@ func TestScanHistoryFindsCommittedSecret(t *testing.T) {
 	f := findings[0]
 	if f.RuleName == "" || f.File == "" {
 		t.Errorf("finding missing RuleName/File: %+v", f)
+	}
+}
+
+// TestScanHistoryScansInitialCommit covers the blind spot where a secret is
+// committed in the first commit and deleted in a later one: it is absent from
+// the working tree (so the ordinary scan misses it) and, without --root,
+// `git diff-tree` never lists it either — so nothing scans it at all.
+func TestScanHistoryScansInitialCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	gitEnv(t)
+
+	dir := t.TempDir()
+	git(t, dir, "init")
+
+	// Commit 1: the secret is present.
+	content := "aws_access_key_id = \"AKIAIOSFODNN7EXAMPLE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "add config")
+
+	// Commit 2: the secret is gone from the working tree.
+	git(t, dir, "rm", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "remove config")
+
+	if _, err := os.Stat(filepath.Join(dir, "config.txt")); !os.IsNotExist(err) {
+		t.Fatalf("precondition: config.txt should be absent from the working tree (stat err = %v)", err)
+	}
+
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	findings, err := ScanHistory(dir, cfg)
+	if err != nil {
+		t.Fatalf("ScanHistory: %v", err)
+	}
+	if len(findings) < 1 {
+		t.Fatalf("expected >= 1 finding for a secret present only in the initial commit, got %d", len(findings))
+	}
+	if !strings.Contains(findings[0].Secret, "AKIAIOSFODNN7EXAMPLE") {
+		t.Errorf("expected the AWS example key, got %+v", findings[0])
+	}
+}
+
+// TestScanHistoryNoDoubleReportForRootAndLaterCommit pins the de-dup
+// behaviour that --root relies on: the same secret now appears in both the
+// initial commit (via --root) and the later commit that touches the file, and
+// must be reported exactly once.
+func TestScanHistoryNoDoubleReportForRootAndLaterCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	gitEnv(t)
+
+	dir := t.TempDir()
+	git(t, dir, "init")
+
+	// Commit 1: the secret is introduced.
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"), []byte("aws_access_key_id = \"AKIAIOSFODNN7EXAMPLE\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "add config")
+
+	// Commit 2: unrelated churn, so the initial commit is not the last one.
+	if err := os.WriteFile(filepath.Join(dir, "README.txt"), []byte("demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "README.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "readme")
+
+	// Commit 3: the same secret in a modified version of the same file.
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"), []byte("# rotated nothing, just a comment\naws_access_key_id = \"AKIAIOSFODNN7EXAMPLE\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "touch config")
+
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	findings, err := ScanHistory(dir, cfg)
+	if err != nil {
+		t.Fatalf("ScanHistory: %v", err)
+	}
+
+	var keyFindings []finding.Finding
+	for _, f := range findings {
+		if strings.Contains(f.Secret, "AKIAIOSFODNN7EXAMPLE") {
+			keyFindings = append(keyFindings, f)
+		}
+	}
+	if len(keyFindings) != 1 {
+		t.Errorf("expected exactly 1 finding for AKIAIOSFODNN7EXAMPLE (present in the root commit and commit 3), got %d: %+v", len(keyFindings), keyFindings)
 	}
 }
 
