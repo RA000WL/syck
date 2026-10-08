@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings)
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change)
 
-This section carries eight batches, so the title names them and flags the four
+This section carries nine batches, so the title names them and flags the four
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -25,7 +25,9 @@ lost. Batch 10 also goes **up** for three classes of JavaScript-loopback
 config value, and additionally **changes the string reported** for a fourth
 class — a loopback token embedded in a longer hostname now reports the whole
 host instead of a carved-up substring. Diffing on that emitted substring needs
-a read of its table, not just a count.
+a read of its table, not just a count. Batch 11, like Batch 3, changes nothing
+about what syck reports; it pools one buffer and is benchmark-gated (see its
+entry under "### Performance" below). Batch 11 closes ARCHITECTURE §15 item 5.
 
 ### Changed
 
@@ -690,6 +692,74 @@ a read of its table, not just a count.
 - The per-line goroutine regex fan-out was benchmarked against a sequential
   alternative and **kept**: sequential measured ~31% slower (median
   235291 vs 179737 ns/op) despite allocating 2 vs 29 allocs/op.
+
+### Performance — Batch 11: `fetchURL`'s scratch buffer is pooled (ARCHITECTURE §15 item 5, CLOSED)
+
+Nothing about what syck finds changes. Batch 3's spec claimed this work had
+already shipped; only the bounded-read half had. This batch finished it, and it
+was benchmark-gated rather than assertion-gated: the pooling is kept because the
+numbers improved, not because pooling is fashionable.
+
+`fetchURL` (`internal/crawler/crawler.go`) read every body through
+`io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))`, which allocates a fresh
+grow-by-doubling slice per crawled URL — roughly 8KB of intermediate slices for
+an ordinary page — and then copies the bytes twice more, once in `ConvertToUTF8`
+and once for the string. It now borrows the read buffer from a package-level
+`sync.Pool` and grows it in place; the buffer is returned to the pool after the
+string copy, and anything that outgrew a 1MB retention cap is dropped instead of
+pooled, so one 10MB body cannot pin the pool for the rest of a crawl.
+
+Measured with `go test ./internal/crawler/ -run '^$' -bench BenchmarkFetchURL
+-benchmem -count=5` (AMD Rzen 5 8645HS, 12 P, one full keep-alive HTTP fetch per
+op, so the numbers include the round trip). **Both runs are on the same machine
+in the same session**, `BenchmarkFetchURL` having been written and run against
+the unmodified code first, as §15 item 5 requires:
+
+| | allocs/op | B/op | ns/op (median) |
+|---|---|---|---|
+| before | **86** | **19,595** | 433,859 |
+| after | **77** | **11,010** | 415,169 |
+
+**-9 allocs/op (-10.5%) and -8,585 B/op (-43.8%)**, with `ns/op` inside the
+run-to-run noise either way — the win here is memory, not time. `ns/op` is
+reported only for completeness: the benchmark exists to gate allocations, and
+§15 item 5 says nothing about wall clock.
+
+Two things about the numbers are worth knowing before anyone re-runs them:
+
+- The benchmark is deliberately **not** run under `-race`. The race build of
+  `sync.Pool` randomly drops one `Put` in four (`sync/pool.go`, "Randomly drop x
+  on floor"), which discards a quarter of the recycling and understates the
+  benefit. Correctness is checked by `go test -race ./internal/crawler/`.
+- The benchmark's body serves `charset=utf-8`, so `ConvertToUTF8` takes the
+  identity path and the only copy counted is the one to the string. A crawl of
+  ISO-8859-1 pages converts byte-by-byte and allocates a second buffer that
+  pooling does not remove.
+
+Why this is not a "no behavior change" refactor, and what guards it:
+
+- `readAllInto` replaces `io.ReadAll(io.LimitReader(...))` and is pinned to it
+  byte-for-byte, including on the truncation boundary and on a reader that fails
+  mid-body, by `TestReadAllIntoMatchesIOReadAll`. That test earned its keep
+  immediately: the first version offered the reader the whole spare capacity of
+  the pooled buffer, which let a single `Read` blow past `limit+1` by up to
+  another full buffer — i.e. up to ~20MB per fetch instead of 10MB. The existing
+  truncation test did not catch it, because the body is sliced down afterwards
+  either way; only the comparison against `io.ReadAll` did.
+- `TestFetchURLConcurrentFetchesDoNotShareScratch` runs 8 goroutines through one
+  client and asserts every result is the body its worker asked for. That is the
+  test that catches a `Put` landing before the copy: with a deliberately early
+  `Put` it failed 10 of 10 runs without `-race` and tripped the race detector 5
+  of 5 with it. The sequential aliasing test (`TestFetchURLNoBufferAliasing`)
+  cannot catch that on its own — `string(b)` always copies in Go, so a premature
+  `Put` is invisible to a single goroutine — and its comment now says so instead
+  of leaving the next reader to trust it.
+- `TestFetchBufPoolRetentionCap` and `TestFetchURLOversizeBodyDoesNotPinPool`
+  confirm an oversized buffer is dropped, not retained. Both assert the drop
+  direction only. The positive direction is not assertable in a test: the GC
+  empties `sync.Pool` every cycle and the race build drops a quarter of the
+  `Put`s, either of which makes a retained buffer look absent. That recycling
+  works at all is what the B/op column above measures.
 
 ## [2.0.0] — Batch 2: detection quality
 

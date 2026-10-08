@@ -655,7 +655,7 @@ per-secret collapse destroyed.
 - **TLS**: Min version TLS 1.2, max TLS 1.3
 
 ### Crawler (`internal/crawler/`)
-- **Bounded reads**: Bodies read through `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))` with a 10MB hard cap, preventing memory exhaustion; the read buffer is allocated per call and is not pooled (see §15 item 5)
+- **Bounded reads**: Bodies read through a bounded read loop with a 10MB hard cap, preventing memory exhaustion; the read buffer is now pooled across fetches via `fetchBufPool` (see §15 item 5, closed)
 - **Connection headers**: Keep-alive explicitly set
 
 ### Transport Pool
@@ -710,20 +710,22 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 5, 6 and 8 below remain open, plus the residual link-local asymmetry
+Items 6 and 8 below remain open, plus the residual link-local asymmetry
 recorded under item 9 and the residual placeholder shape under item 7. **The
 numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
-repointing at a different defect. Items 3, 4, 7, 9 and 10 are CLOSED entries
+repointing at a different defect. Items 3, 4, 5, 7, 9 and 10 are CLOSED entries
 kept for the same reason. Item 7 is CLOSED by Batch 9 but not empty: it carries
 one OPEN residual (`IsFalsePositiveSecret` is unreachable on the multi-line
 path), so the number is kept in place rather than removed. Item 6 is OPEN by
-**explicit decision**, not by neglect — see its entry.
+**explicit decision**, not by neglect — see its entry. Item 8 is structurally
+unactionable rather than neglected — see its entry.
 
 Item 3 was closed by Batch 10, which changed behavior exactly as this entry
 predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
 is recorded because a spec shipped a false claim that the work was done. Items
+
 6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent*
 across paths and deliberately stopped there, so these three remain recorded
 rather than fixed.
@@ -814,7 +816,57 @@ Batch 10 made that edit; the resulting behavior is pinned by
 
 One `internal/crawler` gap (Batch 3 spec, work never implemented):
 
-5. **`fetchURL` scratch buffers are allocated per call and never pooled** — Batch 3's design spec listed "`fetchURL` reads through a bounded `io.LimitReader` and returns pooled scratch" as approved-and-completed work. Only the bounded-read half shipped. `fetchURL` (`internal/crawler/crawler.go`) still does a plain `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))`, so every crawled URL allocates a fresh grow-by-doubling buffer up to the 10MB cap, and the `ConvertToUTF8`/`string(utf8Body)` conversions allocate again on top. `grep -rn "sync.Pool" internal/crawler/` returns nothing — there is no pool in the package at all. The `crawler.BodyPool` var was the orphan hook for this unfinished half; Batch 4d Task 1 deleted it as dead code, which removed the last code-level trace of the gap, so it is recorded here instead. The Batch 3 `CHANGELOG.md` entry makes no pool claim and is accurate as written. **This is a memory optimization, not a refactor** — it needs its own batch, its own CHANGELOG entry, and its own benchmark (allocation/op and RSS on a crawl fixture) before and after; do NOT fold it into a change promising "no behavior change", because a pooled buffer that escapes a `Put` is a use-after-free class bug that `-race` does not reliably catch.
+5. **CLOSED — `fetchURL` scratch buffers were allocated per call and never
+   pooled.** Batch 3's design spec listed "`fetchURL` reads through a bounded
+   `io.LimitReader` and returns pooled scratch" as approved-and-completed work.
+   Only the bounded-read half shipped; `fetchURL`
+   (`internal/crawler/crawler.go`) still did a plain
+   `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))`, so every crawled URL
+   allocated a fresh grow-by-doubling buffer up to the 10MB cap —
+   ~8KB of intermediate slices for an ordinary page — and the
+   `ConvertToUTF8`/`string(utf8Body)` conversions allocated again on top.
+   `grep -rn "sync.Pool" internal/crawler/` returned nothing: there was no pool
+   in the package at all. `crawler.BodyPool` was the orphan hook for this
+   unfinished half; Batch 4d Task 1 deleted it as dead code, which removed the
+   last code-level trace of the gap, so it was recorded here instead.
+
+   Fixed by Batch 11: `fetchURL` borrows its read buffer from a package-level
+   `sync.Pool` (`fetchBufPool`), grows it in place instead of allocating per
+   call, and returns it after `string(utf8Body)` — the copy boundary, since
+   `ConvertToUTF8` hands back the same slice for every charset it does not
+   rewrite. Buffers that outgrew `maxPooledFetchBufBytes` (1MB) are dropped
+   rather than pooled, so one 10MB body cannot pin the pool for the rest of a
+   crawl. `io.ReadAll`/`io.LimitReader` was replaced by a `readAllInto` helper
+   that reads into the pooled buffer while stopping at the same `limit+1`
+   boundary; the two are pinned byte-for-byte by
+   `TestReadAllIntoMatchesIOReadAll`, which is also what caught the first
+   version of `readAllInto` offering the reader the whole spare capacity and so
+   admitting up to ~2x the cap in one `Read`.
+
+   **Benchmark** (`internal/crawler/fetch_pool_test.go`, `BenchmarkFetchURL`,
+   `-benchmem -count=5`, one full keep-alive fetch per op, same machine and
+   session; baseline taken against the unmodified code first):
+
+   | | allocs/op | B/op | ns/op (median) |
+   |---|---|---|---|
+   | before | 86 | 19,595 | 433,859 |
+   | after | 77 | 11,010 | 415,169 |
+
+   **-9 allocs/op (-10.5%), -8,585 B/op (-43.8%)**; `ns/op` is inside the noise
+   either way, so the win is memory, not time. This is why the item is CLOSED
+   rather than deferred: the gate was measured, both runs are on record, and the
+   change paid. Do **not** re-run the benchmark under `-race` to check this —
+   the race build of `sync.Pool` randomly drops one `Put` in four, which
+   discards a quarter of the recycling and understates the benefit.
+
+   The guard worth knowing about: `TestFetchURLConcurrentFetchesDoNotShareScratch`
+   is the test that catches a premature `Put` (10/10 failing runs without
+   `-race`, 5/5 DATA RACE with it, against a deliberately early `Put`). The
+   sequential `TestFetchURLNoBufferAliasing` cannot catch that by itself —
+   `string(b)` always copies, so a Put before the copy is invisible to a single
+   goroutine — and the retention-cap test asserts only the drop direction,
+   because both the GC (clears `sync.Pool` every cycle) and that race-build drop
+   make a retained buffer look absent to a `Get`.
 
 Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to make one rule's `entropy_threshold` apply identically on every path that **gates on a floor**; it changed exactly two one-line gates and recorded the rest here. (The qualifier matters: `internal/scanner/multiline.go:35` also called `rule.MatchAll` and ran the ruleset, but applied **no** entropy floor at all, so there was nothing there to align — see item 7. Batch 9 has since given that path a floor, so the parenthetical below describing it as "the exception in kind" is no longer live; the measurement in this item is unchanged.)
 

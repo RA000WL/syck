@@ -497,6 +497,82 @@ func (c *crawler) enqueueURLs(urls []string, depth int) {
 	}
 }
 
+// fetchBufPool recycles fetchURL's read buffer. Without it every crawled URL
+// allocates a fresh grow-by-doubling slice up to the 10MB cap — 8KB of
+// intermediate slices for an ordinary page — plus a second copy for the UTF-8
+// conversion and a third for the string. The pool stores *[]byte because the
+// buffer is grown in place and the new header has to travel with it.
+var fetchBufPool = sync.Pool{
+	New: func() any {
+		// Big enough for an ordinary page so the steady state never grows, but
+		// small enough that a buffer lost to a P migration is cheap to replace.
+		// Grown buffers are pooled too, so a crawl of big pages converges on a
+		// larger buffer after the first grow.
+		b := make([]byte, 0, 8*1024)
+		return &b
+	},
+}
+
+// maxBodyBytes is the hard cap on a fetched body: it bounds the read so a
+// remote server cannot make syck allocate without limit.
+const maxBodyBytes = 10 * 1024 * 1024
+
+// maxPooledFetchBufBytes caps what goes back into fetchBufPool. Anything that
+// outgrew it is dropped on the floor: one 10MB entry would pin the pool for the
+// rest of the crawl and every later fetch would carry it in RSS.
+const maxPooledFetchBufBytes = 1 * 1024 * 1024
+
+// getFetchBuf borrows an empty buffer from fetchBufPool.
+func getFetchBuf() *[]byte {
+	return fetchBufPool.Get().(*[]byte)
+}
+
+// putFetchBuf hands the buffer back, unless it grew past maxPooledFetchBufBytes.
+// The caller must be done with the bytes it holds — see fetchURL, where the Put
+// deliberately follows the string copy.
+func putFetchBuf(bufp *[]byte) {
+	if cap(*bufp) > maxPooledFetchBufBytes {
+		return
+	}
+	fetchBufPool.Put(bufp)
+}
+
+// readAllInto reads everything r has into *bufp, growing the buffer in place by
+// doubling, exactly as io.ReadAll does — the difference is that it grows the
+// caller's pooled buffer instead of allocating a fresh one per call.
+//
+// It stops after limit+1 bytes so the caller can detect a body that exceeded
+// the cap the same way io.ReadAll(io.LimitReader(r, limit+1)) did. *bufp is
+// updated to the buffer actually read into, so the caller can return that one
+// to the pool.
+func readAllInto(bufp *[]byte, r io.Reader, limit int) error {
+	buf := (*bufp)[:0]
+	for len(buf) <= limit {
+		if len(buf) == cap(buf) {
+			buf = append(buf, 0)[:len(buf)]
+		}
+		// A Read returns everything it is offered, so offering the whole spare
+		// capacity would let a single call blow past limit+1 by up to another
+		// full buffer. Bound the slice instead: the read stops at limit+1 bytes,
+		// which is what the LimitReader used to guarantee.
+		end := limit + 1
+		if end > cap(buf) {
+			end = cap(buf)
+		}
+		n, err := r.Read(buf[len(buf):end])
+		buf = buf[:len(buf)+n]
+		if err != nil {
+			*bufp = buf
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+	*bufp = buf
+	return nil
+}
+
 func fetchURL(client *http.Client, rawURL string, customUA string) (string, string, error) {
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
@@ -532,14 +608,19 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 		}
 	}
 
-	// Bound the read: never exceed the 10MB hard cap.
-	const maxBodyBytes = 10 * 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))
-	if err != nil {
+	// Bound the read: never exceed the 10MB hard cap. The buffer comes from
+	// fetchBufPool and is grown in place, so a crawl of same-sized pages stops
+	// allocating for the read entirely.
+	bufp := getFetchBuf()
+	if err := readAllInto(bufp, reader, maxBodyBytes); err != nil {
+		// Nothing was observed by the caller, so returning the buffer here is
+		// safe and keeps a failed fetch from leaking the pool's contents.
+		putFetchBuf(bufp)
 		return "", "", err
 	}
-	if len(body) > maxBodyBytes {
-		body = body[:maxBodyBytes]
+	buf := *bufp
+	if len(buf) > maxBodyBytes {
+		buf = buf[:maxBodyBytes]
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -548,8 +629,18 @@ func fetchURL(client *http.Client, rawURL string, customUA string) (string, stri
 	}
 
 	// Auto-detect encoding and convert to UTF-8
-	charset := DetectEncoding(contentType, body)
-	utf8Body, _ := ConvertToUTF8(body, charset)
+	charset := DetectEncoding(contentType, buf)
+	utf8Body, _ := ConvertToUTF8(buf, charset)
 
-	return string(utf8Body), contentType, nil
+	// string(utf8Body) is the copy boundary. ConvertToUTF8 hands back buf itself
+	// for every charset it does not rewrite, so everything above this line —
+	// DetectEncoding, ConvertToUTF8 and the string copy — is still reading the
+	// pooled bytes, and the Put has to come after all of it. A Put here would let
+	// whichever fetch Gets next rewrite bytes this one is still reading;
+	// TestFetchURLConcurrentFetchesDoNotShareScratch is the guard, and it is not
+	// a hazard the race detector shakes out on demand (§15 item 5).
+	body := string(utf8Body)
+	putFetchBuf(bufp)
+
+	return body, contentType, nil
 }
