@@ -73,8 +73,7 @@ syck-go/
 │
 ├── cmd/                            # CLI layer (cobra)
 │   ├── root.go                     # Root command, version flags, persistent flags
-│   ├── scan.go                     # Package stub — implementation split below
-│   ├── scan_config.go              # scanCmd, 67 flags + init() registration, clampWorkers/parseSize/loadWordlist/parseExcludeDir
+│   ├── scan_config.go              # scanCmd, the flag block + init() registration, clampWorkers/parseSize/loadWordlist/parseExcludeDir
 │   ├── scan_run.go                 # runScan — mode dispatch and pipeline orchestration
 │   ├── recon.go                    # Recon command — subdomain discovery
 │   ├── list_rules.go               # List all detection rules
