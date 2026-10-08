@@ -1401,70 +1401,35 @@ func TestLocalhostRE_Characterization(t *testing.T) {
 	}
 }
 
-// TestLocalhostRE_UnanchoredSubspanExtraction pins the two properties of
-// localhostRE that make delegating it to a host-parsing predicate impossible
-// without changing the finding set. They are pinned to keep them visible,
-// because they are the reason the regex stays.
+// TestLocalhostRE_NeighbouringSpellings pins the two neighbouring spellings of a
+// host that the fix deliberately leaves unmatched, and which must not come back
+// through the anchoring change.
 //
-// PINNING IS NOT ENDORSEMENT. Neither behavior below is a considered policy;
-// both are limitations of an unanchored literal regex. Rows 1-2 in particular —
-// "my-localhost:8080" emitted as the finding "localhost:8080" — are a
-// suspected DEFECT, reporting a truncated span as though it were the host the
-// author typed. They are frozen here so a later fix is a visible, deliberate
-// edit rather than silent drift; see ARCHITECTURE.md section 15.
+// This test was TestLocalhostRE_UnanchoredSubspanExtraction, written by Batch 5
+// to pin the two properties that made delegating localhostRE to
+// internalurl.IsLoopback impossible — and PINNING IS NOT ENDORSEMENT: rows like
+// "my-localhost:8080" -> "localhost:8080" were frozen there as a suspected
+// DEFECT, not as desired behaviour. Batch 10 fixed that defect (the anchoring
+// half), so those rows now belong to TestLocalhostRE_SixInputs and
+// TestLocalhostRE_AnchoringBounds in localhost_re_test.go. This test keeps the
+// subset of the old set that the fix did not touch, because those two rows are
+// the boundary of the anchoring change: a "token" that is not the final label of
+// its host, and a host whose only content is a portless name.
 //
-//  1. UNANCHORED. The regex has no \b or (?<![\w.-]) guard, so it extracts a
-//     SUFFIX of a longer host: "my-localhost:8080" is emitted as the finding
-//     "localhost:8080". The emitted span is a substring of the typed host and is
-//     not itself the host anybody wrote. internalurl.IsLoopback parses a host, so
-//     it answers "false" for "my-localhost:8080" — the finding is LOST, and no
-//     amount of predicate-fiddling recovers it, because the finding the current
-//     code produces was never a host in the first place.
-//
-//  2. NARROW VOCABULARY, CASE-SENSITIVE, PORT REQUIRED. The regex knows exactly
-//     three spellings (localhost, 127.0.0.1, 0.0.0.0), is case-sensitive, and
-//     requires a :port. IsLoopback knows 127/8, ::1, the unspecified address and
-//     "localhost" in any case, and requires no port. Delegating therefore moves
-//     findings in both directions at once: 127.0.0.2, [::1] and LOCALHOST:8080
-//     are ADDED, while the portless "localhost" stays out only because the
-//     tokenizing wrapper drops it — which is the wrapper this change is meant to
-//     avoid needing.
-func TestLocalhostRE_UnanchoredSubspanExtraction(t *testing.T) {
+// The remaining row that does not move is the portless form, which is the
+// :port requirement and is unchanged by design.
+func TestLocalhostRE_NeighbouringSpellings(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
 		want []string
 	}{
-		// Property 1: unanchored suffix.
 		{
-			name: "suffix of a hyphenated host is extracted",
-			line: `var api = "http://my-localhost:8080/api";`,
-			want: []string{"localhost:8080"},
-		},
-		{
-			name: "suffix of a dotted host is extracted",
-			line: `var api = "http://foo.localhost:8080/api";`,
-			want: []string{"localhost:8080"},
-		},
-		{
-			// Property 2: narrow, case-sensitive, port-required vocabulary.
-			name: "uppercase spelling is not matched",
-			line: `var api = "LOCALHOST:8080";`,
-			want: nil,
-		},
-		{
+			// "localhost" is glued to the front of the label, so the token is
+			// not the final label of a host. This is what stops the anchoring
+			// from carving a subspan back out.
 			name: "a neighbouring host:port spelling is not matched",
 			line: `var api = "http://localhostX:8080/api";`,
-			want: nil,
-		},
-		{
-			name: "127/8 beyond .0.1 is not matched",
-			line: `var api = "http://127.0.0.2:8080/api";`,
-			want: nil,
-		},
-		{
-			name: "bracketed IPv6 loopback is not matched",
-			line: `var api = "http://[::1]:8080/api";`,
 			want: nil,
 		},
 		{
