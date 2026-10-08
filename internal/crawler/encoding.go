@@ -9,6 +9,13 @@ import (
 
 var charsetRe = regexp.MustCompile(`charset=([^\s;]+)`)
 
+// Matches <meta charset="utf-8"> (HTML5).
+var metaCharsetRe = regexp.MustCompile(`(?i)<meta[^>]+charset=["']?([a-zA-Z0-9_-]+)`)
+
+// Matches <meta http-equiv="Content-Type" content="text/html; charset=...">.
+// Reached only when metaCharsetRe does not match.
+var contentCharsetRe = regexp.MustCompile(`(?i)<meta[^>]+content=["'][^"']*charset=([a-zA-Z0-9_-]+)`)
+
 // DetectEncoding checks the Content-Type header and HTML meta tags
 // for charset declarations. Returns the charset name or "" if not found.
 func DetectEncoding(contentType string, body []byte) string {
@@ -26,12 +33,12 @@ func DetectEncoding(contentType string, body []byte) string {
 	sampleStr := string(sample)
 
 	// <meta charset="utf-8">
-	if m := regexp.MustCompile(`(?i)<meta[^>]+charset=["']?([a-zA-Z0-9_-]+)`).FindStringSubmatch(sampleStr); len(m) > 1 {
+	if m := metaCharsetRe.FindStringSubmatch(sampleStr); len(m) > 1 {
 		return strings.ToLower(m[1])
 	}
 
 	// 3. Check <meta http-equiv="Content-Type" content="text/html; charset=...">
-	if m := regexp.MustCompile(`(?i)<meta[^>]+content=["'][^"']*charset=([a-zA-Z0-9_-]+)`).FindStringSubmatch(sampleStr); len(m) > 1 {
+	if m := contentCharsetRe.FindStringSubmatch(sampleStr); len(m) > 1 {
 		return strings.ToLower(m[1])
 	}
 

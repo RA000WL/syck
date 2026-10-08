@@ -30,7 +30,11 @@ func TestDetectEncodingFromMeta(t *testing.T) {
 	}{
 		{`<html><head><meta charset="utf-8"></head></html>`, "utf-8"},
 		{`<html><head><meta charset="iso-8859-1"></head></html>`, "iso-8859-1"},
+		// Served by metaCharsetRe, which shadows contentCharsetRe here.
 		{`<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"></head></html>`, "windows-1252"},
+		// The stray ">" inside the quoted content value stops metaCharsetRe's
+		// [^>]+ run, so this input falls through to contentCharsetRe.
+		{`<html><head><meta http-equiv="Content-Type" content="text/html;> charset=iso-8859-1"></head></html>`, "iso-8859-1"},
 		{`<html><head><title>No charset</title></head></html>`, ""},
 	}
 	for _, tt := range tests {
