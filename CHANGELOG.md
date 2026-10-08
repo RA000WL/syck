@@ -3,13 +3,15 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance
+## [Unreleased] — Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency
 
-This section carries two batches, so the title names both and flags the
+This section carries three batches, so the title names them and flags the
 breaking one. Batch 4c (below, first) **changes** recon's internal-surface
 output, including a class of input that no longer produces a High-severity
 finding — read it first if you are diffing finding counts between versions.
-Batch 3 (performance work) follows and is not breaking.
+Batch 3 (performance work) follows and is not breaking. Batch 5 (last) is a
+detection-consistency fix that **removes** findings on two paths; it is not
+breaking and touches no public API.
 
 ### Changed
 
@@ -145,6 +147,53 @@ Batch 3 (performance work) follows and is not breaking.
   are skipped with a clear error instead of being truncated mid-directory.
 - Crawl limit is enforced via an atomic budget so `--crawl-limit` cannot
   overshoot; auto-harvested `.js.map` URLs now respect scope.
+
+### Fixed
+
+- **Batch 5 — a rule's own `entropy_threshold` is now honored on the
+  reconstructed-JavaScript and JSON paths.** This is a **consistency** fix:
+  the same input used to produce a finding on these two paths and silence on
+  the main file-scanning path, and now all three agree.
+
+  `internal/jsrecon/reconstruct.go:416` (reconstructed JavaScript) and
+  `internal/json_scanner/scanner.go:111` (JSON values) each gated every rule
+  match on a hardcoded global `e < 2.0`. Both now call
+  `decoder.RuleEntropyFloor(rule.EntropyThreshold)` — the helper the plain-file
+  path has used since an earlier batch (`internal/scanner/helpers.go:555` and
+  `internal/scanner/scan_stream.go:101`, unchanged here). The floor is the
+  same everywhere now; only the two lagging call sites moved.
+
+  `env_generic_secret` is the **only** rule in the ruleset carrying an
+  `entropy_threshold` (`grep -c entropy_threshold internal/rules/builtin.yaml`
+  → `1`, value 3.0), so it is the only rule whose behavior can change. For
+  every other rule `RuleEntropyFloor(0)` returns 2.0 — the value that was
+  hardcoded — and behavior is byte-for-byte unchanged.
+
+  | Input | Span entropy | Before (these 2 paths) | After |
+  |---|---|---|---|
+  | `MY_SECRET=aaaaaaaa` | 2.7250 | reported | suppressed |
+  | `DB_PASSWORD=hunter2hunter2` | 4.0080 | reported | reported |
+
+  Verified end to end with built binaries at `4b8ea10` (pre-fix) and at this
+  commit. A reconstructed-JS span at entropy 2.2890 drops from 1 finding to 0;
+  the JSON path drops from 2 findings to 1 (`json_env_generic_secret` goes
+  away; a *different*, higher-entropy reconstruction of the same input is
+  unaffected). Both high-entropy fixtures keep their finding on every path.
+
+  Two gates were deliberately **left alone**, and `ARCHITECTURE.md` §15 now
+  records them:
+
+  - `internal/json_scanner/scanner.go:75` keeps a literal `e >= 3.0`. That is
+    the secret-key-**name** heuristic, not a rule match — it fires on
+    `secretKeyRE.MatchString(keyName)` with no `rule` in scope, so there is no
+    threshold to read and no way to spell 3.0 via the helper. It is now pinned
+    by `TestJSONKeyNameHeuristicFloorIsExactlyThreeNotRuleEntropyFloor` so a
+    future "consistency" pass cannot quietly rewrite it to
+    `RuleEntropyFloor(0)` (= 2.0) and re-admit `[2.0, 3.0)`.
+  - `internal/scanner/url_secrets.go:40` keeps a hardcoded `e < 2.0`.
+    `ExtractURLSecrets` takes no `*rules.RuleSet` and emits `url_*` names that
+    are heuristics, not rules, so it structurally cannot honor a per-rule
+    threshold. `TestURLSecretsRuleNamesAreNotBuiltinRules` pins that.
 
 ### Benchmarks
 
