@@ -714,7 +714,8 @@ Items 3, 5, 6, 7 and 8 below remain open, plus the residual link-local asymmetry
 numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
-repointing at a different defect.
+repointing at a different defect. Item 4 and item 10 are CLOSED entries kept
+for the same reason.
 
 Item 3 is pinned by a test and intentionally NOT fixed, because fixing it
 changes behavior. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
@@ -817,6 +818,22 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
    did not widen a category; doing so would be a policy change with its own
    blast radius. Pinned by the `link-local-zoned` group in the parity test so
    the exemption is explicit rather than accidental.
+
+10. **CLOSED — dedup keys were truncated, merging distinct secrets that share
+    a long prefix into one finding.** This defect was never given its own §15
+    number while it lived; it is recorded here as a CLOSED entry (Batch 7)
+    rather than retro-inserted into the open numbering. Two key shapes were
+    affected: the Secret-only skip-set keys truncated at 60 chars (8 sites
+    across `internal/scanner/helpers.go`, `scan_content.go`, `scan_file.go`,
+    `scan_stream.go`), and gitscan's `RuleName+":"+Secret` cross-commit key
+    truncated at 80 chars (`internal/gitscan/scanner.go`). Two different
+    secrets agreeing on the truncated prefix collapsed to one key and reported
+    once. Fixed by `5ff17cc` and `c0977e6`; both keys are now full-length, so
+    distinct prefix-sharing secrets report separately (finding counts go UP)
+    while identical secrets still dedup. Pinned by
+    `internal/scanner/dedup_key_truncation_test.go` and the gitscan history
+    collision test. A repo-wide check confirms no `key = key[:60]` /
+    `key = key[:80]` truncation remains in production code.
 
 ---
 

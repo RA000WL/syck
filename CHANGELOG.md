@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**)
 
-This section carries four batches, so the title names them and flags the two
+This section carries five batches, so the title names them and flags the two
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -13,7 +13,9 @@ that reason and is not breaking in the API sense. Batch 4c **changes** recon's
 internal-surface output, including a class of input that no longer produces a
 High-severity finding. Batch 3 (performance work) is not breaking. Batch 5 is a
 detection-consistency fix that **removes** findings on two paths; it is not
-breaking and touches no public API.
+breaking and touches no public API. Batch 7, like Batch 6, makes finding
+counts go **UP**: distinct secrets that share a long prefix used to be merged
+into a single finding (see its entry under "### Fixed" below).
 
 ### Changed
 
@@ -367,6 +369,26 @@ breaking and touches no public API.
     own equality semantics, and link-local (`fe80::/10`) still has no category
     here even though `netguard` blocks it. Only the parser changed. See
     ARCHITECTURE.md §15 item 9's still-open remainder.
+
+### Fixed
+
+- **Batch 7 — distinct secrets that share a long prefix are no longer merged
+  into one finding. Finding counts go UP, never down.**
+
+  Two dedup key shapes were truncated, so two different secrets whose keys
+  agreed on the truncated prefix collapsed onto one entry and syck reported a
+  single finding for what were really two:
+
+  - **Secret-only skip-set keys truncated at 60 chars** — the eight dedup-key
+    sites that keyed on the raw secret value alone (`internal/scanner/helpers.go`,
+    `scan_content.go`, `scan_file.go`, `scan_stream.go`).
+  - **`RuleName + ":" + Secret` cross-commit key truncated at 80 chars** —
+    `internal/gitscan/scanner.go`'s per-commit dedup key.
+
+  Both shapes now use the full key. Identical secrets still dedup to one
+  finding (the merged-control fixtures pass at every path); distinct secrets
+  sharing a 60/80-char prefix that previously surfaced as one finding now
+  surface as two. Recorded as §15 item 10 (CLOSED) in ARCHITECTURE.md.
 
 ### Benchmarks
 
