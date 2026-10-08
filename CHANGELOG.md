@@ -153,7 +153,7 @@ breaking and touches no public API.
 - **Batch 5 — a rule's own `entropy_threshold` is now honored on the
   reconstructed-JavaScript and JSON paths.** This is a **consistency** fix:
   the same input used to produce a finding on these two paths and silence on
-  the main file-scanning path, and now all three agree.
+  the main file-scanning path, and now all three apply the same floor.
 
   `internal/jsrecon/reconstruct.go:416` (reconstructed JavaScript) and
   `internal/json_scanner/scanner.go:111` (JSON values) each gated every rule
@@ -180,7 +180,7 @@ breaking and touches no public API.
   away; a *different*, higher-entropy reconstruction of the same input is
   unaffected). Both high-entropy fixtures keep their finding on every path.
 
-  Two gates were deliberately **left alone**, and `ARCHITECTURE.md` §15 now
+  Three gates were deliberately **left alone**, and `ARCHITECTURE.md` §15 now
   records them:
 
   - `internal/json_scanner/scanner.go:75` keeps a literal `e >= 3.0`. That is
@@ -194,6 +194,11 @@ breaking and touches no public API.
     `ExtractURLSecrets` takes no `*rules.RuleSet` and emits `url_*` names that
     are heuristics, not rules, so it structurally cannot honor a per-rule
     threshold. `TestURLSecretsRuleNamesAreNotBuiltinRules` pins that.
+  - `internal/scanner/multiline.go:35` keeps **no** entropy gate at all. It
+    runs `rule.MatchAll` and reports every span it matches, so on that live
+    path (`--multiline` defaults to true) there is no 2.0 floor to align and no
+    `entropy_threshold` to read. Out of this batch's blast radius for the same
+    reason as above: no `multi_line: true` rule carries a threshold.
 
 ### Benchmarks
 

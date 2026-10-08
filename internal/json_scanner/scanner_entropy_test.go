@@ -12,14 +12,14 @@ import (
 // Characterization of the two entropy gates in this file, which are NOT the
 // same thing and must not be unified:
 //
-//   - scanner.go:103 `if e < 2.0` — the RULE-MATCH gate over each
+//   - scanner.go:111 `if e < decoder.RuleEntropyFloor(...)` — the RULE-MATCH gate over each
 //     `rs.Rules` entry. This is the one this batch changes to honor the rule's
 //     own entropy_threshold.
 //   - scanner.go:71 `e >= 3.0` — the KEY-NAME HEURISTIC gate, guarded by
 //     `secretKeyRE.MatchString(keyName)`. Not a rule match; there is no `rule`
 //     in scope to read a threshold from. It legitimately keeps its own 3.0.
 //
-// WHAT `e` IS COMPUTED OVER at line 103. `rule.MatchAll` wraps
+// WHAT `e` IS COMPUTED OVER at line 111. `rule.MatchAll` wraps
 // `regexp.FindAllStringIndex` and returns only [start, end] of the whole match —
 // no submatch indices. env_generic_secret's pattern
 //
@@ -68,14 +68,14 @@ func countRule(findings []finding.Finding, ruleName string) int {
 }
 
 // TestJSONRuleMatchEntropyFloorHonorsRuleThreshold guards the rule-match gate at
-// scanner.go:106. Before it consulted decoder.RuleEntropyFloor(rule.EntropyThreshold),
+// scanner.go:111. Before it consulted decoder.RuleEntropyFloor(rule.EntropyThreshold),
 // every rule got the hardcoded global 2.0 floor, so a match in [2.0, 3.0) was
 // reported from a JSON value even though env_generic_secret's own 3.0 threshold
 // suppresses it on the plain-file path. The subtests below pin the fixed
 // behavior in both directions.
 //
 // The JSON key is a neutral name ("cfg") that secretKeyRE does not match, so
-// the key-name heuristic at scanner.go:71 cannot contribute findings and the
+// the key-name heuristic at scanner.go:75 cannot contribute findings and the
 // ruleset branch is observed in isolation.
 func TestJSONRuleMatchEntropyFloorHonorsRuleThreshold(t *testing.T) {
 	requireJSONEntropyBands(t)
@@ -122,7 +122,7 @@ func TestJSONRuleMatchEntropyFloorHonorsRuleThreshold(t *testing.T) {
 	})
 }
 
-// TestJSONKeyNameHeuristicFloorUnaffected guards scanner.go:71. That `e >= 3.0`
+// TestJSONKeyNameHeuristicFloorUnaffected guards scanner.go:75. That `e >= 3.0`
 // belongs to the secret-key-NAME heuristic, not to a rule, so it must keep its
 // own 3.0 floor and must NOT be rewritten to read a rule threshold. The rule
 // name it emits is "json_" + keyName, i.e. `json_password`.

@@ -28,7 +28,12 @@
 
 State this in the CHANGELOG, because the surface reading is "fewer findings":
 
-`internal/scanner/helpers.go:555` and `internal/scanner/scan_stream.go:101` already apply `decoder.RuleEntropyFloor(rule.EntropyThreshold)` to **every** rule. `env_generic_secret` is the only rule in `internal/rules/builtin.yaml` with a threshold (`3.0`). So today the same `MY_SECRET=aaaaaaaa` is reported when reached via a URL parameter, reconstructed JS, or a JSON value, and **not** reported when found in a plain file. This batch removes that disagreement.
+`internal/scanner/helpers.go:555` and `internal/scanner/scan_stream.go:101` already apply `decoder.RuleEntropyFloor(rule.EntropyThreshold)` to **every** rule. `env_generic_secret` is the only rule in `internal/rules/builtin.yaml` with a threshold (`3.0`). So today the same `MY_SECRET=aaaaaaaa` is reported when reached via reconstructed JS or a JSON value, and **not** reported when found in a plain file. This batch removes that disagreement.
+
+> **Do not extend this sentence to the URL-parameter path.** `url_secrets.go` emits
+> `url_*` names and never an `env_generic_secret` finding, so "the same input is
+> reported via a URL parameter" was never true. The two paths Batch 5 changed are
+> reconstructed JavaScript and JSON only.
 
 ---
 
@@ -44,11 +49,11 @@ State this in the CHANGELOG, because the surface reading is "fewer findings":
 
 - [ ] **Step 1: Read the three call sites and their surroundings first**
 
-`internal/jsrecon/reconstruct.go:411`, `internal/json_scanner/scanner.go:103`. Note that each computes `e := entropy.Shannon(...)` on the **captured secret**, not on the whole match — confirm that, because the threshold applies to the captured value.
+`internal/jsrecon/reconstruct.go:411`, `internal/json_scanner/scanner.go:103`. Note what `e := entropy.Shannon(...)` is computed over: the **whole match span**, not a captured value. `rules.MatchAll` wraps `FindAllStringIndex` and returns only `[start, end]` — no submatch indices — and `env_generic_secret`'s pattern has **zero** capturing groups, so `secret = text[m[0]:m[1]]` is the entire `MY_SECRET=aaaaaaaa`, never `aaaaaaaa`. This is what makes the 3.0 floor weaker than it reads; see `ARCHITECTURE.md` §15 item 6. Measure the span, not a value you imagine the regex captures.
 
 - [ ] **Step 2: Write the characterization tests**
 
-For each in-scope site, drive it with a ruleset containing `env_generic_secret` and content that produces two matches — one whose captured value is below 3.0 entropy and one above. Assert the **current** behavior: both are reported, because the hardcoded floor is 2.0.
+For each in-scope site, drive it with a ruleset containing `env_generic_secret` and content that produces two matches — one whose **whole match span** is below 3.0 entropy and one above. Assert the **current** behavior: both are reported, because the hardcoded floor is 2.0.
 
 Useful low-entropy and high-entropy value shapes: repeated characters (`aaaaaaaa`) sit well below 3.0; a long mixed alphanumeric string sits above. **Verify the actual entropy** with a throwaway `entropy.Shannon` call rather than assuming — if your "high" example is under 3.0 the test will encode the wrong thing.
 
@@ -140,14 +145,14 @@ git commit -m "test(json_scanner): pin the key-name heuristic floor as deliberat
 
 Frame it as **consistency**, not loss, and say why:
 
-- `env_generic_secret` (the only rule in the ruleset with an `entropy_threshold`, 3.0) is now honored in the URL-parameter, reconstructed-JavaScript, and JSON paths.
+- `env_generic_secret` (the only rule in the ruleset with an `entropy_threshold`, 3.0) is now honored in the **reconstructed-JavaScript and JSON** paths. Do NOT write "URL-parameter" here: `url_secrets.go` emits `url_*` heuristic names, never `env_generic_secret`, so no URL finding changes (see the amendment at the top of this plan and `CHANGELOG.md`).
 - Those paths previously applied a hardcoded global floor of 2.0, so they reported matches with entropy in `[2.0, 3.0)` that ordinary file scanning has always suppressed.
 - Net effect: the same input no longer produces a finding on one path and silence on another.
 - For every other rule, behavior is unchanged — `RuleEntropyFloor(0)` is 2.0, the value that was hardcoded.
 
 - [ ] **Step 2: Queue the adjacent gap**
 
-The three sites also skip `entropy.IsFalsePositiveSecret` and `requires_context`, both of which `helpers.go` applies. That is a **different** change with a wider blast radius — it would suppress more. Record it in `ARCHITECTURE.md` §15 alongside the existing deferred defects, stating the gap precisely and noting it needs its own batch with its own characterization. **Do not implement it here.**
+The two sites Batch 5 changed also skip `entropy.IsFalsePositiveSecret` and `requires_context`, both of which `helpers.go` applies. (So do `internal/scanner/multiline.go` and `internal/decoder/pipeline.go` — multiline has no entropy floor at all.) That is a **different** change with a wider blast radius — it would suppress more. Record it in `ARCHITECTURE.md` §15 alongside the existing deferred defects, stating the gap precisely and noting it needs its own batch with its own characterization. **Do not implement it here.**
 
 - [ ] **Step 3: Full gates**
 

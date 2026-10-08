@@ -78,7 +78,7 @@ func containsSecret(findings []finding.Finding, want string) bool {
 	return false
 }
 
-// TestReconstructEntropyFloorHonorsRuleThreshold guards reconstruct.go:412.
+// TestReconstructEntropyFloorHonorsRuleThreshold guards reconstruct.go:416.
 // Before this gate consulted decoder.RuleEntropyFloor(rule.EntropyThreshold),
 // every rule here got the hardcoded global 2.0 floor, so a match in [2.0, 3.0)
 // was reported from reconstructed JS even though env_generic_secret's own 3.0
@@ -109,8 +109,12 @@ func TestReconstructEntropyFloorHonorsRuleThreshold(t *testing.T) {
 }
 
 // TestReconstructEnvGenericThresholdIsThree pins the premise of the whole
-// change: env_generic_secret really does carry a 3.0 entropy_threshold, and it
-// is the only rule that does.
+// change: env_generic_secret really does carry a 3.0 entropy_threshold, and at
+// the time of writing it is the only rule that does.
+//
+// The "only one rule" half is a blast-radius tripwire, not a correctness
+// assertion — a second threshold is a legitimate ruleset change and the failure
+// message below says so. The "3.0" half is a real assertion.
 func TestReconstructEnvGenericThresholdIsThree(t *testing.T) {
 	rs, err := rules.LoadDefault()
 	if err != nil {
@@ -133,6 +137,73 @@ func TestReconstructEnvGenericThresholdIsThree(t *testing.T) {
 		t.Fatal("env_generic_secret not present in the default ruleset")
 	}
 	if thresholds != 1 {
-		t.Errorf("%d rules carry an entropy_threshold, want exactly 1 (env_generic_secret)", thresholds)
+		// Not necessarily a defect: adding a threshold to a second rule is a
+		// legitimate ruleset change. It is only a review trigger — that rule's
+		// floor now moves on ALL paths at once, so ARCHITECTURE.md §15 item 6
+		// and this branch's blast-radius claims must be re-read before shipping.
+		t.Errorf("REVIEW REQUIRED: %d rules carry an entropy_threshold (expected 1, env_generic_secret). "+
+			"A new threshold widens this batch's blast radius beyond the one rule claimed in CHANGELOG.md; "+
+			"update the CHANGELOG table, ARCHITECTURE.md §15 item 6, and this file's measured fixtures, "+
+			"or remove the threshold if it was not intentional", thresholds)
+	}
+}
+
+// TestReconstructThresholdlessRuleKeepsGlobalFloor is the negative control for
+// the change above, in the direction the env_generic_secret tests cannot cover.
+//
+// env_generic_secret is the ONE rule carrying an entropy_threshold, so both
+// subtests above pass whether the code calls decoder.RuleEntropyFloor or reads
+// rule.EntropyThreshold directly — for that rule the two are indistinguishable.
+// They differ for the other ~90 rules: RuleEntropyFloor(0) returns the global
+// 2.0, while rule.EntropyThreshold is 0. So a regression that dropped the
+// helper and read the threshold directly would leave every threshold-less rule
+// with no floor at all and start reporting sub-2.0 spans, and no other test in
+// this file would fail.
+//
+// aws_access_key_id is threshold-less and has no requires_context, so it is
+// driven here without a context keyword. Measured: Shannon("AKIAAAAAAAAAAAAAAAAA")
+// = 0.5690, far below the global 2.0 floor, so it is suppressed. Under the
+// broken form the comparison becomes 0.5690 < 0 — false — and the finding would
+// be reported, failing this test.
+//
+// Verified by mutation: replacing RuleEntropyFloor's body with `return th`
+// makes this test fail. Without that check the assertion would be vacuous —
+// an earlier draft of this fixture used a string that produced no finding under
+// any configuration, so it passed regardless.
+func TestReconstructThresholdlessRuleKeepsGlobalFloor(t *testing.T) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+
+	var saw bool
+	for _, r := range rs.Rules {
+		if r.Name != "aws_access_key_id" {
+			continue
+		}
+		saw = true
+		if r.EntropyThreshold != 0 {
+			t.Fatalf("fixture assumes aws_access_key_id is threshold-less, got %v", r.EntropyThreshold)
+		}
+		if r.RequiresContext {
+			t.Fatal("fixture assumes aws_access_key_id has no requires_context")
+		}
+	}
+	if !saw {
+		t.Fatal("fixture rule aws_access_key_id is gone from the default ruleset")
+	}
+
+	const subFloor = "AKIAAAAAAAAAAAAAAAAA" // Shannon = 0.5690
+	if e := entropy.Shannon(subFloor); e >= 2.0 {
+		t.Fatalf("fixture %q scores %.4f, which is not below the 2.0 global floor", subFloor, e)
+	}
+
+	for _, f := range ReconstructAndScan(jsReconstructedTo(subFloor), "app.js", rs, finding.SeverityLow) {
+		if strings.Contains(f.Secret, "AKIA") {
+			t.Fatalf("threshold-less rule match at entropy %.4f must stay suppressed by the global 2.0 floor; "+
+				"got a finding — the decoder.RuleEntropyFloor call was likely replaced by a bare "+
+				"rule.EntropyThreshold read, which would drop the floor for every rule without one: %+v",
+				entropy.Shannon(subFloor), f)
+		}
 	}
 }

@@ -98,7 +98,8 @@ func TestURLSecretsFloorHardcodedToTwo(t *testing.T) {
 
 	t.Run("shorter_than_16_chars_dropped_before_entropy", func(t *testing.T) {
 		// `len(val) >= 16` is checked first, so short values never reach the
-		// entropy gate. "kR7mZp2WqL9xVb3" is 4.3 bits — high entropy, still dropped.
+		// entropy gate. "kR7mZp2WqL9xVb3" measures Shannon = 3.9070 — well above
+		// the 2.0 floor, still dropped, so this case isolates the length gate.
 		line := "fetch('https://api.example.com/v1?token=kR7mZp2WqL9xVb3')"
 		if got := ExtractURLSecrets(line, "app.js", 1); len(got) != 0 {
 			t.Fatalf("15-char param value must be dropped by the length gate; got %d: %+v", len(got), got)
@@ -119,10 +120,15 @@ func TestURLSecretsRuleNamesAreNotBuiltinRules(t *testing.T) {
 	for i := range rs.Rules {
 		builtin[rs.Rules[i].Name] = true
 	}
-	for ruleName := range urlSecretParams {
-		if builtin[ruleName] {
-			t.Errorf("urlSecretParams emits %q, which IS a builtin rule — the 2.0 floor at "+
-				"url_secrets.go:40 can now be given that rule's entropy_threshold", ruleName)
+	// urlSecretParams is map[paramName]emittedRuleName, and ExtractURLSecrets
+	// iterates it as `for param, ruleName := range urlSecretParams`, assigning
+	// RuleName: ruleName. So the names it can EMIT are the VALUES. Iterating the
+	// keys (access_token, token, apikey, ...) would check a set nothing ever
+	// reports and the assertion below would pass vacuously.
+	for param, emitted := range urlSecretParams {
+		if builtin[emitted] {
+			t.Errorf("urlSecretParams emits %q (param %q), which IS a builtin rule — the 2.0 floor "+
+				"at url_secrets.go:40 can now be given that rule's entropy_threshold", emitted, param)
 		}
 	}
 }

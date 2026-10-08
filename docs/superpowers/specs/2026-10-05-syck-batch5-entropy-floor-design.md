@@ -55,7 +55,9 @@ For the other three, the value is unchanged for every rule except `env_generic_s
 
 ## 4. Behavior change, stated precisely
 
-For `env_generic_secret` only, a match whose captured value has Shannon entropy in `[2.0, 3.0)` is no longer reported **when it is reached via a URL parameter, reconstructed JavaScript, or a JSON value**.
+For `env_generic_secret` only, a match whose **whole `KEY=value` span** has Shannon entropy in `[2.0, 3.0)` is no longer reported **when it is reached via reconstructed JavaScript or a JSON value**. It is not a captured value: `MatchAll` returns no submatch indices and the rule has zero capturing groups, so the threshold sees the whole span — see `ARCHITECTURE.md` §15 item 6.
+
+The URL-parameter path is **not** affected: `ExtractURLSecrets` emits `url_*` heuristic names and can never produce an `env_generic_secret` finding (it takes no `*rules.RuleSet` — see §5 and the amendment note below).
 
 It remains reported via ordinary file scanning at no different rate than before, because `helpers.go`/`scan_stream.go` already applied the 3.0 floor there.
 
@@ -64,7 +66,7 @@ Measured examples, now suppressed on those two paths:
 | Input | Span entropy | Outcome |
 |---|---|---|
 | `MY_SECRET=aaaaaaaa` | 2.7250 | suppressed (was reported) |
-| `DB_PASSWORD=hunter2hunter` | 4.0080 | **still reported** — an earlier draft of this spec wrongly cited this as a suppressed example |
+| `DB_PASSWORD=hunter2hunter` | 4.0040 | **still reported** — an earlier draft of this spec wrongly cited this as a suppressed example |
 
 > **Correction (2026-10-06, during Task 2).** An earlier draft cited
 > `DB_PASSWORD=hunter2hunter2` as suppressed. It measures **4.0080**, above the
