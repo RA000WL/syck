@@ -226,10 +226,12 @@ func IsLoopback(raw string) bool {
 // CIDR. Substituting a raw-text substring match for either would accept those
 // attacker-controlled hostnames as the metadata service — the SSRF bypass
 // netguard exists to prevent. The parsed reading costs nothing here, because
-// the input class this would have fixed does not exist: recon classifies
-// "http://foo.com/metadata.google.internal/" as internal_host via k8sServiceRE
-// today, never as cloud_metadata, so there is no cloud_metadata delta to
-// eliminate.
+// the input class this would have fixed does not exist: recon's cloud_metadata
+// branch is preceded by internal_host, so a URL carrying the GCP metadata
+// HOSTNAME — "http://foo.com/metadata.google.internal/", and equally
+// "http://metadata.google.internal/" — is reported as internal_host and never
+// reaches this predicate. That is why the hostname half is free to stay parsed
+// even though it is the half the old text regex could never match.
 func IsCloudMetadata(raw string) bool {
 	host := hostOf(raw)
 	if netguard.IsMetadataHost(host) {

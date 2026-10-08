@@ -15,46 +15,70 @@ This project follows [Semantic Versioning](https://semver.org/).
   precedence chain — `internal` → `internal_host` → `private_ip` → `localhost`
   → `cloud_metadata` → `container_service` → `sensitive_port`.
 
-  Five behavior deltas, all in `classifyInternal`'s categories:
+  Seven behavior deltas, all in `classifyInternal`'s categories:
 
   | Input | Was | Now | Direction |
   |---|---|---|---|
-  | `http://[::1]/x` | `""` | `localhost` | widened (fix) |
-  | `http://127.1.2.3/x` | `""` | `localhost` | widened (fix) |
-  | `http://LOCALHOST/api` | `""` | `localhost` | widened (fix) |
-  | `http://foo.com/10.0.0.1/x` | `private_ip` | `""` | narrowed |
-  | `http://foo.com/169.254.169.254/x` | `cloud_metadata` | `""` | narrowed |
+  | `http://LOCALHOST/api` | `""` | `localhost` | widening — adds a Low finding |
+  | `http://127.1.2.3/x` | `""` | `localhost` | widening — adds a Low finding |
+  | `http://[::1]/x` | `""` | `localhost` | widening — adds a Low finding |
+  | `http://[::]/x` | `""` | `localhost` | widening — adds a Low finding |
+  | `http://foo.com/10.0.0.1/x` | `private_ip` | `""` | narrowing — **removes a Medium finding** |
+  | `http://foo.com/169.254.169.254/x` | `cloud_metadata` | `""` | narrowing — **removes a High finding** |
+  | `http://example.com/localhost` | `localhost` | `""` | narrowing — **removes a Low finding** |
 
-  These five were verified as the *only* differences over a 320,292-URL
-  differential corpus of the old regex chain against the new predicates: every
-  mismatch fell into one of the five classes above, with zero unexplained.
+  **Three of the seven remove findings, one of them a High.** That is the cost
+  of the delegation and it is stated here rather than buried: a private IP, the
+  metadata address, or the loopback name appearing anywhere other than the host
+  no longer produces a finding. Three further narrowings are not separate
+  classes but the same mechanism in positions the table does not name — a
+  query or fragment instead of a path, and a hostname that embeds an IP literal
+  (`127.0.0.1.nip.io`, `10.0.0.1.example.com`, `localhost.example.com`, all of
+  which the old text regexes matched *inside the host*). `127.0.0.1.nip.io` does
+  resolve to loopback, so that one drops a real signal; `internalurl`
+  deliberately resolves nothing, and `netguard` gates the actual fetch.
 
   **Loopback detection is now correct for IPv6, for all of 127/8, and for the
   case-insensitive name.** The old regex hardcoded
   `localhost|127\.0\.0\.\d+|0\.0\.0\.0` and carried no `(?i)` flag, so `[::1]`,
-  `127.1.2.3` and `http://LOCALHOST/api` all matched nothing.
-  `internalurl.IsLoopback` parses the host and uses `ip.IsLoopback()`, which
-  covers `::1` and the whole of `127/8`, and it compares the (lowercased) host
-  against the name `localhost` — hostnames are case-insensitive per RFC 4343.
-  These three widenings only ever **add** Low-severity findings.
+  `::1`, `::`, `127.1.2.3` and `http://LOCALHOST/api` all matched nothing.
+  `internalurl.IsLoopback` parses the host and uses `ip.IsLoopback()` (covering
+  `127/8` and `::1`) plus `ip.IsUnspecified()` (covering `0.0.0.0` and `::`), and
+  compares the lowercased host against the name `localhost` — a URI `host`
+  component is case-insensitive per RFC 3986 §3.2.2, and RFC 4343 §2 states the
+  same for host names. These four widenings only ever **add** Low-severity
+  findings.
 
-  **A private or metadata IP appearing in a URL *path* is no longer reported.**
-  `http://foo.com/10.0.0.1/x` is no longer a `private_ip` finding and
-  `http://foo.com/169.254.169.254/x` is no longer a `cloud_metadata` finding.
-  **This narrowing is deliberate — do not restore the old text match.** The
-  shared predicates parse the URL's host, which is what lets them call
-  `netguard`'s CIDR list instead of keeping a second, independently editable
-  copy of the RFC 1918 ranges and the metadata address. A private IP in a path
-  is a different signal from a private-IP host: the host here is `foo.com`, a
-  public name. A bare `10.0.0.1` with no scheme is unaffected — `hostOf` falls
-  back to the lowercased input, so it still classifies. The same split applies
-  to the loopback and metadata checks, so a `169.254.169.254` or `127.0.0.5`
-  sitting in a path no longer classifies either.
+  **All three narrowings share one cause, and it is deliberate — do not restore
+  the old text match.** The shared predicates parse the URL's host, which is
+  what lets them call `netguard`'s CIDR list instead of keeping a second,
+  independently editable copy of the RFC 1918 ranges, the metadata address, and
+  the loopback set. The same raw-text-to-host-parse switch is why a private IP,
+  `169.254.169.254`, or the loopback tokens stopped classifying when they are not
+  the host: a private IP in a path is a different signal from a private-IP
+  host — the host there is `foo.com`, a public name — and the same argument
+  applies to the metadata address and the loopback name. A bare `10.0.0.1`,
+  `localhost` or `169.254.169.254` with no scheme is unaffected, because
+  `hostOf` falls back to the lowercased input, so it still classifies.
 
-  Reinstating a text match for these two cases would re-duplicate the CIDR
+  Reinstating a text match for these three cases would re-duplicate the CIDR
   list that `internalurl` exists to centralize — the exact duplication this
   batch removed. If a future input class genuinely needs a path-scoped IP
   match, add a separate, explicitly-named check rather than reverting this one.
+
+  **Scope of the evidence.** `internal/recon/detector_internal_delta_test.go`
+  ships the old regexes, the delta ledger, and a generator that sweeps every
+  token the deleted regexes could match — the RFC 1918 ranges and their
+  boundaries, the loopback tokens and their neighbours, the metadata address
+  and hostname, plus public and internal-host controls — across five scheme
+  forms, every position a URL can place text (authority, path, query,
+  fragment, and a scheme-lookalike inside a path or query), and interesting
+  hosts crossed with interesting paths. Over that generated cross-product no
+  transition appears outside the mechanisms above. That is a statement about
+  **this generator's token vocabulary, not about the input space**: a
+  transition needing a token outside the vocabulary would not be found. The
+  generator also asserts that each declared mechanism is still exercised, so
+  trimming the vocabulary cannot quietly reduce the claim.
 
 - `internalurl`'s host extractor no longer mistakes a `://` inside a URL's path,
   query, or fragment for a scheme. It previously stripped a scheme by taking the

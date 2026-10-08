@@ -34,15 +34,16 @@ func TestInternalDetectorNegative(t *testing.T) {
 //
 // Provenance. The non-DELTA expectations below were derived by reading the
 // regexes this function used before Batch 4c Task 4 — not by observing its
-// output — and Task 4 proved them still exact: an ablation that restored the
-// old regexes for only the three drifting branches (private_ip, localhost,
-// cloud_metadata) and kept the new predicates for the other four matched the
-// pre-Task-4 function on 320,292 generated URLs with zero differences.
+// output — and Task 4 verified them against those regexes directly. The proof
+// lives in detector_internal_delta_test.go, which ships the ten deleted regexes
+// and checks every branch here against them over a generated cross-product of
+// the old token vocabulary; the non-DELTA rows below are the ones that sweep
+// confirms unchanged.
 //
-// Rows marked DELTA are the intentional behavior changes Task 4 made; each
-// note says what changed and why. Rows marked HOSTFIX are the internalurl
-// hostOf scheme-boundary fix, which Task 4 also made — they state the
-// corrected value. Those prefixes are the only rows that were allowed to move.
+// Rows marked DELTA are the seven intentional behavior changes Task 4 made;
+// each note says what changed and why. Rows marked HOSTFIX are the internalurl
+// hostOf scheme-boundary fix, which Task 4 also made — they state the corrected
+// value. Those prefixes are the only rows that were allowed to move.
 func TestClassifyInternalCharacterization(t *testing.T) {
 	tests := []struct {
 		name string
@@ -148,17 +149,23 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 		{"public-url", "https://example.com/api/users", "",
 			"negative: matches no branch"},
 
-		// --- TASK 4 DELTAS ---------------------------------------------
-		// Four rows below are the intentional behavior changes: the first two
-		// widen the localhost category, the last two narrow private_ip and
-		// cloud_metadata. Each note records what changed and why. Any OTHER
-		// row moving is a regression, not a delta.
+		// --- THE SEVEN TASK 4 DELTAS ------------------------------------
+		// Four widenings (the first four rows) and three narrowings (the last
+		// three). Each note records what changed and why. The delta ledger in
+		// detector_internal_delta_test.go re-derives all seven against the old
+		// regexes and sweeps for any transition outside this set, so these rows
+		// are the canonical list rather than a sample. Any OTHER row in this
+		// table moving is a regression, not a delta.
+
+		// --- narrowings: a raw-text match that is not the host. All three
+		// share one cause — a host-parsed predicate replacing a text-matching
+		// regex, which is what lets the CIDR lists live in netguard alone.
 
 		// privateIP10RE used to text-match the "10.0.0.1" in the PATH. The host
 		// is foo.com, a public name, and a private IP in a path is a different
 		// signal from a private-IP host. internalurl.IsPrivateHost is
 		// host-scoped (net.ParseIP(hostOf(raw))), so the raw-text match is gone
-		// and the input is no longer a finding.
+		// and the input is no longer a finding. REMOVES A MEDIUM FINDING.
 		{"DELTA-private-ip-in-path", "http://foo.com/10.0.0.1/x", "",
 			"CHANGED private_ip -> \"\": privateIP10RE matched the private IP in " +
 				"the PATH; IsPrivateHost parses the host (foo.com) instead. The " +
@@ -167,11 +174,29 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 		// Same story one branch later: cloudMetadataRE text-matched the
 		// metadata IP in the path, and nothing earlier in the chain fired.
 		// IsCloudMetadata compares the host, so this is no longer a finding.
-		// This row is the whole text-vs-host split in one input.
+		// This row is the whole text-vs-host split in one input, and it is the
+		// one that drops a HIGH-severity finding.
 		{"DELTA-metadata-ip-in-path", "http://foo.com/169.254.169.254/x", "",
 			"CHANGED cloud_metadata -> \"\": cloudMetadataRE matched the metadata " +
 				"IP in the PATH; IsCloudMetadata compares the host (foo.com) for " +
-				"equality. Same deliberate narrowing — see the note above."},
+				"equality. Same deliberate narrowing as the row above, and the " +
+				"largest severity cost in this task: a High finding disappears."},
+		// THE THIRD NARROWING, and the one most easily missed. localhostRE was
+		// raw text too, so it matched the loopback NAME anywhere in the URL —
+		// not just as a private or metadata IP in a path. Here the host is the
+		// public name example.com and "localhost" sits in the path, so the
+		// input was reported as a Low loopback finding and no longer is.
+		// It is the same text-vs-host split as the two rows above; only the
+		// token differs.
+		{"DELTA-loopback-token-in-path", "http://example.com/localhost", "",
+			"CHANGED localhost -> \"\": localhostRE matched the NAME in the PATH; " +
+				"IsLoopback parses the host (example.com), which is a public name. " +
+				"REMOVES A LOW FINDING. Same deliberate text-vs-host split — see " +
+				"the note on DELTA-private-ip-in-path."},
+
+		// --- widenings: loopback spelled more ways than the old regex did.
+		// All four only ever ADD a Low-severity finding; none can hide one.
+
 		// localhostRE had no IPv6 rule, so "[::1]" matched nothing and the
 		// input reported no finding at all. IsLoopback uses ip.IsLoopback(),
 		// which accepts ::1.
@@ -179,25 +204,25 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 			"CHANGED \"\" -> \"localhost\": localhostRE spelled out only " +
 				"localhost|127\\.0\\.0\\.\\d+|0\\.0\\.0\\.0, with no IPv6 literal. " +
 				"ip.IsLoopback() covers ::1, so this is an under-match fixed."},
+		// "[::]" is the IPv6 unspecified address, the v6 counterpart of the
+		// 0.0.0.0 the old regex DID spell out. ip.IsUnspecified() covers it.
+		{"DELTA-ipv6-unspecified", "http://[::]/x", "localhost",
+			"CHANGED \"\" -> \"localhost\": the old regex listed 0\\.0\\.0\\.0 only, " +
+				"with no IPv6 form; IsLoopback accepts ip.IsUnspecified(), which " +
+				"covers both 0.0.0.0 and ::. The v6 half was an under-match."},
 		// Same over-restriction in reverse: 127.1.2.3 is a valid loopback
 		// address, but the old regex hardcoded the "0.0." middle octets.
 		// ip.IsLoopback() covers all of 127/8.
 		{"DELTA-loopback-non-0-0-octets", "http://127.1.2.3/x", "localhost",
 			"CHANGED \"\" -> \"localhost\": localhostRE required the literal " +
 				"\"127.0.0.\", but 127/8 is loopback per ip.IsLoopback()."},
-
-		// --- ADDITIONAL DELTA FOUND BY THE 320k-URL PARITY CORPUS --------
-		// This one was NOT in Task 4's declared delta list. It was isolated
-		// by ablation to internal/internalurl rather than to the mapping in
-		// classifyInternal, and it is recorded in CHANGELOG.md.
-
 		// internalurl.hostOf lowercases the host, so IsLoopback's literal-name
 		// check accepts "LOCALHOST". The old localhostRE was case-SENSITIVE
 		// (it carried no (?i) flag), so an uppercase host was silently missed.
-		// A hostname is case-insensitive per RFC 4343, so this is a fix, and it
-		// only ever ADDS a Low-severity finding — it cannot hide one.
+		// A URI host component is case-insensitive per RFC 3986 3.2.2 (RFC 4343
+		// 2 for host names), so this is a fix that only ADDS a Low finding.
 		{"DELTA-localhost-name-case-insensitive", "http://LOCALHOST/api", "localhost",
-			"UNDECLARED, \"\" -> \"localhost\": localhostRE had no (?i) flag and " +
+			"CHANGED \"\" -> \"localhost\": localhostRE had no (?i) flag and " +
 				"missed an uppercase host; hostOf lowercases, so IsLoopback " +
 				"matches. A widening, not a loss."},
 
@@ -302,9 +327,8 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 // any single predicate. The test asserts both halves: that the earlier branch
 // wins, and — via losers — that the competing predicates really do match this
 // input. The second assertion is what the output-only category table cannot
-// check: if a branch's predicate stopped overlapping (or two branches were
-// accidentally given the same predicate), these rows fail even though
-// TestClassifyInternalCharacterization still passed.
+// check: if a branch's predicate stopped overlapping the input, these rows
+// would fail as test bugs even though the category table still passed.
 //
 // Coverage is deliberately spread over the whole chain, including the adjacent
 // pairs the PRECEDENCE block of the category table leaves unpinned. Swapping
