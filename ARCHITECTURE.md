@@ -105,8 +105,8 @@ syck-go/
 │   │   ├── scan_urls.go            # ScanURLs — crawl + per-URL scanning
 │   │   ├── scan_util.go            # Shared scan helpers (text detect, skip dirs, JWT expiry, new-only filter)
 │   │   ├── helpers.go              # Per-line scan helpers + URL/crawl/recon analyzers
-│   │   ├── pipeline.go             # V1 Pipeline type (8 typed stages)
-│   │   ├── stage_*.go              # Individual pipeline stages
+│   │   ├── pipeline.go             # Pipeline type (8 typed stages) — test-only, not on the CLI path
+│   │   ├── stage_*.go              # Individual pipeline stages — test-only, not on the CLI path
 │   │   ├── multiline.go            # Multi-line pattern matching (sliding window)
 │   │   ├── auth_header.go          # Bearer/Basic/API key detection
 │   │   ├── binary.go               # Binary string extraction
@@ -253,9 +253,15 @@ cmd/scan_run.go
   │
   ├── File paths  → scanner.ScanPaths()  → filepath.Walk + parallel ScanFile()
   ├── URLs        → scanner.ScanURLs()   → crawler.Crawl() BFS + per-URL scanning
-  ├── Stdin       → scanner.ScanReader() → auto-detect URLs vs raw content
+  ├── Stdin/pipe  → scanner.ScanContent() (raw content) or scanner.ScanURLs() (piped URLs)
   └── Git history → gitscan.ScanHistory() → git log/show per-commit
 ```
+
+The `Pipeline` type and the `stage_*.go` types (`internal/scanner/pipeline.go`)
+are a separate staged decomposition of the same work. They are not on the path
+above: `NewPipeline` is called only from `pipeline_test.go`, and no stage
+constructor has a non-test caller outside `NewPipeline`. See the
+`internal/scanner` package doc for what the stages cover that this path does not.
 
 ---
 
