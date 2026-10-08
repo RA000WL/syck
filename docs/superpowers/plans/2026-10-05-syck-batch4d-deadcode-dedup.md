@@ -186,7 +186,43 @@ git commit -m "refactor(cmd): delete empty scan.go stub; drop stale flag count f
 
 ---
 
-### Task 5: Full gates
+### Task 5: Hoist the per-call regex compiles in `DetectEncoding`
+
+**Files:**
+- Modify: `internal/crawler/encoding.go`
+
+**Interfaces:**
+- Consumes: nothing
+- Produces: two package-level vars. No exported surface change.
+
+Found during Task 1 and admitted because it is squarely inside this batch's charter: **zero behavior change**. `internal/crawler/encoding.go` compiles two regexes **inside** `DetectEncoding`, on every call:
+
+- `encoding.go:29` — `regexp.MustCompile(`(?i)<meta[^>]+charset=["']?([a-zA-Z0-9_-]+)`)`
+- `encoding.go:34` — `regexp.MustCompile(`(?i)<meta[^>]+content=["'][^"']*charset=([a-zA-Z0-9_-]+)`)`
+
+Twenty lines above, at `encoding.go:10`, `charsetRe` is correctly hoisted to a package-level var. So the file already demonstrates the right pattern and then does not follow it. `regexp.MustCompile` on every call is pure repeated work.
+
+- [ ] **Step 1: Hoist both to package-level vars**
+
+Declare them next to `charsetRe`, with names consistent with it (`metaCharsetRe`, `contentCharsetRe` or similar — match the file's existing convention). Delete the inline compiles. **Move the bodies verbatim; change nothing inside them.**
+
+- [ ] **Step 2: Verify identical behavior**
+
+Run: `go build ./... && go test -race ./internal/crawler/ -count=1 && go vet ./internal/crawler/`
+Expected: green.
+
+Then confirm behavior is unchanged rather than assuming it: `DetectEncoding` must produce the same result for the same input. The existing crawler tests should cover it — if they do not, say so in your report rather than asserting equivalence you have not checked. If a test is missing for the two meta-charset paths, **add one** (that is characterization, still zero behavior change) and commit it with this task.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add internal/crawler/encoding.go
+git commit -m "perf(crawler): hoist per-call regex compiles in DetectEncoding to package level"
+```
+
+---
+
+### Task 6: Full gates
 
 **Files:** none — verification only.
 
