@@ -10,6 +10,13 @@
 // one address could be classified one way by classifyInternal and another by
 // AllowFetch. Each has exactly one definition now.
 //
+// Since Batch 6 Task 5 this package delegates the host→address RESOLUTION to
+// netguard.ParseHostIP as well, not just the CIDR lists. It previously called
+// net.ParseIP itself, which meant the two packages could still disagree about a
+// host: net.ParseIP rejects the legacy inet_aton spellings and zone-scoped
+// IPv6, so "http://2130706433/" was denied by AllowFetch and classified as a
+// public host here. Sharing the resolver is what makes the two answers one.
+//
 // This is NOT a single source for the whole vocabulary, and this doc should not
 // be read as claiming it is. The *path and host token* half — admin, debug,
 // trace, staging, dev, test, private, hidden, legacy — is still spelled out
@@ -212,12 +219,19 @@ func normalizeHost(h string) string {
 // IP in a path is not a private host. That narrowing is deliberate and is
 // CHANGELOG'd in Task 4.
 //
+// The host is resolved with netguard.ParseHostIP, NOT net.ParseIP, so that a
+// private address written in a legacy inet_aton spelling ("http://10.1/",
+// "http://3232235777/") is recognized as the private address it denotes. Before
+// Batch 6 Task 5 this called net.ParseIP and classified every such URL as
+// public, while netguard.AllowFetch denied the same URL — one host, two
+// answers, from two packages that exist to share one vocabulary.
+//
 // It is deliberately narrower than netguard.IsBlockedIP. Loopback,
 // link-local, and the unspecified address are all blocked from being fetched
 // but are not private hosts, and a caller classifying a URL needs them
 // separated: recon reports them as different categories.
 func IsPrivateHost(raw string) bool {
-	ip := net.ParseIP(hostOf(raw))
+	ip, _ := netguard.ParseHostIP(hostOf(raw))
 	return netguard.IsPrivateIP(ip)
 }
 
@@ -229,6 +243,11 @@ func IsPrivateHost(raw string) bool {
 // "localhost" without a resolver, which the text-matching predecessor could
 // only do crudely — it matched "127.0.0.X" but not "127.1.2.3" or "::1", so
 // this predicate fixes those two under-matches (CHANGELOG'd in Task 4).
+//
+// The host is resolved with netguard.ParseHostIP, so every spelling of 127/8
+// classifies alike: "http://2130706433/" and "http://127.1/" are loopback, and
+// a zoned "http://[::1%25lo]/" is loopback too. See IsPrivateHost for why the
+// resolver is shared rather than reimplemented.
 //
 // Accepting the name "localhost" is a DELIBERATE divergence from
 // netguard.IsBlockedIP, which rejects it because Batch 1 performs no DNS
@@ -242,8 +261,8 @@ func IsLoopback(raw string) bool {
 	if host == "localhost" {
 		return true
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	ip, ok := netguard.ParseHostIP(host)
+	if !ok {
 		return false
 	}
 	// IsLoopback covers 127/8 and ::1; IsUnspecified covers 0.0.0.0 and ::.
@@ -268,13 +287,20 @@ func IsLoopback(raw string) bool {
 // "http://metadata.google.internal/" — is reported as internal_host and never
 // reaches this predicate. That is why the hostname half is free to stay parsed
 // even though it is the half the old text regex could never match.
+//
+// The address half is resolved with netguard.ParseHostIP, so the legacy
+// inet_aton spellings of 169.254.169.254 — "http://2852039166/" and
+// "http://0xa9fea9fe/" — classify as cloud_metadata too. That is worth naming
+// because it is the one input class that becomes a HIGHER-severity finding
+// (High) rather than a lower one: recon reports metadata at High severity, so
+// an obfuscated metadata address was previously silent and now is not.
 func IsCloudMetadata(raw string) bool {
 	host := hostOf(raw)
 	if netguard.IsMetadataHost(host) {
 		return true
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.Equal(metadataIP)
+	ip, ok := netguard.ParseHostIP(host)
+	return ok && ip.Equal(metadataIP)
 }
 
 // IsInternalHost reports whether raw contains an internal-looking host

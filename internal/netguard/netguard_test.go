@@ -684,6 +684,162 @@ func TestAllowFetchNeverLoosens(t *testing.T) {
 	}
 }
 
+// TestParseHostIP pins the exported resolver directly, as a bare host string
+// rather than a URL. The AllowFetch table above can only observe the resolver
+// through a deny/allow verdict, which cannot distinguish "parsed to the right
+// address" from "parsed to some address that happens to be blocked" — the
+// public rows cover only half of that. This table pins the address itself.
+//
+// It also pins the ok=false contract, which is what makes the function safe for
+// an external caller: a DNS name and an ambiguous address both come back as
+// "not an address", so no caller can mistake a name for one.
+func TestParseHostIP(t *testing.T) {
+	cases := []struct {
+		host string
+		want string // "" means ok must be false
+	}{
+		// Everything net.ParseIP already accepted behaves unchanged.
+		{"127.0.0.1", "127.0.0.1"},
+		{"10.0.0.1", "10.0.0.1"},
+		{"8.8.8.8", "8.8.8.8"},
+		{"0.0.0.0", "0.0.0.0"},
+		{"::1", "::1"},
+		{"::", "::"},
+		{"fe80::1", "fe80::1"},
+		{"2606:4700:4700::1111", "2606:4700:4700::1111"},
+		{"::ffff:10.0.0.1", "10.0.0.1"},
+
+		// The legacy inet_aton forms, resolved to their real meanings.
+		{"2130706433", "127.0.0.1"},
+		{"0x7f000001", "127.0.0.1"},
+		{"127.1", "127.0.0.1"},
+		{"0x7f.0.0.1", "127.0.0.1"},
+		{"10.1", "10.0.0.1"},
+		{"192.168.1", "192.168.0.1"},
+		{"169.254.0", "169.254.0.0"},
+		{"3232235777", "192.168.1.1"},
+		// Public addresses in legacy spellings: resolved, not denied. If these
+		// came back ok=false the function would be a detector, not a resolver,
+		// and callers would lose the distinction between "public" and "not an
+		// address".
+		{"134744072", "8.8.8.8"},
+		{"1.2.3", "1.2.0.3"},
+		{"8.8.2048", "8.8.8.0"},
+
+		// Zone-scoped IPv6: the zone is stripped and the address resolved.
+		{"fe80::1%eth0", "fe80::1"},
+		{"::1%lo", "::1"},
+		{"::%lo", "::"},
+		{"2606:4700:4700::1111%eth0", "2606:4700:4700::1111"},
+		// A zone must not smuggle a legacy address past either.
+		{"2130706433%eth0", "127.0.0.1"},
+
+		// ok=false: DNS names, whatever they embed.
+		{"example.com", ""},
+		{"localhost", ""},
+		{"metadata.google.internal", ""},
+		{"127.0.0.1.nip.io", ""},
+		{"10.0.0.1.example.com", ""},
+		{"2130706433.example.com", ""},
+		{"xn--bcher-kva.example", ""},
+		// ok=false: address-shaped but denoting nothing.
+		{"010.0.0.1", ""},
+		{"09.0.0.1", ""},
+		{"1.2.3.4.5", ""},
+		{"4294967296", ""},
+		{"999.1.1.1", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.host, func(t *testing.T) {
+			ip, ok := ParseHostIP(tc.host)
+			if tc.want == "" {
+				if ok {
+					t.Errorf("ParseHostIP(%q) = %v, want no address", tc.host, ip)
+				}
+				if ip != nil {
+					t.Errorf("ParseHostIP(%q) returned ok=false but a non-nil "+
+						"address %v; callers may dereference it", tc.host, ip)
+				}
+				return
+			}
+			if !ok {
+				t.Fatalf("ParseHostIP(%q) did not resolve, want %s", tc.host, tc.want)
+			}
+			// Equal, not String-equal: "::ffff:10.0.0.1" and "10.0.0.1" are
+			// the same address and a caller comparing strings would disagree
+			// with one comparing addresses.
+			if !ip.Equal(net.ParseIP(tc.want)) {
+				t.Errorf("ParseHostIP(%q) = %v, want %s", tc.host, ip, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseHostIPIsUsedByAllowFetch pins the two halves of AllowFetch's verdict
+// against ParseHostIP's outcome for the same host, so the two can never drift
+// apart without a row here failing.
+//
+// Scope, stated honestly: this does NOT prove AllowFetch calls ParseHostIP. It
+// pins that for every reachable combination of the resolver's result — address
+// and blocked, address and permitted, not-an-address and denied, not-an-address
+// and allowed — the gate returns the verdict the resolver's outcome implies.
+// That is the behavioral contract the sharing is for. A refactor that gave
+// AllowFetch a second, subtly different parser would still be caught, because
+// one of these eleven combinations would have to disagree to be wrong; what
+// this test would not catch is a second parser that happens to agree on all
+// eleven.
+func TestParseHostIPIsUsedByAllowFetch(t *testing.T) {
+	cases := []struct {
+		host      string
+		urlHost   string // how the host is spelled inside a URL; "" means same as host
+		wantAllow bool
+		wantParse bool
+		why       string
+	}{
+		{"10.0.0.1", "", false, true, "blocked literal"},
+		{"2130706433", "", false, true, "blocked legacy literal"},
+		{"127.1", "", false, true, "blocked legacy 2-part"},
+		// A zone must be percent-ENCODED in a URL: url.Parse rejects a raw
+		// "%eth0" ("invalid URL escape"), so AllowFetch would deny at the
+		// parse step and never reach the resolver. %25 is what a client
+		// actually sends, and url.URL.Hostname() decodes it back to "%eth0".
+		{"fe80::1%eth0", "fe80::1%25eth0", false, true, "blocked zoned literal"},
+		{"134744072", "", true, true, "public legacy literal"},
+		{"1.2.3", "", true, true, "public legacy 3-part"},
+		{"2606:4700:4700::1111%eth0", "2606:4700:4700::1111%25eth0", true, true,
+			"public zoned literal"},
+		{"010.0.0.1", "", false, false, "ambiguous: denied, and not an address"},
+		{"1.2.3.4.5", "", false, false, "ambiguous: denied, and not an address"},
+		{"example.com", "", true, false, "name: allowed, and not an address"},
+		{"localhost", "", true, false, "name: allowed, and not an address"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.host, func(t *testing.T) {
+			_, gotParse := ParseHostIP(tc.host)
+			if gotParse != tc.wantParse {
+				t.Fatalf("ParseHostIP(%q) ok = %v, want %v — the resolver's "+
+					"contract changed", tc.host, gotParse, tc.wantParse)
+			}
+			inURL := tc.urlHost
+			if inURL == "" {
+				inURL = tc.host
+			}
+			// IPv6 literals must be bracketed in a URL, exactly as
+			// TestAllowFetchNeverLoosens does when it builds its corpus;
+			// "http://2606:...::1/" parses with the tail read as a port.
+			raw := "http://" + inURL + "/"
+			if strings.Contains(inURL, ":") {
+				raw = "http://[" + inURL + "]/"
+			}
+			if got := AllowFetch(raw); got != tc.wantAllow {
+				t.Errorf("AllowFetch(%q) = %v, want %v (%s)", raw, got,
+					tc.wantAllow, tc.why)
+			}
+		})
+	}
+}
+
 // hostOf returns the url host of raw, for corpus membership checks.
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)

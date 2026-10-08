@@ -215,10 +215,10 @@ syck-go/
 │   │   └── detector_*.go           # 12 detectors (admin, auth, debug, graphql, headers, internal, metrics, staging, storage, swagger, techweb, waf)
 │   │
 │   ├── netguard/                   # SSRF gate for secondary fetches (Batch 1)
-│   │   └── netguard.go             # THE copy of the private/loopback/link-local CIDR list + metadata host. IsPrivateIP (RFC 1918), IsBlockedIP (private + loopback + link-local + unspecified, delegates to IsPrivateIP), IsMetadataHost, AllowFetch. Literal IPs only — no DNS resolution
+│   │   └── netguard.go             # THE copy of the private/loopback/link-local CIDR list + metadata host. IsPrivateIP (RFC 1918), IsBlockedIP (private + loopback + link-local + unspecified, delegates to IsPrivateIP), IsMetadataHost, AllowFetch, ParseHostIP (the ONE host→address resolver: AllowFetch and internalurl both call it). Literal IPs only — no DNS resolution
 │   │
 │   ├── internalurl/                # "Is this URL internal?" predicates (Batch 4c)
-│   │   └── internalurl.go          # IsPrivateHost/IsLoopback/IsCloudMetadata (parsed host, delegate to netguard) + IsInternalHost/IsInternalPath/IsSensitivePort (raw text). One caller: recon's classifyInternal. No DNS resolution
+│   │   └── internalurl.go          # IsPrivateHost/IsLoopback/IsCloudMetadata (parsed host via netguard.ParseHostIP, delegate CIDR to netguard) + IsInternalHost/IsInternalPath/IsSensitivePort (raw text). One caller: recon's classifyInternal. No DNS resolution
 │   │
 │   ├── ignore/                     # .syckignore support
 │   │   └── ignore.go               # Fingerprint + regex pattern suppression
@@ -415,7 +415,7 @@ type Detector interface {
 | `correlation/` | 8 multi-finding correlation detectors |
 | `correlator/` | SQLite cross-run cache + file mtime cache for incremental scanning |
 | `sqliteutil/` | Shared SQLite open tuning: single-writer cap, WAL, busy timeout |
-| `netguard/` | SSRF gate for secondary fetches; literal private/loopback/link-local IPs and the cloud metadata hostname are denied (no DNS resolution) |
+| `netguard/` | SSRF gate for secondary fetches; literal private/loopback/link-local IPs and the cloud metadata hostname are denied (no DNS resolution). Also owns `ParseHostIP`, the one host→address resolver, which `internalurl` shares |
 | `internalurl/` | Single home for the internal/private-URL vocabulary: private host, loopback, cloud metadata, internal host, internal path, sensitive service port |
 | `adaptive/` | Adaptive confidence learning |
 | `endpoints/` | 30+ endpoint extraction patterns + risk scoring |
@@ -752,10 +752,15 @@ One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanE
 
 3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
 
-One `internal/internalurl` gap — the residue of a former item 4 (Batch 6 fixed
-its `netguard` half; see above):
+Item 4 is now fully closed. `internal/internalurl` misclassified zone-scoped and
+legacy-IPv4 hosts that `netguard` denied, because its three parsed predicates
+each called `net.ParseIP(hostOf(raw))` directly and so inherited every spelling
+`net.ParseIP` rejects. Fixed by Batch 6 Task 5: `netguard` exports the resolver
+it already owned as `ParseHostIP`, `AllowFetch` calls that same function, and
+the three predicates call it too. One parser, one answer per host.
 
-4. **`internalurl` still misclassifies zone-scoped and legacy-IPv4 hosts that `netguard` now denies** — this item used to cover `netguard.AllowFetch` too, and that half is fixed. What is left is that `internal/internalurl` did **not** get the same treatment: `IsPrivateHost` and `IsLoopback` each call `net.ParseIP(hostOf(raw))` directly, so they inherit every spelling `net.ParseIP` rejects. Measured today:
+4. **CLOSED — `internalurl` and `netguard` disagreed about legacy-IPv4 and
+   zoned-IPv6 hosts.** What the gap looked like before the fix:
 
    | input | `hostOf` | `IsPrivateHost` | `IsLoopback` | `AllowFetch` |
    |---|---|---|---|---|
@@ -764,18 +769,18 @@ its `netguard` half; see above):
    | `http://2130706433/` | `2130706433` | `false` | `false` | **denied** |
    | `http://127.0.0.1/` | `127.0.0.1` | `false` | `true` | denied |
 
-   The divergence is the problem: Batch 4c moved `classifyInternal` onto these
+   The divergence was the problem: Batch 4c moved `classifyInternal` onto these
    predicates specifically so one address could not be classified one way by
-   recon and another by the fetch gate, and for these spellings it still can.
-   `netguard` now owns the resolution logic (`literalIP`, in `netguard.go`) but
-   it is unexported, so `internalurl` cannot call it. **Do NOT fix this by
-   duplicating the legacy parser inside `internalurl`** — that reintroduces the
-   second copy of the address vocabulary that Batch 4c deleted. The fix is to
-   export one resolver from `netguard` and have `internalurl` route through it,
-   which touches a package Batch 4c deliberately kept to one production caller,
-   so it needs its own batch. Scope note: `fe80::1` *without* a zone is not a gap
-   here — `IsPrivateHost` is RFC 1918 by contract and link-local is
-   `IsBlockedIP`'s job, not its own.
+   recon and another by the fetch gate. **Do NOT reintroduce it by calling
+   `net.ParseIP` in `internalurl`, or by adding a host→address step to any other
+   package** — the exported resolver exists for that, and a second copy is the
+   exact regression this item records.
+
+   Scope note, still binding: `fe80::1` classifies as a public host in
+   `internalurl` even though `netguard` blocks it. `IsPrivateHost` is RFC 1918
+   by contract and link-local is `IsBlockedIP`'s job, not its own. Task 5 fixed
+   the parser and did not widen a category; doing so would be a policy change
+   with its own blast radius.
 
 One `internal/crawler` gap (Batch 3 spec, work never implemented):
 

@@ -469,3 +469,178 @@ func TestIsPrivateIPIsNarrowerThanIsBlockedIP(t *testing.T) {
 		t.Error("netguard.IsPrivateIP(nil) = true, want false")
 	}
 }
+
+// spellingEquiv is one address plus every other spelling of it this package has
+// to understand. The plain spelling is the REFERENCE: every equivalent must
+// classify exactly as the plain form does. A nil classify means the range has no
+// category in this package at all — see the link-local note on the test.
+type spellingEquiv struct {
+	name     string
+	addr     string   // the plain spelling, always accepted by net.ParseIP
+	equivs   []string // legacy / zoned spellings of the SAME address
+	classify func(string) bool
+}
+
+// TestSpellingParityWithNetGuard is the keystone for Batch 6 Task 5.
+//
+// Before Task 5 the three parsed predicates in this package called net.ParseIP
+// directly, so every spelling netguard's own parser had learned to resolve — the
+// legacy inet_aton forms and zone-scoped IPv6 — was invisible here.
+// "http://2130706433/" was DENIED by netguard.AllowFetch and classified as an
+// ordinary public host here, which is the exact divergence Batch 4c moved
+// classifyInternal onto this package to eliminate.
+//
+// The property is SPELLING INVARIANCE, not "internalurl's verdict equals
+// netguard's", and the distinction is load-bearing. netguard answers "may this
+// be fetched?" over a wide set of ranges; this package answers "which internal
+// surface is this?", over three narrower ones. Two disagreements are DELIBERATE
+// and must survive this fix:
+//
+//   - link-local (fe80::/10) is blocked for fetching but has no category here.
+//     IsPrivateHost is RFC 1918 by contract — see the scope note on
+//     ARCHITECTURE.md §15 item 4 — and IsLoopback covers only 127/8, ::1 and the
+//     unspecified address. "http://[fe80::1]/" classifies as public here today
+//     and must keep doing so; widening a category is a policy change, not a
+//     parsing fix, and is out of scope for this task.
+//   - "localhost" is accepted by IsLoopback and PERMITTED by netguard, because
+//     netguard does no DNS resolution. See IsLoopback's doc comment.
+//
+// What must hold is narrower, and is exactly what routing three call sites
+// through netguard's parser buys: ONE ADDRESS, HOWEVER SPELLED, YIELDS ONE
+// CLASSIFICATION. Comparing each spelling against the plain form of the same
+// address tests that and nothing more. It is not satisfiable by blanket-denying
+// dotted numerics, because the public controls below must stay public.
+func TestSpellingParityWithNetGuard(t *testing.T) {
+	groups := []spellingEquiv{
+		{"loopback", "127.0.0.1",
+			[]string{"2130706433", "0x7f000001", "127.1", "127.1.1", "0x7f.0.0.1"},
+			IsLoopback},
+		{"loopback-127-1-2-3", "127.1.2.3", []string{"0x7f010203"}, IsLoopback},
+		{"unspecified-v4", "0.0.0.0", []string{"0"}, IsLoopback},
+		{"private-10", "10.0.0.1", []string{"10.1", "0xa.0.0.1"}, IsPrivateHost},
+		{"private-192-168", "192.168.0.1", []string{"192.168.1", "0xc0a80001"},
+			IsPrivateHost},
+		{"private-172-16", "172.16.0.0", []string{"172.16.0"}, IsPrivateHost},
+		// 169.254.169.254 == 2852039166 == 0xa9fea9fe, so the metadata address
+		// has legacy spellings that must classify as cloud_metadata too.
+		{"cloud-metadata", "169.254.169.254", []string{"2852039166", "0xa9fea9fe"},
+			IsCloudMetadata},
+		{"ipv6-loopback-zoned", "::1", []string{"[::1%25lo]"}, IsLoopback},
+		{"ipv6-unspecified-zoned", "::", []string{"[::%25lo]"}, IsLoopback},
+		{"v4-mapped-private-zoned", "::ffff:10.0.0.1",
+			[]string{"[::ffff:10.0.0.1%25eth0]"}, IsPrivateHost},
+		// No category covers link-local here. Pinned explicitly so the
+		// exemption is a decision rather than an accident of which reference
+		// address the group happened to pick.
+		{"link-local-zoned", "fe80::1", []string{"[fe80::1%25eth0]"}, nil},
+	}
+
+	for _, g := range groups {
+		t.Run(g.name, func(t *testing.T) {
+			if netguard.AllowFetch("http://" + g.addr + "/") {
+				t.Fatalf("test bug: netguard PERMITS the reference address %q, "+
+					"so this group asserts nothing", g.addr)
+			}
+			if g.classify != nil && g.classify("http://8.8.8.8/") {
+				t.Fatalf("test bug: the predicate for %s also claims 8.8.8.8, "+
+					"so this group cannot distinguish anything", g.name)
+			}
+			for _, h := range append([]string{g.addr}, g.equivs...) {
+				raw := "http://" + h + "/"
+				if g.classify == nil {
+					if IsPrivateHost(raw) || IsLoopback(raw) || IsCloudMetadata(raw) {
+						t.Errorf("%q reports an internal surface, but link-local "+
+							"has no category in this package by contract", h)
+					}
+					continue
+				}
+				if !g.classify(raw) {
+					t.Errorf("%q does not classify as %s, but the SAME address "+
+						"spelled %q does — one address must not classify two ways",
+						h, g.name, g.addr)
+				}
+			}
+		})
+	}
+
+	// PUBLIC controls. Each denotes a routable address, in a spelling
+	// net.ParseIP rejects. A fix implemented as "any all-numeric host is
+	// internal" fails here, so these are what keep the parser honest instead
+	// of blanket-denying dotted numerics.
+	for _, h := range []string{
+		"134744072", // 8.8.8.8 as an integer
+		"0x08080808",
+		"3221225985", // 192.0.2.1 as an integer
+		"1.2.3",      // 1.2.0.3, 3-part form
+		"8.8.2048",   // 8.8.8.0, 2-part form
+		"8.8.0x800",  // 8.8.8.0, hex final part
+		"9.255.255.255",
+		"[2606:4700:4700::1111%25eth0]",
+		"[fec0::1%25eth0]",
+	} {
+		raw := "http://" + h + "/"
+		if !netguard.AllowFetch(raw) {
+			t.Fatalf("test bug: netguard denies %q, so it is not a public "+
+				"control and the assertion below is vacuous", h)
+		}
+		if IsPrivateHost(raw) || IsLoopback(raw) || IsCloudMetadata(raw) {
+			t.Errorf("REGRESSION: %q denotes a PUBLIC address netguard permits, "+
+				"but this package reports an internal surface (IsPrivateHost=%v "+
+				"IsLoopback=%v IsCloudMetadata=%v)", h, IsPrivateHost(raw),
+				IsLoopback(raw), IsCloudMetadata(raw))
+		}
+	}
+
+	// AMBIGUOUS legacy forms. net.ParseIP rejects these AND netguard's parser
+	// deliberately refuses to resolve them: "010.0.0.1" reads as 8.0.0.1 under
+	// inet_aton's octal rule and as 10.0.0.1 under a decimal reading, and the
+	// two readings disagree about a private range. netguard denies on ambiguity;
+	// this package has no address to classify and so reports the host public.
+	//
+	// That asymmetry is CORRECT and unchanged by Task 5 — resolving it either
+	// way would mean guessing which of two addresses the author meant. Pinned so
+	// a future "make internalurl deny everything netguard denies" impulse does
+	// not invent a category for an address that does not exist.
+	//
+	// "192.168.1.1." is deliberately NOT here: hostOf normalizes a trailing
+	// root dot away before any parse (see normalizeHost and TestHostOf), so it
+	// reaches the parser as "192.168.1.1" and classifies private_ip. That
+	// pre-dates and is unaffected by this task.
+	for _, h := range []string{"010.0.0.1", "09.0.0.1", "1.2.3.4.5", "4294967296"} {
+		raw := "http://" + h + "/"
+		if netguard.AllowFetch(raw) {
+			t.Fatalf("test bug: netguard permits the ambiguous host %q", h)
+		}
+		if IsPrivateHost(raw) || IsLoopback(raw) || IsCloudMetadata(raw) {
+			t.Errorf("%q is ambiguous — two readings that disagree about a "+
+				"private range — and must not be classified as either", h)
+		}
+	}
+
+	// DNS NAMES. The parser must never turn a name into an address, whatever
+	// the name embeds. This is the safety property behind every row above: if a
+	// name could be read as an address, the legacy forms would be a
+	// name-rewriting bug rather than a security fix.
+	for _, h := range []string{
+		"example.com", "localhost", "metadata.google.internal",
+		"127.0.0.1.nip.io", "10.0.0.1.example.com", "localhost.example.com",
+		"0xdeadbeef.example", "2130706433.example.com", "a.b.svc", "db.local",
+	} {
+		if IsPrivateHost("http://" + h + "/") {
+			t.Errorf("DNS NAME MISREAD: IsPrivateHost(%q) = true. A name that "+
+				"resolves to a private address must not be classified from its "+
+				"text; doing so would misreport every nip.io-style host.", h)
+		}
+	}
+
+	// The one deliberate disagreement, pinned from both sides: permitted by
+	// netguard (Batch 1 checks literal IPs only), classified as loopback here.
+	if !netguard.AllowFetch("http://localhost/") {
+		t.Error("netguard stopped permitting http://localhost/; the literal-IP-" +
+			"only policy is unchanged by this task")
+	}
+	if !IsLoopback("http://localhost/") {
+		t.Error("IsLoopback(http://localhost/) = false; accepting the name is a " +
+			"deliberate divergence from netguard and is unchanged by this task")
+	}
+}

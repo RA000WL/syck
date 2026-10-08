@@ -311,6 +311,62 @@ breaking and touches no public API.
   address is not detected" gap recorded under the Batch 4c entry above is
   unchanged.
 
+- **`internal/internalurl` now resolves hosts the same way `netguard` does, so
+  one URL no longer gets two different answers from the two packages.** This is
+  the second half of the fix above, and it **adds findings.** The three parsed
+  predicates — `IsPrivateHost`, `IsLoopback`, `IsCloudMetadata` — each called
+  `net.ParseIP` directly, so every spelling `net.ParseIP` rejects was invisible
+  to them. Once the previous entry made `netguard.AllowFetch` deny exactly those
+  spellings, a URL could be "must not be fetched" to the gate and "an ordinary
+  public host" to the classifier, in the same process.
+
+  `netguard` now exports the resolver it already owned as
+  **`ParseHostIP(host string) (net.IP, bool)`**, and those three predicates call
+  it. `AllowFetch` calls the same function, so the package has one parser rather
+  than two entry points that could drift apart. `ok` is false for anything that
+  is not a literal address — a DNS name *and* an ambiguous legacy host — so no
+  caller can read a name as an address.
+
+  Finding counts go **up**, and one category goes up in **severity**:
+
+  | Input | Was | Now | Severity |
+  |---|---|---|---|
+  | `http://2130706433/` | `""` | `localhost` | Low |
+  | `http://127.1/` | `""` | `localhost` | Low |
+  | `http://0x7f.0.0.1/` | `""` | `localhost` | Low |
+  | `http://10.1/` | `""` | `private_ip` | **Medium** |
+  | `http://3232235777/` | `""` | `private_ip` | **Medium** |
+  | `http://0xa.0.0.1/` | `""` | `private_ip` | **Medium** |
+  | `http://2852039166/` | `""` | `cloud_metadata` | **High** |
+  | `http://0xa9fea9fe/` | `""` | `cloud_metadata` | **High** |
+  | `http://[::1%25lo]/x` | `""` | `localhost` | Low |
+
+  The last two rows are worth naming. `169.254.169.254` written as a bare
+  32-bit integer or in hex *is* the AWS/Azure/GCP metadata endpoint, and recon
+  reports that category at **High**. An obfuscated metadata address was silent
+  before and is a finding now — the one place where this change raises severity
+  rather than adding a Low or Medium.
+
+  Three things deliberately did **not** change:
+
+  - **DNS names.** `example.com`, `localhost`, and `metadata.google.internal`
+    behave exactly as before. The legacy parser accepts only hosts whose
+    dot-separated parts are all digits or `0x`-prefixed hex, a shape no hostname
+    can have; `netguard_test.go` pins that and the new export does not widen it.
+    `127.0.0.1.nip.io` is still reported as a public host — see the
+    no-compensating-control note under the Batch 4c entry above.
+  - **Ambiguous legacy hosts.** `http://010.0.0.1/` reads as `8.0.0.1` under
+    inet_aton's octal rule and `10.0.0.1` under a decimal one, and the two
+    disagree about a private range. `netguard` denies it on ambiguity; this
+    package has no address to classify and so still reports it public. That
+    asymmetry is correct — resolving it either way means guessing which of the
+    two addresses the author meant.
+  - **The classification policy.** `IsPrivateHost` is still RFC 1918 only,
+    `IsLoopback` still excludes the private ranges, `IsCloudMetadata` keeps its
+    own equality semantics, and link-local (`fe80::/10`) still has no category
+    here even though `netguard` blocks it. Only the parser changed. See
+    ARCHITECTURE.md §15 item 4's scope note.
+
 ### Benchmarks
 
 - The per-line goroutine regex fan-out was benchmarked against a sequential

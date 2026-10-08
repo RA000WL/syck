@@ -6,7 +6,15 @@
 //
 // Batch 6 Task 3 widened "literal" to cover the spellings net.ParseIP rejects
 // but clients honour — legacy inet_aton IPv4 and IPv6 zone-scoped literals.
-// The gate only ever got tighter: see literalIP and legacyIPv4Candidate.
+// The gate only ever got tighter: see ParseHostIP and legacyIPv4Candidate.
+//
+// Batch 6 Task 5 exported that resolver as ParseHostIP so callers that
+// CLASSIFY a URL, rather than gate a fetch, cannot disagree with AllowFetch
+// about what a host denotes. internal/internalurl's three parsed predicates
+// route through it; before that they called net.ParseIP and read
+// "http://2130706433/" as a public host while this package denied the fetch.
+// ParseHostIP is the only host→address resolver in the package, and AllowFetch
+// calls it — do not add a second parser here or there.
 package netguard
 
 import (
@@ -111,7 +119,7 @@ func IsBlockedIP(ip net.IP) bool {
 // IPs in 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local ranges,
 // ::1, 0.0.0.0, and for the metadata.google.internal hostname (with or
 // without trailing dot). Those literals are recognized in every spelling
-// literalIP resolves, including the legacy inet_aton forms (2130706433,
+// ParseHostIP resolves, including the legacy inet_aton forms (2130706433,
 // 127.1, 0x7f.0.0.1) and IPv6 zone-scoped literals (fe80::1%eth0).
 //
 // All other inputs (public IPs, DNS hostnames, unparseable-but-harmless
@@ -142,77 +150,92 @@ func AllowFetch(rawURL string) bool {
 
 	// Literal-IP checks only (still no DNS resolution).
 	//
-	// literalIP deliberately looks wider than net.ParseIP: it also resolves the
+	// ParseHostIP deliberately looks wider than net.ParseIP: it also resolves the
 	// legacy inet_aton spellings (2130706433, 127.1, 010.0.0.1, 0x7f.0.0.1) and
 	// IPv6 zone-scoped literals (fe80::1%eth0), all of which net.ParseIP
 	// rejects and which therefore used to fall through to the "it must be a
-	// DNS name" branch and be allowed.
-	ip, kind := literalIP(host)
-	switch kind {
-	case literalDNSName:
-		return true
-	case literalAmbiguous:
-		// Deny on ambiguity: an all-numeric-and-dots host that resolves to no
-		// valid address is far more likely an evasion attempt than a real
-		// target.
-		return false
+	// DNS name" branch and be allowed. It is the same resolver
+	// internal/internalurl calls, so the fetch gate and the URL classifier can
+	// no longer disagree about what a host denotes.
+	ip, ok := ParseHostIP(host)
+	if !ok {
+		// Not a literal address. Deny on ambiguity: an all-numeric-and-dots
+		// host that resolves to no valid address is far more likely an evasion
+		// attempt than a real target, while a host that was never
+		// address-shaped is a name to be left alone.
+		//
+		// The test is the zone-stripped host, matching ParseHostIP: a name
+		// keeps its letters either way, and "1.2.3.4%foo" is as
+		// address-shaped as "1.2.3.4".
+		return !legacyIPv4Candidate(stripZone(host))
 	}
 	return !IsBlockedIP(ip)
 }
 
-// literalKind classifies what literalIP found in a URL host.
-type literalKind int
-
-const (
-	// literalDNSName: the host is not address-shaped, so it is a name to be
-	// left alone (Batch 1 does no DNS resolution).
-	literalDNSName literalKind = iota
-	// literalAddress: ip is the address the host denotes.
-	literalAddress
-	// literalAmbiguous: the host is address-shaped but resolves to no valid
-	// address, so it is denied rather than treated as a name.
-	literalAmbiguous
-)
-
-// literalIP resolves a URL host to the IP address it denotes, for hosts that
-// are addresses rather than names.
+// stripZone returns host with any IPv6 zone suffix removed.
 //
-// net.ParseIP is tried first so every literal it already accepts behaves
-// exactly as before. Two families of address-shaped host remain that it
-// rejects, and both were bypasses:
+// url.URL.Hostname() percent-decodes %25, so "[fe80::1%25eth0]" arrives as the
+// host "fe80::1%eth0". Stripping is not waiving a check: ParseHostIP re-parses
+// the remainder and runs the SAME checks on the address it denotes, which is
+// also why "2130706433%foo" cannot use a zone to smuggle an address past.
+func stripZone(host string) string {
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		return host[:i]
+	}
+	return host
+}
+
+// ParseHostIP resolves a URL host to the IP address it denotes, for hosts that
+// are literal addresses rather than names.
+//
+// This is the package's single host→address resolver. AllowFetch calls it, and
+// so does internal/internalurl's three parsed predicates, which used to call
+// net.ParseIP directly: net.ParseIP rejects every spelling this parser accepts,
+// so a URL netguard denied could be classified as an ordinary public host by
+// the classifier that was supposed to be sharing its vocabulary. Exporting the
+// resolver is what stops a second copy from being written; if you need a host's
+// address, call this rather than net.ParseIP.
+//
+// It resolves every spelling AllowFetch understands. net.ParseIP is tried first
+// so every literal it already accepts behaves exactly as before. Two families
+// of address-shaped host remain that it rejects, and both were bypasses:
 //
 //   - The legacy inet_aton forms — a bare 32-bit integer ("2130706433"), 2- or
-//     3-part forms ("127.1", "1.2.3") and hex/leading-zero spellings
-//     ("0x7f.0.0.1", "010.0.0.1"). Many clients accept these, so a client
-//     told to fetch "http://0xa.0.0.1/" reaches 10.0.0.1.
-//   - IPv6 zone-scoped literals. url.URL.Hostname() percent-decodes %25, so
-//     "[fe80::1%25eth0]" arrives as the host "fe80::1%eth0"; the zone is
-//     stripped and the SAME checks then run, so a zoned link-local address is
-//     denied rather than treated as a name.
+//     3-part forms ("127.1", "1.2.3") and hex spellings ("0x7f.0.0.1").
+//     Many clients accept these, so a client told to fetch "http://0xa.0.0.1/"
+//     reaches 10.0.0.1.
+//   - IPv6 zone-scoped literals, via stripZone above.
 //
-// A host that is neither is reported as a name, never as an address: see
-// legacyIPv4Candidate for why no DNS name can reach the legacy parser.
-func literalIP(host string) (net.IP, literalKind) {
-	if ip := net.ParseIP(host); ip != nil {
-		return ip, literalAddress
+// ok is false for anything that is not a literal address, and that covers two
+// cases a caller must not confuse:
+//
+//   - A DNS name. Reported as "not an address" so no caller can misread it as
+//     one. legacyIPv4Candidate is what makes that safe: a name cannot have the
+//     all-digits-and-dots shape the legacy parser requires.
+//   - An address-shaped host that denotes nothing ("010.0.0.1", "1.2.3.4.5").
+//     Its two readings disagree about a private range, so refusing to resolve it
+//     is deliberate. Callers wanting AllowFetch's verdict — which denies these
+//     on ambiguity — should call AllowFetch, not this.
+func ParseHostIP(host string) (net.IP, bool) {
+	h := stripZone(host)
+	if ip := net.ParseIP(h); ip != nil {
+		return ip, true
 	}
-	if i := strings.IndexByte(host, '%'); i >= 0 {
-		// Strip the zone and re-run the same parse rather than waiving the
-		// check. The remainder is re-tested for a legacy IPv4 shape below, so
-		// "2130706433%foo" cannot use a zone to smuggle an address past.
-		host = host[:i]
-		if ip := net.ParseIP(host); ip != nil {
-			return ip, literalAddress
-		}
+	// The candidate gate is currently redundant: parseLegacyIPv4 applies the
+	// same per-part strictness and so cannot succeed on a host this rejects.
+	// Verified equivalent over 400k generated hosts. It is kept anyway, and
+	// deliberately, because it is what makes the property LOCAL — the
+	// guarantee that no DNS name is ever read as an address should not depend
+	// on a sibling function's internals staying strict. Removing this line is
+	// a change in where the safety argument lives, not in what the code does.
+	if !legacyIPv4Candidate(h) {
+		return nil, false
 	}
-	if !legacyIPv4Candidate(host) {
-		return nil, literalDNSName
-	}
-	ip, ok := parseLegacyIPv4(host)
+	ip, ok := parseLegacyIPv4(h)
 	if !ok {
-		return nil, literalAmbiguous
+		return nil, false
 	}
-	return ip, literalAddress
+	return ip, true
 }
 
 // legacyIPv4Candidate reports whether host is shaped like a legacy
