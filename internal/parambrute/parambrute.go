@@ -134,6 +134,19 @@ type ParamFinding struct {
 	Reason       string
 }
 
+// defaultConcurrency is the fixed request concurrency used when the caller
+// does not configure one.
+//
+// parambrute's workers issue network requests, so the useful concurrency is
+// bound by how many requests the target will tolerate, not by how much CPU the
+// local host has. This is deliberately NOT scanner.EffectiveWorkers, whose
+// fallback is max(runtime.NumCPU(), 2): that helper sizes a CPU-bound pool,
+// and reusing it here would make parambrute's default vary with the host's
+// core count — a behavior change, and probably a worse default besides.
+// Importing internal/scanner for a five-line helper would also be worse
+// coupling than a named constant is.
+const defaultConcurrency = 10
+
 // Config for parameter brute-force
 type Config struct {
 	Client      *http.Client
@@ -150,7 +163,7 @@ type Config struct {
 func DefaultConfig(client *http.Client) Config {
 	return Config{
 		Client:      client,
-		Concurrency: 10,
+		Concurrency: defaultConcurrency,
 		Timeout:     10 * time.Second,
 		Wordlist:    commonParams,
 		MaxParams:   500,
@@ -166,7 +179,7 @@ func BruteForce(rawURL string, cfg Config) []ParamFinding {
 		cfg.Client = &http.Client{Timeout: cfg.Timeout}
 	}
 	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = 10
+		cfg.Concurrency = defaultConcurrency
 	}
 	if len(cfg.Wordlist) == 0 {
 		cfg.Wordlist = commonParams
