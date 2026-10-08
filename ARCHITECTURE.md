@@ -700,7 +700,7 @@ syck ruletest
 | Package | Coverage | Tests |
 |---------|----------|-------|
 | `fileutil` | 100% | 88 tests (extensions, IsTextExt, edge cases) |
-| `jsanalysis` | 98.7% | 38 tests (env vars, imports, secrets, config URLs) |
+| `jsanalysis` | 98.7% | 49 tests (env vars, imports, secrets, config URLs, loopback extractor) |
 | `sourcemap` | 95.6% | 45 tests (VLQ, parsing, extraction, truncation) |
 | `parambrute` | 86.4% | 38 tests (rate limiter, brute force, isInteresting) |
 | `scanner` | — | Streaming tests: mega-line, ErrTooLong fallback, standard file |
@@ -710,17 +710,19 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 3, 5, 6, 8 and 9 below remain open, plus the residual link-local asymmetry recorded under item 9. **The
+Items 5, 6 and 8 below remain open, plus the residual link-local asymmetry
+recorded under item 9 and the residual placeholder shape under item 7. **The
 numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
-repointing at a different defect. Item 4 and item 10 are CLOSED entries kept
-for the same reason. Item 7 is CLOSED by Batch 9, but not empty: it carries one
-OPEN residual (`IsFalsePositiveSecret` is unreachable on the multi-line path),
-so the number is kept in place rather than removed.
+repointing at a different defect. Items 3, 4, 7, 9 and 10 are CLOSED entries
+kept for the same reason. Item 7 is CLOSED by Batch 9 but not empty: it carries
+one OPEN residual (`IsFalsePositiveSecret` is unreachable on the multi-line
+path), so the number is kept in place rather than removed. Item 6 is OPEN by
+**explicit decision**, not by neglect — see its entry.
 
-Item 3 is pinned by a test and intentionally NOT fixed, because fixing it
-changes behavior. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
+Item 3 was closed by Batch 10, which changed behavior exactly as this entry
+predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
 is recorded because a spec shipped a false claim that the work was done. Items
 6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent*
 across paths and deliberately stopped there, so these three remain recorded
@@ -761,9 +763,46 @@ See `CHANGELOG.md` `[Unreleased]` for the user-visible effect of item 1:
 `--git-history` now reports secrets that were committed and later deleted, so
 finding counts go **up**.
 
-One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanExtraction`:
+Batch 10 closed item 3 — the last `internal/jsanalysis` defect on this list.
+The two halves of that entry (anchoring, vocabulary) were one edit, because a
+widened token list on an unanchored pattern only trades under-matches for wrong
+findings; its user-visible table, including the class whose reported string
+changed rather than its count, is in `CHANGELOG.md` `[Unreleased]`.
 
-3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
+One `internal/jsanalysis` defect was pinned here by Batch 5's
+`TestLocalhostRE_UnanchoredSubspanExtraction`, which froze the subspan carve-up
+as "pinning, not endorsement" precisely so the fix would be a visible edit.
+Batch 10 made that edit; the resulting behavior is pinned by
+`TestLocalhostRE_SixInputs`:
+
+3. **CLOSED — `localhostRE` under-matched loopback hosts and carved subspans out
+   of longer ones.** The regex at `internal/jsanalysis/analyze.go` knew only
+   three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and
+   required a `:port`, so a JS config value containing `LOCALHOST:8080`,
+   `127.0.0.2:8080` or `[::1]:8080` yielded no `InternalURLs` finding — even
+   though `internalurl.IsLoopback` accepts all three and `internal/recon`'s
+   `classifyInternal` already reports them for URLs. The fix was NOT a one-line
+   swap to `IsLoopback`: the same regex was **unanchored**, so it emitted a
+   *subspan* of a longer host (`my-localhost:8080` produced the finding
+   `localhost:8080`), which a host-parsing predicate rejects. Vocabulary and
+   anchoring were therefore fixed in the same edit, by Batch 10, which widened
+   the token list to `127/8`, `[::1]`, `0.0.0.0` and any-case `localhost` while
+   anchoring the match at a host-token boundary so the whole host is reported.
+   Findings go **up** for three classes and the reported string **changes** for a
+   fourth (`my-localhost:8080` instead of `localhost:8080`); the user-visible
+   table is in `CHANGELOG.md` `[Unreleased]`. Residue, deliberately not fixed:
+   **delegation to `internalurl.IsLoopback` is still not done** — the extractor
+   emits whole hosts now, which was Batch 5's precondition, but `IsLoopback`
+   answers false for the hosts this extractor reports whole (`my-localhost`,
+   `foo.localhost`) and accepts spellings it has no reason to emit (portless
+   `localhost`, `127.1`, `2130706433`, a zoned `[::1%25lo]`), so delegating
+   moves findings in both directions and needs its own CHANGELOG'd decision.
+   See the tripwire comment at the declaration. Pinned by
+   `TestLocalhostRE_SixInputs`, `TestLocalhostRE_AnchoringBounds`,
+   `TestLocalhostRE_VocabularyBounds` and `TestLocalhostRE_UnchangedShapes`
+   (Batch 5's `TestLocalhostRE_UnanchoredSubspanExtraction` was rewritten as
+   `TestLocalhostRE_NeighbouringSpellings`, keeping only the rows the fix did
+   not touch).
 
 4. **CLOSED — `netguard`'s `AllowFetch` admitted zone-scoped IPv6 and legacy
    `inet_aton` IPv4 spellings as if they were plain public hosts.** Fixed by

@@ -7,6 +7,21 @@ import (
 	"unicode/utf8"
 )
 
+// The loopback host vocabulary localhostRE recognizes, as a pattern fragment
+// rather than a compiled regexp, because it is assembled into two patterns.
+//
+//	loopbackOctet  one decimal IPv4 octet, 0-255, no leading zeros
+//	loopbackHost  the name in any case, all of 127/8 as dotted quads,
+//	              the unspecified address, and bracketed ::1
+//
+// The octets are bounded deliberately. An unbounded \d{1,3} would also accept
+// "127.300.1.1:8080", which is not an address and not loopback; the bound is
+// what keeps the widened vocabulary from inventing findings.
+const (
+	loopbackOctet = `(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])`
+	loopbackHost  = `(?:localhost|127\.` + loopbackOctet + `(?:\.` + loopbackOctet + `){2}|0\.0\.0\.0|\[::1\])`
+)
+
 var (
 	// Environment variable access patterns
 	envVarRE           = regexp.MustCompile(`process\.env\.([A-Z_][A-Z0-9_]*)`)
@@ -44,44 +59,68 @@ var (
 	// Internal/hidden service patterns
 	internalServiceRE = regexp.MustCompile(`(?i)(?:internal|private|corp|intranet|staging|dev|sandbox|test)\s*[:=]\s*['"]([^'"]+)['"]`)
 
-	// localhostRE is deliberately NOT delegated to internalurl.IsLoopback. Two
-	// properties block the swap, both pinned by
-	// TestLocalhostRE_UnanchoredSubspanExtraction:
+	// localhostRE extracts loopback service addresses — a loopback host token
+	// immediately followed by :port — from raw JS source. It is deliberately NOT
+	// delegated to internalurl.IsLoopback. Batch 10 (ARCHITECTURE.md section 15
+	// item 3) fixed the two properties that used to block the swap; the residue
+	// is recorded here so it does not have to be re-derived.
 	//
-	//  1. It is unanchored, so it extracts a SUBSPAN of a longer host and emits
-	//     the substring: "http://my-localhost:8080/" yields the finding
-	//     "localhost:8080". IsLoopback parses a host and answers false for
-	//     "my-localhost:8080", so delegating drops the finding — the span the
-	//     current code emits was never a host.
-	//  2. It knows three case-sensitive spellings and requires a :port.
-	//     IsLoopback knows 127/8, ::1, the unspecified address and any case, and
-	//     requires no port, so delegating moves findings in both directions.
+	// WHAT THE FIX CHANGED. The pattern used to be unanchored, case-sensitive,
+	// and three spellings wide:
 	//
-	// Recovering the port requirement means wrapping the predicate in a
-	// host:port tokenizer, which is the regex this refactor was meant to
-	// remove. IsLoopback's wider vocabulary is already covered where a parsed
-	// host exists: internal/recon's classifyInternal consumes full URLs. Keep
-	// this as an extractor; see internal/internalurl/internalurl.go.
+	//	(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+
 	//
-	// Neither property above is a considered policy. Both are limitations of an
-	// unanchored literal regex, and point 2 is a real under-match: it misses
-	// LOCALHOST:8080, 127.0.0.2:8080 and [::1]:8080. Widening it is coupled to
-	// the subspan losses in point 1, so it needs its own CHANGELOG'd task —
-	// tracked in ARCHITECTURE.md section 15 — and must not be folded into a
-	// refactor that promises "no behavior change".
+	// which carved a SUBSPAN out of a longer host: "http://my-localhost:8080/"
+	// produced the finding "localhost:8080" — a string that is not a host, and
+	// one IsLoopback answers false for. Vocabulary and anchoring were widened in
+	// the same edit, because a widened token list on an unanchored pattern trades
+	// under-matches for wrong findings and still never emits a whole host:
 	//
-	// TRIPWIRE: revisiting this decision requires an ANCHORING change, not a
-	// vocabulary one. Widening IsLoopback's vocabulary does not unblock the
-	// tokenizing route: tokenizing "my-localhost:8080" yields host "my-localhost",
-	// so delegation would emit the finding "my-localhost:8080" where today's
-	// regex emits "localhost:8080" — a different finding value either way. The
-	// anchoring defect is orthogonal to what the predicate accepts. The tripwire
-	// is therefore: if this extractor is ever changed to emit WHOLE hosts (host
-	// plus optional port) rather than regex subspans, re-evaluate delegation then;
-	// until then a predicate change alone is not a reason to revisit it. The test
-	// named above pins this package's output and will NOT catch such a change:
-	// it does not check the predicate's answer.
-	localhostRE = regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+`)
+	//  - ANCHORED. The match begins at the start of the line or after a
+	//    character that cannot occur inside a host token ([^A-Za-z0-9._-]), and
+	//    it consumes any host labels preceding the loopback token instead of
+	//    skipping them, so the finding is the whole host the author typed:
+	//    "my-localhost:8080", never the carved "localhost:8080". A loopback token
+	//    that is not the final label of its host ("localhost.example.com:8080")
+	//    no longer matches at all, for the same reason.
+	//  - WIDENED. "localhost" in any case, all of 127/8 as dotted quads,
+	//    "0.0.0.0" and bracketed "[::1]" (see loopbackHost). The :port
+	//    requirement and the port shape are unchanged: :port is what makes this
+	//    a service-address finding rather than a bare hostname, so a portless
+	//    "localhost" stays out.
+	//
+	// Note the boundary class is a character class, not \b. \b would NOT have
+	// fixed the carve-up: both "-" and "." are non-word characters, so \b
+	// happily matches at the seam in "my-localhost" and "foo.localhost".
+	//
+	// The prefix group is (?:[A-Za-z0-9_-]*[.-])* — zero or more labels each
+	// followed by a separator. The zero-width case is load-bearing: a leading
+	// separator (".localhost:8080") is part of the host token the author typed,
+	// and dropping it would lose that finding rather than widen it.
+	//
+	// DELEGATION IS CLOSER, AND STILL NOT DONE. Emitting whole hosts removes the
+	// reason Batch 5 recorded for refusing the swap, but not every reason.
+	// IsLoopback parses a host and answers false for hosts this extractor
+	// deliberately reports whole — "my-localhost", "foo.localhost" — so
+	// delegating would DROP those findings; and IsLoopback accepts spellings
+	// this extractor has no reason to emit (portless "localhost", "127.1",
+	// "2130706433", a zoned "[::1%25lo]"), so delegating would also ADD
+	// findings. It would still need a host:port tokenizer to find candidate
+	// tokens, so this regex does not disappear — only its vocabulary half
+	// would. That makes delegation its own CHANGELOG'd decision, not a cleanup.
+	//
+	// TRIPWIRE: do not read Batch 10 as unblocking the swap. Batch 5's condition
+	// — "re-evaluate delegation once this extractor emits whole hosts" — is now
+	// MET, which is precisely why the answer is written down instead of left
+	// implied: it is still NO, for the two deltas above. Revisit when a change is
+	// prepared to accept them and CHANGELOG them, or when a caller wants a
+	// classifier rather than an extractor, in which case internal/recon's
+	// classifyInternal — which already consumes IsLoopback over whole URLs — is
+	// the model to copy. A change to IsLoopback's vocabulary alone is still not
+	// a reason to revisit. TestLocalhostRE_SixInputs pins this package's output;
+	// it does not check the predicate's answer, so it will not catch a delegation
+	// in either direction.
+	localhostRE = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9._-])((?:[A-Za-z0-9_-]*[.-])*` + loopbackHost + `:\d+)`)
 
 	// Sensitive file references
 	sensitiveFileRE = regexp.MustCompile(`['"]([^'"]*(?:\.env|\.key|\.pem|\.cert|\.p12|\.pfx|\.jks|\.keystore|credentials?\.json|secrets?\.json|service[_-]?account)[^'"]*)['"]`)
@@ -230,7 +269,11 @@ func AnalyzeJS(content string, filePath string) *AnalysisResult {
 			result.InternalURLs = appendUnique(result.InternalURLs, m[1])
 		}
 		for _, m := range localhostRE.FindAllStringSubmatch(line, -1) {
-			result.InternalURLs = appendUnique(result.InternalURLs, m[0])
+			// m[1], not m[0]: when the match is preceded by a host token
+			// boundary character, m[0] carries that character and m[1] is the
+			// whole host plus port. Emitting m[0] would report a leading quote,
+			// slash or space as part of the finding.
+			result.InternalURLs = appendUnique(result.InternalURLs, m[1])
 		}
 
 		// Sensitive file references

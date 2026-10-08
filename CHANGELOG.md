@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**)
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings)
 
-This section carries seven batches, so the title names them and flags the four
+This section carries eight batches, so the title names them and flags the four
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -21,7 +21,11 @@ one deliberate exception, stated in its own entry: it restores CRITICAL
 private-key blocks on the decoded path, which is a count going **up** for one
 class. Batch 9 removes false positives on the fourth path (multi-line) and
 keeps the same private-key blocks reported on it, so no CRITICAL class is
-lost.
+lost. Batch 10 also goes **up** for three classes of JavaScript-loopback
+config value, and additionally **changes the string reported** for a fourth
+class — a loopback token embedded in a longer hostname now reports the whole
+host instead of a carved-up substring. Diffing on that emitted substring needs
+a read of its table, not just a count.
 
 ### Changed
 
@@ -614,6 +618,72 @@ lost.
   fewer findings than before**, on a default-on path. No real key-shaped span is
   affected: every multi-line span the builtin rules can match on a realistic
   input clears the floor, and the private-key rules are untouched.
+
+### Changed
+
+- **Batch 10 — the JavaScript analyzer's loopback extractor now recognizes the
+  whole loopback set and reports whole hosts.** `localhostRE` in
+  `internal/jsanalysis/analyze.go` knew three spellings (`localhost`,
+  `127.0.0.1`, `0.0.0.0`), was case-sensitive, required `127.0.0.1` exactly
+  rather than `127/8`, had no IPv6 rule, and was unanchored — so it carved a
+  *subspan* out of a longer host. Findings go **up** for three classes and the
+  reported string **changes** for a fourth. The two halves are one change: a
+  widened token list on an unanchored pattern would only have traded
+  under-matches for wrong findings.
+
+  The pattern is now:
+
+  ```
+  (?i)(?:^|[^A-Za-z0-9._-])((?:[A-Za-z0-9_-]*[.-])*LOOPBACK:\d+)
+  ```
+
+  anchored at a host-token boundary (a character class, **not** `\b` — both `-`
+  and `.` are non-word characters, so `\b` still matches at the seam in
+  `my-localhost` and `foo.localhost`), with the loopback vocabulary `localhost`
+  in any case, all of `127/8` as dotted quads with `0`-`255` octets, `0.0.0.0`,
+  and bracketed `[::1]`. The `:port` requirement and the port shape are
+  unchanged — it is what makes this a service-address finding rather than a bare
+  hostname.
+
+  | Input | Before | After |
+  |---|---|---|
+  | `http://my-localhost:8080/` | `localhost:8080` | `my-localhost:8080` |
+  | `var db = "LOCALHOST:8080"` | *(nothing)* | `LOCALHOST:8080` |
+  | `var db = "127.0.0.2:8080"` | *(nothing)* | `127.0.0.2:8080` |
+  | `var db = "[::1]:8080"` | *(nothing)* | `[::1]:8080` |
+  | `var db = "localhost:8080"` | `localhost:8080` | `localhost:8080` |
+  | `var db = "example.com:8080"` | *(nothing)* | *(nothing)* |
+
+  **Read the first row before diffing finding counts.** A loopback token
+  embedded in a longer hostname is no longer carved into a subspan: the
+  reported string changes from `localhost:8080` to the whole host the author
+  typed, `my-localhost:8080`. Anyone keying on the emitted substring — a
+  post-processing script, a suppression rule, a golden file — will see a diff.
+  The finding is not lost, only renamed, for `foo.localhost:8080`,
+  `my-localhost:8080`, and `.localhost:8080` alike.
+
+  Anchoring removes one smaller class outright. A token glued to the *front* of
+  a label is not a host, so `notlocalhost:8080` no longer reports
+  `localhost:8080` — that was a false positive, and the count for it goes
+  **down**. Likewise `localhost.example.com:8080`: the loopback label is not the
+  final label of the host, so the whole host is a public one and nothing is
+  reported.
+
+  Both halves were verified by differential run over 52,920 generated
+  token/separator/port combinations against the previous pattern: 8,232 inputs
+  gained a finding (all three widened classes), 4,410 changed the reported
+  string (all whole-host), 1,372 lost one (all glued-token carve-ups). No other
+  input class moved. `TestLocalhostRE_SixInputs`,
+  `TestLocalhostRE_AnchoringBounds`, `TestLocalhostRE_VocabularyBounds` and
+  `TestLocalhostRE_UnchangedShapes` pin the table above; the before-picture is
+  preserved in the table inside `TestLocalhostRE_SixInputs`.
+
+  `internalurl.IsLoopback` accepts a strictly larger vocabulary than this
+  extractor does — portless `localhost`, `127.1`, `2130706433`, a zoned
+  `[::1%25lo]` — and still answers false for `my-localhost`. **Delegation is
+  closer, and still not done**; it would move findings in both directions and
+  need its own entry. See the tripwire comment at the declaration and
+  `ARCHITECTURE.md` §15 item 3.
 
 ### Benchmarks
 
