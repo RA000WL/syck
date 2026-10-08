@@ -402,6 +402,20 @@ func scanReconstructed(
 		}
 		matches := rule.MatchAll(reconstructed)
 		for _, m := range matches {
+			// Context-check text is `reconstructed` — this path's "line".
+			// A reconstructed fragment is synthesized from two or more JS lines
+			// (`a + b`, `['x','y'].join('')`, a template's static part), so no
+			// single source line exists to check: lineno records only where the
+			// fragment started, and the secret usually lives in the *other*
+			// source line. `reconstructed` is the unit this path scans, it is
+			// what the rules were just matched against, and it is the closest
+			// analog of the plain path's `line` (helpers.go:529), which is also
+			// both the match target and the context text. Checking a narrower
+			// slice — the match alone, or a source line — would make this path
+			// STRICTER than the plain path, which is not what this batch claims.
+			if rule.RequiresContext && !hasContextKeyword(reconstructed, rule.ContextKeywords) {
+				continue
+			}
 			var secret string
 			if m[1] <= len(reconstructed) {
 				secret = reconstructed[m[0]:m[1]]
@@ -414,6 +428,19 @@ func scanReconstructed(
 			// global 2.0 floor applies otherwise. Same helper the decoded and
 			// plain-file scan paths use, so one rule cannot have two floors.
 			if e < decoder.RuleEntropyFloor(rule.EntropyThreshold) {
+				continue
+			}
+
+			// Same false-positive filters the plain-file path applies after its
+			// own floor (helpers.go:555-563), in the same order. All four are
+			// suppression-only.
+			if entropy.IsFalsePositiveSecret(secret) {
+				continue
+			}
+			if entropy.IsFalsePositiveToken(secret) {
+				continue
+			}
+			if entropy.IsFalsePositiveEmail(secret) {
 				continue
 			}
 
@@ -430,4 +457,18 @@ func scanReconstructed(
 		}
 	}
 	return findings
+}
+
+// hasContextKeyword is a copy of scanner.lineHasContextKeyword (stage_rule.go:44),
+// which this package cannot call: internal/scanner imports internal/jsrecon, so
+// importing it back would be an import cycle. Same case-insensitive substring
+// test over the rule's own context_keywords.
+func hasContextKeyword(text string, keywords []string) bool {
+	lower := strings.ToLower(text)
+	for _, kw := range keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
 }

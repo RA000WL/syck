@@ -86,6 +86,18 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 			}
 		}
 
+		// Context-check text for every rule below: the key path plus the value,
+		// which is this path's "line". A JSON value has no line of its own, but
+		// the source line a plain file would have offered at this point is
+		// `{"<key>": "<value>"}` — BOTH halves. Checking only the value would be
+		// narrower than the plain path (whose line carries the key) and checking
+		// only the key path would be wider (it would ignore the value's own
+		// surroundings). The plain path checks the same text it matches rules
+		// against (helpers.go:529), so this keeps the two paths comparable rather
+		// than making this one stricter. Computed once here, tested per match
+		// where helpers.go:529 tests it.
+		ctxText := keyPath + " " + v
+
 		// Run all rules against the value
 		for _, rule := range rs.Rules {
 			sev := rule.SeverityInt
@@ -97,6 +109,9 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 			}
 			matches := rule.MatchAll(v)
 			for _, m := range matches {
+				if rule.RequiresContext && !hasContextKeyword(ctxText, rule.ContextKeywords) {
+					continue
+				}
 				var secret string
 				if m[1] <= len(v) {
 					secret = v[m[0]:m[1]]
@@ -109,6 +124,20 @@ func scanValue(value interface{}, keyPath string, path string, rs *rules.RuleSet
 				// gate as the secret-key-NAME heuristic above, which has no rule
 				// behind it and keeps its own 3.0.
 				if e < decoder.RuleEntropyFloor(rule.EntropyThreshold) {
+					continue
+				}
+				// Same false-positive filters the plain-file path applies after
+				// its own floor (helpers.go:555-563), in the same order. All four
+				// are suppression-only. Scoped to this ruleset branch: the
+				// key-name heuristic above has no matched span and no rule
+				// context_keywords, so it is untouched by design.
+				if entropy.IsFalsePositiveSecret(secret) {
+					continue
+				}
+				if entropy.IsFalsePositiveToken(secret) {
+					continue
+				}
+				if entropy.IsFalsePositiveEmail(secret) {
 					continue
 				}
 				*findings = append(*findings, finding.Finding{
@@ -135,6 +164,20 @@ func lastKey(keyPath string) string {
 		return keyPath[idx:]
 	}
 	return keyPath
+}
+
+// hasContextKeyword is a copy of scanner.lineHasContextKeyword (stage_rule.go:44),
+// which this package cannot call: internal/scanner imports internal/json_scanner,
+// so importing it back would be an import cycle. Same case-insensitive substring
+// test over the rule's own context_keywords.
+func hasContextKeyword(text string, keywords []string) bool {
+	lower := strings.ToLower(text)
+	for _, kw := range keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, max int) string {

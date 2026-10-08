@@ -10,9 +10,9 @@ import (
 	"github.com/RA000WL/syck/internal/rules"
 )
 
-// Batch 8 Task 1 — characterization of the two filters scanDecodedChunk is
-// MISSING. The plain-file path (internal/scanner/helpers.go:529-564) applies, in
-// this order:
+// Batch 8 Task 1 — characterization of the two filters scanDecodedChunk was
+// MISSING, and Task 2's gate on the fix. The plain-file path
+// (internal/scanner/helpers.go:529-564) applies, in this order:
 //
 //	if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) { continue }
 //	... secret extraction, severity, entropy floor ...
@@ -20,11 +20,13 @@ import (
 //	if entropy.IsFalsePositiveToken(secret)  { continue }
 //	if entropy.IsFalsePositiveEmail(secret)  { continue }
 //
-// scanDecodedChunk (pipeline.go:167-176) applies the floor, then Token at 171
-// and Email at 174. It is MISSING only IsFalsePositiveSecret and RequiresContext,
-// so this file characterizes those two and pins the two that already exist as
-// "suppressed before and after" — that is the guard against double-applying
-// them.
+// scanDecodedChunk (pipeline.go:167-176) applied the floor, then Token at 171
+// and Email at 174. It was MISSING only IsFalsePositiveSecret and
+// RequiresContext, so this file characterizes those two and pins the two that
+// already existed as "suppressed before AND after" — that is the guard against
+// double-applying them. Task 2 closed the gap; the behavioral tests at the
+// bottom pin the suppressed/survives split, and the premise table still shows
+// exactly which filter removes which span.
 //
 // WHAT `secret` IS. `rule.MatchAll` wraps regexp.FindAllStringIndex, so it
 // returns only [start, end] of the whole match over the DECODED CHUNK — never a
@@ -262,34 +264,39 @@ func decodedReportsSpan(t *testing.T, fx decodedFPFixture) bool {
 	return false
 }
 
-// TestDecodedPlaceholderValueMatchIsReported pins CURRENT behavior for the
-// IsFalsePositiveSecret gap: the decoded chunk's
-// secret='user_name_d9f3a7c2b8e5d4' span is emitted even though it is a quoted
-// snake_case key name.
-func TestDecodedPlaceholderValueMatchIsReported(t *testing.T) {
+// TestDecodedPlaceholderValueMatchIsSuppressed guards IsFalsePositiveSecret,
+// which this path was missing. The decoded chunk's
+// secret='user_name_d9f3a7c2b8e5d4' span was REPORTED before the filter landed
+// — that was the characterization recorded in the previous commit. Three rules
+// match that span (terraform_sensitive_var, generic_secret, dotenv_secret);
+// after the fix two are dropped by RequiresContext and generic_secret by the FP
+// filter, and the dedup means whichever fired first used to be the only one a
+// user saw.
+func TestDecodedPlaceholderValueMatchIsSuppressed(t *testing.T) {
 	fx := decodedFixtureByName(t, "placeholder_value")
-	if !decodedReportsSpan(t, fx) {
-		t.Fatalf("scanDecodedChunk reported no finding for span %q (decoded chunk %q). Characterization "+
-			"changed: either the fixture stopped matching, or the path already applies "+
-			"IsFalsePositiveSecret. Re-measure before trusting this test.", fx.span, fx.text)
+	if decodedReportsSpan(t, fx) {
+		t.Fatalf("span %q (decoded chunk %q) still reported: IsFalsePositiveSecret must drop a quoted "+
+			"snake_case key name sitting in a secret-shaped slot", fx.span, fx.text)
 	}
 }
 
-// TestDecodedContextlessMatchIsReported pins CURRENT behavior for the
-// RequiresContext gap.
-func TestDecodedContextlessMatchIsReported(t *testing.T) {
+// TestDecodedContextlessMatchIsSuppressed guards the RequiresContext guard,
+// checked against the decoded chunk (see the context-text decision recorded at
+// the call site).
+func TestDecodedContextlessMatchIsSuppressed(t *testing.T) {
 	fx := decodedFixtureByName(t, "contextless_auth")
-	if !decodedReportsSpan(t, fx) {
-		t.Fatalf("context-less span %q (decoded chunk %q) was not reported: characterization changed",
-			fx.span, fx.text)
+	if decodedReportsSpan(t, fx) {
+		t.Fatalf("context-less span %q (decoded chunk %q) still reported: the decoded text carries "+
+			"none of the rule's context keywords %v, so RequiresContext should have dropped it",
+			fx.span, fx.text, decodedKeywordList(t, fx))
 	}
 }
 
 // TestDecodedTokenAndEmailAlreadyApplied pins the two filters this path already
-// has (pipeline.go:171 and :174). They suppress these spans today, before this
-// batch, and must keep suppressing them after — this is the regression guard for
-// someone "completing" the filter list here and double-applying them, and for a
-// future edit that deletes the existing calls believing the batch owns them.
+// had (pipeline.go:171 and :174). They suppressed these spans before this batch
+// and must keep suppressing them after — this is the regression guard against
+// double-applying them when completing the filter list, and against a future
+// edit that deletes the existing calls believing the batch owns them.
 func TestDecodedTokenAndEmailAlreadyApplied(t *testing.T) {
 	for _, name := range []string{"hyphenated_token", "image_filename_email"} {
 		fx := decodedFixtureByName(t, name)
@@ -301,13 +308,22 @@ func TestDecodedTokenAndEmailAlreadyApplied(t *testing.T) {
 }
 
 // TestDecodedControlsReported pins the controls that must keep producing a
-// finding both before and after the filters land.
+// finding now that the filters are live. context_keyword_auth is the negative
+// control for the context guard: the decoded chunk carries "Authorization", so
+// the same match that is dropped without it is kept with it.
 func TestDecodedControlsReported(t *testing.T) {
 	for _, name := range []string{"context_keyword_auth", "survivor_stripe", "env_generic_secret"} {
 		fx := decodedFixtureByName(t, name)
 		if !decodedReportsSpan(t, fx) {
-			t.Fatalf("%s: control span %q (decoded chunk %q) must be reported before AND after "+
-				"the filters land", fx.name, fx.span, fx.text)
+			t.Fatalf("%s: control span %q (decoded chunk %q) stopped being reported: the filters "+
+				"suppressed a match that clears the floor and trips none of them",
+				fx.name, fx.span, fx.text)
 		}
 	}
+}
+
+func decodedKeywordList(t *testing.T, fx decodedFPFixture) []string {
+	t.Helper()
+	rs := decodedDefaultRules(t)
+	return decodedRule(t, rs, fx.rule).ContextKeywords
 }

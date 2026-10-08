@@ -157,6 +157,17 @@ func scanDecodedChunk(
 		}
 		matches := rule.MatchAll(decodedText)
 		for _, m := range matches {
+			// Context-check text is the decoded chunk — this path's "line". The
+			// source line is the encoded blob, whose keywords are whatever the
+			// caller happened to write beside it, and the secret is usually not
+			// on that line at all in any recognizable form; the decoded chunk is
+			// both the text the rules are matched against and the text a human
+			// sees once the blob is decoded. The plain path checks the same text
+			// it matches rules against (helpers.go:529), so this keeps the two
+			// paths comparable rather than making this one stricter.
+			if rule.RequiresContext && !hasContextKeyword(decodedText, rule.ContextKeywords) {
+				continue
+			}
 			var secret string
 			if m[1] <= len(decodedText) {
 				secret = decodedText[m[0]:m[1]]
@@ -168,6 +179,13 @@ func scanDecodedChunk(
 			if e < RuleEntropyFloor(rule.EntropyThreshold) {
 				continue
 			}
+			if entropy.IsFalsePositiveSecret(secret) {
+				continue
+			}
+			// Token and Email were already applied on this path before this
+			// batch; they stay exactly where they were, so each filter runs once
+			// and the whole block reads in the plain path's order
+			// (helpers.go:555-563).
 			if entropy.IsFalsePositiveToken(secret) {
 				continue
 			}
@@ -198,6 +216,20 @@ func scanDecodedChunk(
 			})
 		}
 	}
+}
+
+// hasContextKeyword is a copy of scanner.lineHasContextKeyword (stage_rule.go:44),
+// which this package cannot call: internal/scanner imports internal/decoder, so
+// importing it back would be an import cycle. Same case-insensitive substring
+// test over the rule's own context_keywords.
+func hasContextKeyword(text string, keywords []string) bool {
+	lower := strings.ToLower(text)
+	for _, kw := range keywords {
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
 }
 
 // maxDecompressed caps gzip/zlib output so a small hostile input cannot

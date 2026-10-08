@@ -19,9 +19,11 @@ import (
 //	if entropy.IsFalsePositiveToken(secret)  { continue }
 //	if entropy.IsFalsePositiveEmail(secret)  { continue }
 //
-// scanReconstructed applies the entropy floor (decoder.RuleEntropyFloor, since
-// Batch 5) and nothing else. So every finding below is reported here today and
-// is not reported on the plain-file path.
+// scanReconstructed applied the entropy floor (decoder.RuleEntropyFloor, since
+// Batch 5) and nothing else: every span below was reported here while the
+// plain-file path dropped it. Batch 8 closed that gap, and the behavioral
+// tests at the bottom now pin the suppressed/supplied split. The premise table
+// is unchanged, so it still shows exactly which filter removes which span.
 //
 // WHAT `secret` IS. `rule.MatchAll` wraps regexp.FindAllStringIndex, so it
 // returns only [start, end] of the whole match — never a captured value. The
@@ -65,9 +67,9 @@ import (
 //     reconstructed text, and none of the three FP filters fire on the span, so
 //     only RequiresContext can reject it.
 //
-// CONTROLS (must be reported before and after the change): reconCtxKeywordAuth
-// is the same match with "Authorization: " in front of it, reconSurvivorStripe
-// is a high-entropy threshold-less key that trips no FP filter, and
+// CONTROLS (reported before AND after the change): reconCtxKeywordAuth is the
+// same match with "Authorization: " in front of it, reconSurvivorStripe is a
+// high-entropy threshold-less key that trips no FP filter, and
 // reconEnvGenericCtx is the brief's named rule — see the note on it below.
 const (
 	reconFPPlaceholderValue = "secret='user_name_d9f3a7c2b8e5d4'"
@@ -243,7 +245,8 @@ func TestReconFPFixturePremises(t *testing.T) {
 // reconNoContextAuth (basic_auth_header) is used for that instead.
 //
 // What DOES change for env_generic_secret on these paths is the FP filters; the
-// fixture above shows it is FP-clean, so it is expected to survive.
+// fixture above shows it is FP-clean, so it is expected to survive — and it does
+// (TestReconstructControlsReported).
 func TestReconEnvGenericSecretCanNeverBeContextless(t *testing.T) {
 	rs := reconDefaultRules(t)
 	r := reconRule(t, rs, "env_generic_secret")
@@ -270,55 +273,63 @@ func reconFindingsFor(findings []finding.Finding, ruleSuffix string) []finding.F
 	return out
 }
 
-// reconReported drives scanReconstructed through ReconstructAndScan and reports
-// whether the fixture's rule produced a finding.
-func reconReported(t *testing.T, fx reconFixture) bool {
+// reconSuppressed drives scanReconstructed through ReconstructAndScan and
+// reports whether the fixture's rule produced a finding.
+func reconSuppressed(t *testing.T, fx reconFixture) bool {
 	t.Helper()
 	rs := reconDefaultRules(t)
 	got := ReconstructAndScan(jsReconstructedTo(fx.text), "app.js", rs, finding.SeverityLow)
 	return len(reconFindingsFor(got, fx.rule)) > 0
 }
 
-// TestReconstructFPShapedMatchesAreReported pins CURRENT behavior: scanReconstructed
-// applies the entropy floor and none of the three FP filters, so each
-// FP-shaped span is reported here even though the plain-file path would drop
-// it. Every row below is expected to flip to "suppressed" once the filters are
-// adopted on this path.
-func TestReconstructFPShapedMatchesAreReported(t *testing.T) {
+// TestReconstructFPShapedMatchesAreSuppressed guards the three false-positive
+// filters added to scanReconstructed (mirroring helpers.go:555-563). Each of
+// these spans was REPORTED before the filters landed — that was the
+// characterization recorded in the previous commit, and the fixture premises
+// above still assert exactly which filter rejects each one and why.
+func TestReconstructFPShapedMatchesAreSuppressed(t *testing.T) {
 	for _, name := range []string{"placeholder_value", "hyphenated_token", "image_filename_email"} {
 		fx := reconFixtureByName(t, name)
-		if !reconReported(t, fx) {
-			t.Fatalf("%s: scanReconstructed reported no %s finding for %q. Characterization changed: "+
-				"either the fixture stopped matching, or the path already applies one of the filters "+
-				"under test. Re-measure before trusting this test.", fx.name, fx.rule, fx.text)
+		if reconSuppressed(t, fx) {
+			t.Fatalf("%s: %s still reported %q (entropy %.4f clears the floor). The FP filter this "+
+				"fixture isolates is no longer applied on this path, or it changed shape.",
+				fx.name, fx.rule, fx.text, entropy.Shannon(fx.span))
 		}
 	}
 }
 
-// TestReconstructContextlessMatchIsReported pins CURRENT behavior for the
-// RequiresContext gap: basic_auth_header matches, nothing in the reconstructed
-// text carries its only context keyword, and the finding is emitted anyway.
-func TestReconstructContextlessMatchIsReported(t *testing.T) {
+// TestReconstructContextlessMatchIsSuppressed guards the RequiresContext guard
+// added to scanReconstructed, checked against the reconstructed text (see the
+// context-text decision recorded at the call site).
+func TestReconstructContextlessMatchIsSuppressed(t *testing.T) {
 	fx := reconFixtureByName(t, "contextless_auth")
-	if !reconReported(t, fx) {
-		t.Fatalf("context-less %s match on %q was not reported: characterization changed",
-			fx.rule, fx.text)
+	if reconSuppressed(t, fx) {
+		t.Fatalf("context-less %s match on %q still reported: the reconstructed text carries none of "+
+			"the rule's context keywords %v, so RequiresContext should have dropped it",
+			fx.rule, fx.text, reconKeywordList(t, fx))
 	}
 }
 
 // TestReconstructControlsReported pins the three controls that must keep
-// producing a finding both before and after the filters land. context_keyword_auth
-// is the negative control for the context guard (same match, keyword present in
-// the text), survivor_stripe is FP-clean, and env_generic_secret carries its
-// keyword inside the match.
+// producing a finding now that the filters are live. context_keyword_auth is
+// the negative control for the context guard (same match, keyword present in
+// the reconstructed text — proving the guard is not simply "drop every
+// requires_context rule"), survivor_stripe is FP-clean, and env_generic_secret
+// carries its keyword inside the match.
 func TestReconstructControlsReported(t *testing.T) {
 	for _, name := range []string{"context_keyword_auth", "survivor_stripe", "env_generic_secret"} {
 		fx := reconFixtureByName(t, name)
-		if !reconReported(t, fx) {
-			t.Fatalf("%s: control %s match on %q must be reported before AND after the filters land",
-				fx.name, fx.rule, fx.text)
+		if !reconSuppressed(t, fx) {
+			t.Fatalf("%s: control %s match on %q stopped being reported: the filters suppressed a "+
+				"match that clears the floor and trips none of them", fx.name, fx.rule, fx.text)
 		}
 	}
+}
+
+func reconKeywordList(t *testing.T, fx reconFixture) []string {
+	t.Helper()
+	rs := reconDefaultRules(t)
+	return reconRule(t, rs, fx.rule).ContextKeywords
 }
 
 func reconFixtureByName(t *testing.T, name string) reconFixture {

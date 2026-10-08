@@ -10,14 +10,20 @@ import (
 )
 
 // Batch 8 Task 1 — characterization of the four filters the RULESET branch of
-// scanValue (scanner.go:90-124) is missing. The plain-file path
-// (internal/scanner/helpers.go:529-564) applies, in this order:
+// scanValue (scanner.go:90-124) was missing, and Task 2's gate on the fix. The
+// plain-file path (internal/scanner/helpers.go:529-564) applies, in this order:
 //
 //	if rule.RequiresContext && !lineHasContextKeyword(line, rule.ContextKeywords) { continue }
 //	... secret extraction, severity, entropy floor ...
 //	if entropy.IsFalsePositiveSecret(secret) { continue }
 //	if entropy.IsFalsePositiveToken(secret)  { continue }
 //	if entropy.IsFalsePositiveEmail(secret)  { continue }
+//
+// That branch applied the entropy floor and none of those four filters, so every
+// FP-shaped span below was reported here while the plain-file path dropped it.
+// Task 2 closed the gap; the behavioral tests at the bottom pin the
+// suppressed/survives split, and the premise table still shows exactly which
+// filter removes which span.
 //
 // The KEY-NAME HEURISTIC at scanner.go:70-87 is deliberately NOT part of this
 // batch (Batch 5 pinned it): it matches on a JSON key name, not on a rule, so
@@ -242,50 +248,60 @@ func jsonFixtureByName(t *testing.T, name string) jsonFPFixture {
 // jsonFixtureRuleName is the rule name scanValue emits: "json_" + rule.Name.
 func jsonFixtureRuleName(fx jsonFPFixture) string { return "json_" + fx.rule }
 
-// jsonReported drives the fixture through ScanJSONFile with its neutral key.
-func jsonReported(t *testing.T, fx jsonFPFixture) bool {
+// jsonReports drives the fixture through ScanJSONFile with its neutral key.
+func jsonReports(t *testing.T, fx jsonFPFixture) bool {
 	t.Helper()
 	rs := jsonDefaultRules(t)
 	content := `{"` + fx.key + `":"` + fx.value + `"}`
 	return countRule(ScanJSONFile("app.json", content, rs, finding.SeverityLow), jsonFixtureRuleName(fx)) > 0
 }
 
-// TestJSONFPShapedMatchesAreReported pins CURRENT behavior: the ruleset branch
-// applies the entropy floor and none of the three FP filters, so each FP-shaped
-// span is reported here even though the plain-file path would drop it. Every row
-// is expected to flip to "suppressed" once the filters are adopted.
-func TestJSONFPShapedMatchesAreReported(t *testing.T) {
+// TestJSONFPShapedMatchesAreSuppressed guards the three false-positive filters
+// added to the ruleset branch of scanValue (mirroring helpers.go:555-563). Each
+// of these spans was REPORTED before the filters landed — that was the
+// characterization recorded in the previous commit, and the fixture premises
+// above still assert exactly which filter rejects each one and why.
+func TestJSONFPShapedMatchesAreSuppressed(t *testing.T) {
 	for _, name := range []string{"placeholder_value", "hyphenated_token", "image_filename_email"} {
 		fx := jsonFixtureByName(t, name)
-		if !jsonReported(t, fx) {
-			t.Fatalf("%s: ScanJSONFile reported no %s finding for value %q. Characterization changed: "+
-				"either the fixture stopped matching, or the path already applies one of the filters "+
-				"under test. Re-measure before trusting this test.",
-				fx.name, jsonFixtureRuleName(fx), fx.value)
+		if jsonReports(t, fx) {
+			t.Fatalf("%s: %s still reported value %q (entropy %.4f clears the floor). The FP filter "+
+				"this fixture isolates is no longer applied on this path, or it changed shape.",
+				fx.name, jsonFixtureRuleName(fx), fx.value, entropy.Shannon(fx.span))
 		}
 	}
 }
 
-// TestJSONContextlessMatchIsReported pins CURRENT behavior for the
-// RequiresContext gap: basic_auth_header matches, neither the JSON key nor the
-// value carries its only context keyword ("authorization"), and the finding is
-// emitted anyway.
-func TestJSONContextlessMatchIsReported(t *testing.T) {
+// TestJSONContextlessMatchIsSuppressed guards the RequiresContext guard added
+// to this path, checked against the JSON key path plus the value (see the
+// context-text decision recorded at the call site).
+func TestJSONContextlessMatchIsSuppressed(t *testing.T) {
 	fx := jsonFixtureByName(t, "contextless_auth")
-	if !jsonReported(t, fx) {
-		t.Fatalf("context-less %s match on value %q was not reported: characterization changed",
-			jsonFixtureRuleName(fx), fx.value)
+	if jsonReports(t, fx) {
+		t.Fatalf("context-less %s match on value %q still reported: neither the key %q nor the value "+
+			"carries any of the rule's context keywords %v, so RequiresContext should have dropped it",
+			jsonFixtureRuleName(fx), fx.value, fx.key, jsonKeywordList(t, fx))
 	}
 }
 
 // TestJSONControlsReported pins the controls that must keep producing a finding
-// both before and after the filters land.
+// now that the filters are live. context_keyword_auth is the negative control
+// for the context guard: the JSON key "authorization" satisfies it even though
+// the value alone does not, which is what makes the key-path-plus-value choice
+// observable rather than accidental.
 func TestJSONControlsReported(t *testing.T) {
 	for _, name := range []string{"context_keyword_auth", "survivor_stripe", "env_generic_secret"} {
 		fx := jsonFixtureByName(t, name)
-		if !jsonReported(t, fx) {
-			t.Fatalf("%s: control %s match on value %q must be reported before AND after the filters land",
+		if !jsonReports(t, fx) {
+			t.Fatalf("%s: control %s match on value %q stopped being reported: the filters suppressed "+
+				"a match that clears the floor and trips none of them",
 				fx.name, jsonFixtureRuleName(fx), fx.value)
 		}
 	}
+}
+
+func jsonKeywordList(t *testing.T, fx jsonFPFixture) []string {
+	t.Helper()
+	rs := jsonDefaultRules(t)
+	return jsonRule(t, rs, fx.rule).ContextKeywords
 }
