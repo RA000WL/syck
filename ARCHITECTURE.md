@@ -415,6 +415,8 @@ type Detector interface {
 | `correlation/` | 8 multi-finding correlation detectors |
 | `correlator/` | SQLite cross-run cache + file mtime cache for incremental scanning |
 | `sqliteutil/` | Shared SQLite open tuning: single-writer cap, WAL, busy timeout |
+| `netguard/` | SSRF gate for secondary fetches; literal private/loopback/link-local IPs and the cloud metadata hostname are denied (no DNS resolution) |
+| `internalurl/` | Single home for the internal/private-URL vocabulary: private host, loopback, cloud metadata, internal host, internal path, sensitive service port |
 | `adaptive/` | Adaptive confidence learning |
 | `endpoints/` | 30+ endpoint extraction patterns + risk scoring |
 | `jsanalysis/` | JavaScript/source analysis (env vars, secrets, internal URLs) |
@@ -434,6 +436,7 @@ type Detector interface {
 | `parambrute/` | Hidden parameter brute-force discovery |
 | `sourcemap/` | JavaScript source map parsing and secret extraction |
 | `lsp/` | Language server protocol integration |
+| `externaltools/` | Integration with external security tools (tool discovery, version checks, output parsing) |
 
 ---
 
