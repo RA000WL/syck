@@ -538,9 +538,6 @@ func scanLineForRegexRulesChunk(line string, lineNum int, path string, cfg Confi
 
 			if skipSecrets != nil {
 				key := secret
-				if len(key) > 60 {
-					key = key[:60]
-				}
 				if skipSecrets[key] {
 					continue
 				}
@@ -620,9 +617,6 @@ func scanLineForEntropyTokens(line string, lineNum int, path string, cfg Config,
 		}
 		if skipSecrets != nil {
 			key := tok
-			if len(key) > 60 {
-				key = key[:60]
-			}
 			if skipSecrets[key] {
 				continue
 			}
@@ -715,9 +709,6 @@ func scanLineForDecodedContent(line string, lineNum int, path string, cfg Config
 		var filtered []finding.Finding
 		for _, f := range decodedFindings {
 			key := f.Secret
-			if len(key) > 60 {
-				key = key[:60]
-			}
 			if !skipSecrets[key] {
 				filtered = append(filtered, f)
 			}

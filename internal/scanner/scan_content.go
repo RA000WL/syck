@@ -166,9 +166,6 @@ func scanContent(content string, path string, cfg Config, tagPrefix string,
 			}
 			for _, f := range lineFindings {
 				key := f.Secret
-				if len(key) > 60 {
-					key = key[:60]
-				}
 				lineSkipSecrets[key] = true
 			}
 		}

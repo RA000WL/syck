@@ -194,18 +194,12 @@ func scanFileStreaming(path string, cfg Config) ([]finding.Finding, error) {
 			lineSkipSecrets := make(map[string]bool, len(lineFindings))
 			for _, lf := range lineFindings {
 				key := lf.Secret
-				if len(key) > 60 {
-					key = key[:60]
-				}
 				lineSkipSecrets[key] = true
 			}
 			decodedFindings := decoder.DecodeAndRescanWithDecoders(line, path, lineNum,
 				cfg.Rules, cfg.MinSeverity, activeDec)
 			for _, df := range decodedFindings {
 				key := df.Secret
-				if len(key) > 60 {
-					key = key[:60]
-				}
 				if !lineSkipSecrets[key] {
 					findings = append(findings, markDecodedFindings([]finding.Finding{df})...)
 				}

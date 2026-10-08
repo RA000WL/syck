@@ -87,9 +87,6 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 			gzipFindings := scanContent(string(decompressed), path, cfg, "gzip_", nil, hasDecoders)
 			for _, f := range gzipFindings {
 				key := f.Secret
-				if len(key) > 60 {
-					key = key[:60]
-				}
 				gzipScanned[key] = true
 			}
 			findings = append(findings, gzipFindings...)
@@ -105,9 +102,6 @@ func ScanFile(path string, cfg Config) ([]finding.Finding, error) {
 		var filtered []finding.Finding
 		for _, f := range jsonFindings {
 			key := f.Secret
-			if len(key) > 60 {
-				key = key[:60]
-			}
 			if !skipSecrets[key] {
 				filtered = append(filtered, f)
 			}
