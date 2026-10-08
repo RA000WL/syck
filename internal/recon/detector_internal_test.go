@@ -34,11 +34,19 @@ func TestInternalDetectorNegative(t *testing.T) {
 //
 // Provenance. The non-DELTA expectations below were derived by reading the
 // regexes this function used before Batch 4c Task 4 — not by observing its
-// output — and Task 4 verified them against those regexes directly. The proof
-// lives in detector_internal_delta_test.go, which ships the ten deleted regexes
-// and checks every branch here against them over a generated cross-product of
-// the old token vocabulary; the non-DELTA rows below are the ones that sweep
-// confirms unchanged.
+// output — and Task 4 verified them against those regexes directly, via the
+// sweep in detector_internal_delta_test.go. That sweep ships the ten deleted
+// regexes and compares each branch's old regex against its new predicate over a
+// generated cross-product of the old token vocabulary, asserting that the only
+// disagreements are the five declared mechanisms.
+//
+// Not every literal below appears in that sweep's input set — rows like
+// "h:33060", "internal.corp:5432" and "a.b.svc:3306" use hosts and ports the
+// sweep's vocabulary does not build, and they are asserted here alone. So this
+// file is not wholly a subset of the sweep's coverage; it adds host/port and
+// precedence cases the sweep does not construct. What the sweep contributes is
+// the general claim: across the whole vocabulary, no branch disagrees with its
+// predecessor except where a delta is declared.
 //
 // Rows marked DELTA are the seven intentional behavior changes Task 4 made;
 // each note says what changed and why. Rows marked HOSTFIX are the internalurl

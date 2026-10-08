@@ -51,9 +51,11 @@ import (
 )
 
 var (
-	// internalHostRE is the union of internal/recon's internalHostRE and
-	// k8sServiceRE. Either alone drops real matches: "api.corp.example.com"
-	// matches only the first, "svc.cluster" only the second.
+	// internalHostRE is the union of the two host-label regexes internal/recon
+	// used before Batch 4c Task 4 (its internalHostRE and k8sServiceRE, both
+	// since deleted in favour of this predicate). Either alone drops real
+	// matches: "api.corp.example.com" matches only the first, "svc.cluster"
+	// only the second.
 	//
 	// Matches raw text, not the parsed host: this is pure vocabulary needing
 	// no netguard CIDR knowledge, so host-parsing it would buy no reuse and

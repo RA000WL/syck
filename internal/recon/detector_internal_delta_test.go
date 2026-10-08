@@ -6,12 +6,13 @@ package recon
 //
 // The ten deleted regexes are reproduced here verbatim so a reader can re-derive
 // the "was" side of every claim instead of trusting it. They are NOT a second
-// implementation to maintain: classifyInternalOld exists only for these two
-// tests. If a future change alters a branch, this file will fail and that
-// failure means "update the CHANGELOG delta table", not "revert the code".
+// implementation to maintain: classifyInternalOld exists only for the three
+// tests in this file. If a future change alters a branch, this file will fail
+// and that failure means "update the CHANGELOG delta table", not "revert the
+// code".
 //
 // Vocabulary covered by the sweep (this is the scope of the claim, not the input
-// space — see the Limitations note in CHANGELOG.md):
+// space — see the "Scope of the evidence" note in CHANGELOG.md):
 //
 //   - every token the old text regexes could match: the RFC 1918 ranges and
 //     their boundaries, the loopback tokens (name, 127/8, 0.0.0.0, ::1, ::,
@@ -25,8 +26,8 @@ package recon
 // What the sweep asserts, in order of importance:
 //
 //  1. If any branch's old-regex match differs from its new predicate's match,
-//     the flip must be one of the four declared mechanisms below. Anything else
-//     means internalurl drifted from the regex it replaced.
+//     the flip must be one of the five declared mechanisms in the allowlist
+//     below. Anything else means internalurl drifted from the regex it replaced.
 //  2. If NO branch flipped, oldClassify and classifyInternal must agree
 //     exactly. This catches a change to the chain itself — a reordered or
 //     edited branch — independently of the branch-by-branch comparison.
@@ -169,7 +170,7 @@ func TestClassifyInternalDeltaLedger(t *testing.T) {
 }
 
 // TestClassifyInternalAdditionalDeltaInstances pins the narrower instances of
-// the same four mechanisms that TestClassifyInternalDeltaLedger does not name,
+// the same mechanisms that TestClassifyInternalDeltaLedger does not name,
 // so "seven classes" is not mistaken for "seven affected inputs".
 //
 // These are the two positions the ledger's rows do not cover. A hostname that
@@ -328,14 +329,37 @@ func deltaSweep() []string {
 }
 
 // TestClassifyInternalNoUndeclaredDelta is the exhaustive check behind the
-// claim "no transition outside these four mechanisms".
+// claim "no transition outside these five mechanisms".
 //
 // A "flip" is a branch whose old regex and new predicate disagree about one
-// input. There are exactly four declared flips, each with one cause: a
+// input. There are exactly five declared flips, each with one cause: a
 // host-parsed predicate replacing a raw-text regex. Everything else — the
 // internal-path union, the internal-host union, the container regex, the port
 // list — must reproduce its predecessor exactly, and this test proves that over
-// the vocabulary in deltaVocab rather than asserting it in prose.
+// the vocabulary in deltaVocab rather than asserting it in prose. Note that two
+// of the seven branches (internal, internal_host) had TWO regexes each behind
+// one predicate, so a single flip can only ever name the branch, never which
+// half of the old union caused it; deltaBranches lists both sides explicitly so
+// the pairing stays visible.
+//
+// # An UNDECLARED DELTA failure may not be a bug
+//
+// The three :down mechanisms read netguard's CIDR lists, so this test is
+// coupled to that package's contents. If netguard later gains a range — say
+// 100.64.0.0/10 — more inputs flip, and a maintainer will hit an UNDECLARED
+// DELTA for a change that is entirely correct: recon's output genuinely did
+// change, so it genuinely does need a new CHANGELOG row. Before treating a
+// failure as a mapping bug, check which of these two cases it is:
+//
+//   - The flipped token is one netguard now classifies (a CIDR addition, or a
+//     new metadata host): NOT a bug. Add the mechanism to the allowlist, add a
+//     delta row, and note it in CHANGELOG.md. Recon's findings changed.
+//   - The flip is a token netguard does not classify, or the branch is internal,
+//     internal_host, container_service or sensitive_port: that IS a bug. The
+//     shared predicate no longer reproduces the regex it replaced.
+//
+// Either way the sweep is doing its job: it forces the change to be declared
+// rather than slipping through silently.
 func TestClassifyInternalNoUndeclaredDelta(t *testing.T) {
 	// branch:mechanism -> what it means. Nothing else may appear.
 	allowed := map[string]string{
@@ -369,8 +393,12 @@ func TestClassifyInternalNoUndeclaredDelta(t *testing.T) {
 			mechs[f]++
 			if _, ok := allowed[f]; !ok {
 				t.Errorf("UNDECLARED DELTA: %q flips %s, which is not one of the "+
-					"declared mechanisms — add it to the CHANGELOG table and the "+
-					"allowlist, or fix the mapping", in, f)
+					"declared mechanisms. Two cases, and only one is a bug — see the "+
+					"doc comment on this test. If netguard now classifies this token "+
+					"(a CIDR or metadata-host addition), recon's output really did "+
+					"change: add the mechanism to the allowlist, add a delta row, and "+
+					"record it in CHANGELOG.md. Otherwise the shared predicate no "+
+					"longer reproduces the regex it replaced — fix the mapping.", in, f)
 			}
 		}
 		if len(flips) == 0 {
