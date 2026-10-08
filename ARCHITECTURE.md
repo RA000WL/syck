@@ -710,12 +710,14 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 3, 5, 6, 7 and 8 below remain open, plus the residual link-local asymmetry recorded under item 9. **The
+Items 3, 5, 6, 8 and 9 below remain open, plus the residual link-local asymmetry recorded under item 9. **The
 numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
 repointing at a different defect. Item 4 and item 10 are CLOSED entries kept
-for the same reason.
+for the same reason. Item 7 is CLOSED by Batch 9, but not empty: it carries one
+OPEN residual (`IsFalsePositiveSecret` is unreachable on the multi-line path),
+so the number is kept in place rather than removed.
 
 Item 3 is pinned by a test and intentionally NOT fixed, because fixing it
 changes behavior. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
@@ -725,9 +727,14 @@ across paths and deliberately stopped there, so these three remain recorded
 rather than fixed.
 
 Batch 8 then closed three of item 7's four paths (jsrecon, json_scanner,
-decoder), leaving only `internal/scanner/multiline.go` — which is the hardest
-of the four, since it has no floor to align to and runs default-on. Item 7 is
-reworded to name exactly that remainder.
+decoder), and Batch 9 closed the last one: `internal/scanner/multiline.go` now
+applies the same four filters in the plain-file path's order. Item 7 has no
+open remainder on any path and is CLOSED; its one live residual is inside
+`IsFalsePositiveSecret`, recorded in the item itself. The paragraph before item
+6 ("Batch 5's scope was ... it changed exactly two one-line gates") is
+Batch 5's scope and is unchanged; the parenthetical in item 6 that pointed at
+`multiline.go:35` as the no-floor exception now describes a fixed path and is
+corrected in item 7 below, where the fix is recorded.
 
 Batch 6 removed items 1 and 2 from this list — both `internal/gitscan` security
 defects, each reproduced before it was fixed:
@@ -770,9 +777,9 @@ One `internal/crawler` gap (Batch 3 spec, work never implemented):
 
 5. **`fetchURL` scratch buffers are allocated per call and never pooled** — Batch 3's design spec listed "`fetchURL` reads through a bounded `io.LimitReader` and returns pooled scratch" as approved-and-completed work. Only the bounded-read half shipped. `fetchURL` (`internal/crawler/crawler.go`) still does a plain `io.ReadAll(io.LimitReader(reader, maxBodyBytes+1))`, so every crawled URL allocates a fresh grow-by-doubling buffer up to the 10MB cap, and the `ConvertToUTF8`/`string(utf8Body)` conversions allocate again on top. `grep -rn "sync.Pool" internal/crawler/` returns nothing — there is no pool in the package at all. The `crawler.BodyPool` var was the orphan hook for this unfinished half; Batch 4d Task 1 deleted it as dead code, which removed the last code-level trace of the gap, so it is recorded here instead. The Batch 3 `CHANGELOG.md` entry makes no pool claim and is accurate as written. **This is a memory optimization, not a refactor** — it needs its own batch, its own CHANGELOG entry, and its own benchmark (allocation/op and RSS on a crawl fixture) before and after; do NOT fold it into a change promising "no behavior change", because a pooled buffer that escapes a `Put` is a use-after-free class bug that `-race` does not reliably catch.
 
-Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to make one rule's `entropy_threshold` apply identically on every path that **gates on a floor**; it changed exactly two one-line gates and recorded the rest here. (The qualifier matters: `internal/scanner/multiline.go:35` also calls `rule.MatchAll` and runs the ruleset, but applies **no** entropy floor at all, so there was nothing there to align — see item 7.)
+Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to make one rule's `entropy_threshold` apply identically on every path that **gates on a floor**; it changed exactly two one-line gates and recorded the rest here. (The qualifier matters: `internal/scanner/multiline.go:35` also called `rule.MatchAll` and ran the ruleset, but applied **no** entropy floor at all, so there was nothing there to align — see item 7. Batch 9 has since given that path a floor, so the parenthetical below describing it as "the exception in kind" is no longer live; the measurement in this item is unchanged.)
 
-6. **The 3.0 floor judges the whole `KEY=value` span, not the value** — `env_generic_secret`'s pattern is `(?:^|\s)(?:\w+_SECRET=\S{8,}|\w+_PASSWORD=\S{8,}|\w+_TOKEN=\S{20,}|\w+_API_KEY=\S{20,})`, which contains **zero capturing groups** (every group is `(?:...)`), and `rules.MatchAll` wraps `FindAllStringIndex`, returning only `[start, end]` of the whole match with no submatch indices. So `secret = text[m[0]:m[1]]` is the entire `MY_SECRET=aaaaaaaa`, never `aaaaaaaa`. Measured with `entropy.Shannon`: the span scores **2.7250**; the value sub-span alone scores **0.0000**. The key name supplies essentially all of the entropy, so a literal 3.0 floor is far weaker than it reads — `MY_SECRET=aaaaaaaa` clears a 2.725 bar only because of the constant `MY_SECRET=` prefix. This affects every rule-matching path that **gates on entropy** equally — `helpers.go:527`/`534`, `scan_stream.go:83`/`90`, `decoder/pipeline.go:158`, `jsrecon/reconstruct.go:403`/`407`, and `json_scanner/scanner.go:98`/`102` each call `MatchAll` and then slice `[m[0]:m[1]]` — so it is not a per-path inconsistency. `internal/scanner/multiline.go:35` is the exception in kind rather than in degree: it runs `MatchAll` and slices `content[m[0]:end]` (`:41`) the same way, but never computes an entropy at all, so there is no floor here for the span-vs-value distinction to be wrong about. **Whether the intent was ever to judge the value alone is a detection-quality question, not a bug fix** — the ruleset was never given a capturing group, so the current behavior is self-consistent and pinned by the Batch 5 tests. Needs its own batch and its own characterization; do NOT "fix" it by adding a capture group, because that silently re-tightens the floor on every path at once.
+6. **The 3.0 floor judges the whole `KEY=value` span, not the value** — `env_generic_secret`'s pattern is `(?:^|\s)(?:\w+_SECRET=\S{8,}|\w+_PASSWORD=\S{8,}|\w+_TOKEN=\S{20,}|\w+_API_KEY=\S{20,})`, which contains **zero capturing groups** (every group is `(?:...)`), and `rules.MatchAll` wraps `FindAllStringIndex`, returning only `[start, end]` of the whole match with no submatch indices. So `secret = text[m[0]:m[1]]` is the entire `MY_SECRET=aaaaaaaa`, never `aaaaaaaa`. Measured with `entropy.Shannon`: the span scores **2.7250**; the value sub-span alone scores **0.0000**. The key name supplies essentially all of the entropy, so a literal 3.0 floor is far weaker than it reads — `MY_SECRET=aaaaaaaa` clears a 2.725 bar only because of the constant `MY_SECRET=` prefix. This affects every rule-matching path that **gates on entropy** equally — `helpers.go:527`/`534`, `scan_stream.go:83`/`90`, `decoder/pipeline.go:158`, `jsrecon/reconstruct.go:403`/`407`, and `json_scanner/scanner.go:98`/`102` each call `MatchAll` and then slice `[m[0]:m[1]]` — so it is not a per-path inconsistency. `internal/scanner/multiline.go:35` **was** the exception in kind rather than in degree: it ran `MatchAll` and sliced `content[m[0]:end]` (`:41`) the same way, but computed no entropy at all, so there was no floor there for the span-vs-value distinction to be wrong about. **That is no longer true** — Batch 9 added the floor to that path, and the measured consequence is that a `docker_compose_secret` span has its entropy judged over the same whole span this item describes (96 repeated characters in the value → 1.756 span entropy, which the 2.0 floor suppresses). So this item's finding now applies to a fourth path, and the multi-line path inherits the same weakness: its span entropy is dominated by the rule's own fixed text, not by the value. **Whether the intent was ever to judge the value alone is a detection-quality question, not a bug fix** — the ruleset was never given a capturing group, so the current behavior is self-consistent and pinned by the Batch 5 tests. Needs its own batch and its own characterization; do NOT "fix" it by adding a capture group, because that silently re-tightens the floor on every path at once.
 
   **Measured consequence (2026-10-08): the 3.0 floor suppresses nothing realistic.** Because the key name supplies most of the span's entropy, the floor rejects only degenerate input. Over 21 common weak secret values, scored as the full `MY_PASSWORD=<value>` span:
 
@@ -787,10 +794,60 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
 
   **21 of 21 reported, 0 suppressed** — the lowest scorer is 3.75, well above the 3.0 bar. The only strings the floor actually rejects are runs of repeated characters (`MY_SECRET=aaaaaaaa` at 2.7250). A rule carrying `entropy_threshold: 3.0` reads as "reject weak secrets"; in practice it rejects repeated characters and nothing else. Batch 5 made three paths agree on this threshold, which is a real consistency win, but the threshold being aligned is close to inert. **Any future work here should start from the measurement, not from the threshold's apparent intent** — and note that raising the floor would not help, since the key name's entropy dominates; only judging the value sub-span (or a length-plus-charset heuristic) would.
 
-7. **`internal/scanner/multiline.go` applies no entropy floor, no FP filters and no `RequiresContext` — the last rule-matching path still missing them (Batch 9).** Batch 8 closed the other three. Now covered, all four filters, in the plain-file path's order (`helpers.go:529`, then `:555-563`): `internal/jsrecon/reconstruct.go` — `RequiresContext` at `:416`, the three `IsFalsePositive*` filters at `:437-445`; `internal/json_scanner/scanner.go` (ruleset branch only; the key-name heuristic at `:70-87` has no `rule` and no matched span, so it has nothing to filter) — `:112` and `:134-142`; `internal/decoder/pipeline.go` — `:168` and `:182`, which had `Token`/`Email` already at `:206`/`:209`. Each path's `RequiresContext` text is a deliberate per-path choice, recorded in a comment at the call site: jsrecon checks the reconstructed string, json_scanner the key path plus the value, the decoder the decoded chunk. **One carve-out inside Batch 8:** `IsFalsePositiveToken` is *not* applied to `multi_line` rules on the decoded path (`pipeline.go:206`), because its hyphen heuristic (`>= 3` hyphens, `len > 20`) rejects a full PEM block and the decoder iterates the CRITICAL `rsa_private_key`/`ec_private_key`/`openssh_private_key`/`pgp_private_key` rules, which exist so decoded content can be scanned at all; `Secret`/`Email` still apply there, being span-shape-agnostic. The carve-out is decoder-only — the same block via jsrecon or json_scanner is still suppressed by Token.
+7. **CLOSED — `internal/scanner/multiline.go` applied no entropy floor, no FP
+   filters and no `RequiresContext`; the last rule-matching path missing them.
+   Closed by Batch 9.** Batch 8 closed the other three and Batch 9 this one, so
+   all four filters now apply on every rule-matching path, in the plain-file
+   path's order (`helpers.go:529`, then `:555-563`): `internal/jsrecon/reconstruct.go`
+   — `RequiresContext` at `:416`, the three `IsFalsePositive*` filters at
+   `:437-445`; `internal/json_scanner/scanner.go` (ruleset branch only; the
+   key-name heuristic at `:70-87` has no `rule` and no matched span, so it has
+   nothing to filter) — `:112` and `:134-142`; `internal/decoder/pipeline.go` —
+   `:168` and `:182`, which had `Token`/`Email` already at `:206`/`:209`; and
+   `internal/scanner/multiline.go` — all four are in the match loop inside
+   `ScanMultiLine`. Each path's `RequiresContext` text is a deliberate per-path
+   choice, recorded in a comment at the call site: jsrecon checks the
+   reconstructed string, json_scanner the key path plus the value, the decoder
+   the decoded chunk, and multiline the whole joined window.
 
-   Still open, and it is the widest of the four this item once covered:
-   **`internal/scanner/multiline.go:35`** — it calls `rule.MatchAll`, slices the span at `:41`, and applies no `IsFalsePositiveSecret`, no `Token`/`Email`, no `RequiresContext`, **and no entropy floor of any kind** (there is no `entropy.Shannon` call in the file), so on that live path (`--multiline` defaults to true and `internal/lsp/server.go:180` forces it on) every threshold-less rule reports every span it matches regardless of entropy. `env_generic_secret` sets `requires_context: true` (`builtin.yaml:941`), so on the paths that skip `RequiresContext` that guard is inert. Note the direction: unlike item 6 this is a **widening blast radius with more suppression**, not a consistency alignment — adopting these filters would remove findings on that path, so it needs its own batch (Batch 9) with its own characterization and its own CHANGELOG entry. Do NOT fold it into a change promising "no behavior change".
+   **One carve-out, now in two places:** `IsFalsePositiveToken` is *not* applied
+   to `multi_line` rules — on the decoded path (`pipeline.go:206`) and on the
+   multi-line path, where the exemption is unconditional because
+   `ScanMultiLine`'s loop already skips every non-multi_line rule, so a
+   `!rule.MultiLine` guard there would be dead code. Token's hyphen heuristic
+   (`>= 3` hyphens, `len > 20`) rejects a full PEM block, and the multi_line
+   rules are the CRITICAL `rsa_private_key`/`ec_private_key`/
+   `openssh_private_key`/`pgp_private_key` rules, which exist so whole blocks
+   are reported. On that path the block matches nothing on the plain
+   single-line path either, so suppressing it would make key material in a PEM
+   file less visible than the same material nowhere else. `Secret`/`Email`
+   still apply, being span-shape-agnostic. Pinned by
+   `TestMultiLinePEMBlockStillReported`, which first asserts each fabricated
+   block really does trip Token, so the guard cannot pass for the wrong reason.
+
+   **Residual, OPEN — `IsFalsePositiveSecret` is unreachable on the multi-line
+   path.** Its `kvPlaceholderRe` (`entropy.go:448`) is anchored `^...$` and its
+   capture cannot cross the newline that both structured `multi_line` rules
+   (`kubernetes_secret`, `docker_compose_secret`) require in their patterns, so
+   the `KEY=value` it looks for is never present in a multi-line span. The
+   filter is applied for parity and fires on nothing: a docker-compose secret
+   whose value is the literal `changeme` still reports at HIGH. Pinned by
+   `TestMultiLineResidualPlaceholderStillReported`. Fixing it means making the
+   placeholder extractor newline-tolerant, or judging the value sub-span — both
+   are item 6's subject, not a one-line change here.
+   `IsFalsePositiveEmail` is likewise inert on this path for a structural
+   reason that needs no fix: no `multi_line` rule matches email-shaped text.
+
+   **The floor's measured effect is narrow, and that is the honest shape of the
+   win.** Span entropies on the fixture corpus in
+   `internal/scanner/multiline_filter_test.go`: private/public-key blocks
+   3.952–5.542, `kubernetes_secret` 4.111, a real docker-compose password
+   4.894 — all far above the 2.0 floor. The only span the floor removes is a
+   run of repeated characters (96 `a`s → 1.756); 72 `a`s → 2.059 still reports,
+   and a real file with 64 `a`s still reports at `entropy: 2.187`. So the batch
+   removes degenerate repeated-character spans and nothing else. Do NOT read it
+   as closing the span-vs-value question in item 6 — it gives that path a floor
+   to close it on, which is what the item asked for and all it asked for.
 
 8. **`internal/scanner/url_secrets.go` cannot participate in per-rule thresholds** — `ExtractURLSecrets(line string, path string, lineno int)` takes no `*rules.RuleSet` and iterates a `map[string]string` of URL query-parameter names to synthetic rule names (`access_token` → `url_access_token`, etc.), so there is no `rule` in scope and no `entropy_threshold` to read. Its `url_*` names are heuristics, not rules; `grep '^  - name: url_' internal/rules/builtin.yaml` returns nothing. The `e := entropy.Shannon(val)` at `url_secrets.go:39` (over the parameter **value**, not a `KEY=value` span) keeps its hardcoded `if e < 2.0` at line 40 permanently unless the signature changes. This is recorded so nobody re-attempts the unification Batch 5 declined: `TestURLSecretsRuleNamesAreNotBuiltinRules` (`internal/scanner/url_secrets_entropy_test.go:113`) pins that these names are not builtin rules and fails if anyone tries to add them to the ruleset to make this path generically thresholdable.
 

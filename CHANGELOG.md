@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored)
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**)
 
-This section carries six batches, so the title names them and flags the three
+This section carries seven batches, so the title names them and flags the four
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -19,7 +19,9 @@ into a single finding (see its entry under "### Fixed" below). Batch 8 runs the
 other way — it **removes** false positives on three rule-matching paths — with
 one deliberate exception, stated in its own entry: it restores CRITICAL
 private-key blocks on the decoded path, which is a count going **up** for one
-class.
+class. Batch 9 removes false positives on the fourth path (multi-line) and
+keeps the same private-key blocks reported on it, so no CRITICAL class is
+lost.
 
 ### Changed
 
@@ -511,6 +513,107 @@ class.
   and `IsFalsePositiveToken` returns true for it), as is the header line on
   every path including the plain one. Those shapes remain visible where the
   content is a plain file.
+
+### Fixed
+
+- **Batch 9 — `internal/scanner/multiline.go` now applies the entropy floor,
+  the `RequiresContext` guard and the `IsFalsePositive*` filters. Finding
+  counts go DOWN. This was the last rule-matching path with no filters at all.**
+
+  The multi-line path is default-on (`--multiline` defaults to true and
+  `internal/lsp/server.go:180` forces it on), so every span matched by any
+  `multi_line` rule was reported unconditionally — with no entropy floor, no
+  `IsFalsePositiveSecret`, no `IsFalsePositiveToken`, no
+  `IsFalsePositiveEmail` and no `RequiresContext`. Batch 5 aligned the floor on
+  the paths that *had* one and Batch 8 added the context guard plus the three
+  FP filters to the decoded, jsrecon and json_scanner paths; this file was
+  §15 item 7's remaining path, and the hardest of the four because it had no
+  floor to align to.
+
+  All four filters now apply in the plain-file path's order
+  (`internal/scanner/helpers.go:529`, then `:555-563`): `RequiresContext`
+  first — it needs the window text, before secret extraction narrows it — then
+  secret extraction, then `decoder.RuleEntropyFloor(rule.EntropyThreshold)`,
+  then `IsFalsePositiveSecret` → `IsFalsePositiveToken` → `IsFalsePositiveEmail`.
+  The context text is the whole joined window, matching the decoded path's
+  choice of "the text this path matches rules against"
+  (`internal/decoder/pipeline.go:160-170`) rather than the per-line path's
+  single line.
+
+  **`IsFalsePositiveToken` is exempted for multi-line spans, and that exemption
+  is the reason this batch was written carefully.** Token's hyphen heuristic
+  (`>= 3` hyphens and `len > 20`, aimed at feature-flag names) cannot tell a
+  full PEM block from a feature flag — a PEM block is nothing but hyphens and
+  base64. Measured on the fabricated fixtures in
+  `internal/scanner/multiline_filter_test.go`, every private/public-key block
+  trips it while clearing the 2.0 floor with room to spare:
+
+  | fixture | span entropy | below 2.0 floor? | `IsFalsePositiveToken` |
+  |---|---|---|---|
+  | `rsa_private_key` | 5.542 | no | **true** |
+  | `ec_private_key` | 3.952 | no | **true** |
+  | `openssh_private_key` | 4.640 | no | **true** |
+  | `pgp_private_key` | 4.082 | no | **true** |
+  | `rsa_public_key` | 4.496 | no | **true** |
+
+  Applying Token here would have suppressed the CRITICAL private-key rules on
+  the one default-on path whose `multi_line` patterns exist to report whole
+  blocks — strictly worse than the decoded-path loss Batch 8 corrected. The
+  exemption is unconditional rather than guarded by `!rule.MultiLine` because
+  `ScanMultiLine`'s loop already skips every non-multi_line rule, so the guard
+  would be dead code. It is the same carve-out and the same reason as
+  `internal/decoder/pipeline.go:190-208`; `TestMultiLinePEMBlockStillReported`
+  pins the blocks and asserts first that each fixture really does trip Token,
+  so the guard cannot pass for the wrong reason.
+
+  Two of the four filters are parity, not effect, for today's ruleset, and are
+  recorded so a future reader does not expect suppression from them:
+  `RequiresContext` — none of the 9 `multi_line` rules in
+  `internal/rules/builtin.yaml` sets `requires_context` (nor `entropy_threshold`,
+  so the floor is the global `decoder.RuleEntropyFloor(0)` = 2.0), so the branch
+  is inert now and starts working the moment a `multi_line` rule sets it; and
+  `IsFalsePositiveEmail` — no `multi_line` rule matches email-shaped text, so
+  nothing on this path can be an `opengraph-image@2x.png` false positive.
+  `IsFalsePositiveSecret` is also effectively unreachable here, and that is a
+  gap rather than a parity note: its `kvPlaceholderRe` is anchored `^...$` and
+  its capture cannot cross the newline that both structured `multi_line` rules
+  require, so the `KEY=value` it looks for is never present in a multi-line
+  span. A docker-compose secret whose value is the literal `changeme` still
+  reports, at HIGH — pinned by `TestMultiLineResidualPlaceholderStillReported`.
+
+  Measured over the fixture corpus in
+  `internal/scanner/multiline_filter_test.go`, each fixture a full window
+  handed to `ScanMultiLine` and the whole findings slice asserted (so an added
+  finding fails the test as hard as a removed one):
+
+  | Fixture | Span entropy | Before | After |
+  |---|---|---|---|
+  | `pem_rsa_private_key` | 5.542 | 1 (CRITICAL) | 1 (CRITICAL) |
+  | `pem_ec_private_key` | 3.952 | 1 (CRITICAL) | 1 (CRITICAL) |
+  | `pem_openssh_private_key` | 4.640 | 1 (CRITICAL) | 1 (CRITICAL) |
+  | `pem_pgp_private_key` | 4.082 | 1 (HIGH) | 1 (HIGH) |
+  | `rsa_public_key` | 4.496 | 1 (MEDIUM) | 1 (MEDIUM) |
+  | `kubernetes_secret` | 4.111 | 1 (HIGH) | 1 (HIGH) |
+  | `docker_compose_secret` | 4.894 | 1 (HIGH) | 1 (HIGH) |
+  | `docker_compose_low_entropy_value` (96 repeated chars) | 1.756 | 1 (HIGH) | **0** |
+  | `docker_compose_low_entropy_boundary` (72 repeated chars) | 2.059 | 1 (HIGH) | 1 (HIGH) |
+  | **total** | | **10** | **9** |
+
+  The single removal is a run of repeated characters, which is the only shape
+  the floor rejects on these rules. The paired boundary case exists so the
+  suppression is attributable to the value's entropy rather than to the
+  docker-compose shape: measured on the same realistic window, 48 repeated
+  chars score 2.500 and 64 score 2.187 (both reported), 72 scores 2.059
+  (reported), 80 scores 1.946, 96 score 1.756, 128 score 1.474 and 200 score
+  1.093 (all suppressed). The same boundary shows through `syck scan` on real
+  files, not only through the unit fixtures: a `docker-compose.yml` with
+  `PASSWORD: "<64 a's>"` still reports (`entropy: 2.187`), while 96, 128 and
+  200 report nothing.
+
+  **This is a false-positive reduction, so a re-scan of the same target reports
+  fewer findings than before**, on a default-on path. No real key-shaped span is
+  affected: every multi-line span the builtin rules can match on a realistic
+  input clears the floor, and the private-key rules are untouched.
 
 ### Benchmarks
 
