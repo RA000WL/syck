@@ -253,7 +253,7 @@ Run: `git diff --stat <4d-base>..HEAD` and account for every changed file. Any f
 
 Also confirm the four deletions/renames left no orphans: `grep -rn "BodyPool" --include=*.go .` returns nothing, and `go build ./...` is clean.
 
-- [ ] **Step 3: Correct the Batch 3 spec's false 3b claim, and queue the unimplemented half**
+- [ ] **Step 5: Correct the Batch 3 spec's false 3b claim, and queue the unimplemented half**
 
 Found during Task 1's review. `docs/superpowers/specs/2026-10-05-syck-batch3-performance-design.md` states, as work already done:
 
@@ -268,7 +268,7 @@ Two things to do:
 
 The `CHANGELOG.md` Batch 3 entry makes no pool claim, so it needs no change — verify that yourself rather than taking this on faith.
 
-- [ ] **Step 4: Verify the docs match the tree**
+- [ ] **Step 6: Verify the docs match the tree**
 
 Run: `ls cmd/*.go internal/sqliteutil/` and check `ARCHITECTURE.md` §3 lists `sqliteutil/` if the new package is a sibling of the ones already listed there. If §3 lists every `internal/` package, omitting the new one would be the same class of omission 4c's review caught for `netguard` and `internalurl`.
 
