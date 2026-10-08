@@ -1357,3 +1357,138 @@ func TestSecretFindingStruct(t *testing.T) {
 		t.Errorf("Line = %d", s.Line)
 	}
 }
+
+// TestLocalhostRE_Characterization pins the InternalURLs findings that
+// localhostRE contributes, before any question of delegating it to
+// internalurl.IsLoopback. Every other InternalURLs producer is internalServiceRE,
+// which fires only on an internal/private/corp/... keyword followed by `:` or
+// `=`, so the lines below are crafted to avoid it — and to avoid configURLRE's
+// host/server/baseURL keyword list — leaving localhostRE as the sole producer.
+func TestLocalhostRE_Characterization(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string // full InternalURLs slice, in order
+	}{
+		{
+			// The three literals the regex knows, and the negative it must skip:
+			// "example.com:8080" has the :port shape but is not a loopback host,
+			// and is absent from the result.
+			name: "three loopback literals plus a negative",
+			line: `var db = "localhost:8080", cache = "127.0.0.1:3000", listen = "0.0.0.0:9000", cdn = "example.com:8080";`,
+			want: []string{"localhost:8080", "127.0.0.1:3000", "0.0.0.0:9000"},
+		},
+		{
+			name: "negative alone produces nothing",
+			line: `var cdn = "example.com:8080";`,
+			want: nil,
+		},
+		{
+			name: "a non-loopback host:port produces nothing",
+			line: `var api = "https://api.prod.example.com:443/v2";`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AnalyzeJS(tt.line, "config.js").InternalURLs
+			if !equalStrings(got, tt.want) {
+				t.Errorf("InternalURLs = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestLocalhostRE_UnanchoredSubspanExtraction pins the two properties of
+// localhostRE that make delegating it to a host-parsing predicate impossible
+// without changing the finding set. Both are deliberate here: this test exists
+// to keep them visible, because they are the reason the regex stays.
+//
+//  1. UNANCHORED. The regex has no \b or (?<![\w.-]) guard, so it extracts a
+//     SUFFIX of a longer host: "my-localhost:8080" is emitted as the finding
+//     "localhost:8080". The emitted span is a substring of the typed host and is
+//     not itself the host anybody wrote. internalurl.IsLoopback parses a host, so
+//     it answers "false" for "my-localhost:8080" — the finding is LOST, and no
+//     amount of predicate-fiddling recovers it, because the finding the current
+//     code produces was never a host in the first place.
+//
+//  2. NARROW VOCABULARY, CASE-SENSITIVE, PORT REQUIRED. The regex knows exactly
+//     three spellings (localhost, 127.0.0.1, 0.0.0.0), is case-sensitive, and
+//     requires a :port. IsLoopback knows 127/8, ::1, the unspecified address and
+//     "localhost" in any case, and requires no port. Delegating therefore moves
+//     findings in both directions at once: 127.0.0.2, [::1] and LOCALHOST:8080
+//     are ADDED, while the portless "localhost" stays out only because the
+//     tokenizing wrapper drops it — which is the wrapper this change is meant to
+//     avoid needing.
+func TestLocalhostRE_UnanchoredSubspanExtraction(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want []string
+	}{
+		// Property 1: unanchored suffix.
+		{
+			name: "suffix of a hyphenated host is extracted",
+			line: `var api = "http://my-localhost:8080/api";`,
+			want: []string{"localhost:8080"},
+		},
+		{
+			name: "suffix of a dotted host is extracted",
+			line: `var api = "http://foo.localhost:8080/api";`,
+			want: []string{"localhost:8080"},
+		},
+		{
+			// Property 2: narrow, case-sensitive, port-required vocabulary.
+			name: "uppercase spelling is not matched",
+			line: `var api = "LOCALHOST:8080";`,
+			want: nil,
+		},
+		{
+			name: "a neighbouring host:port spelling is not matched",
+			line: `var api = "http://localhostX:8080/api";`,
+			want: nil,
+		},
+		{
+			name: "127/8 beyond .0.1 is not matched",
+			line: `var api = "http://127.0.0.2:8080/api";`,
+			want: nil,
+		},
+		{
+			name: "bracketed IPv6 loopback is not matched",
+			line: `var api = "http://[::1]:8080/api";`,
+			want: nil,
+		},
+		{
+			name: "portless host is not matched",
+			line: `var api = "http://127.0.0.1/api";`,
+			want: nil,
+		},
+		{
+			name: "bare localhost name is not matched",
+			line: `if (window.location.hostname === "localhost") { fetch("/x") }`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AnalyzeJS(tt.line, "config.js").InternalURLs
+			if !equalStrings(got, tt.want) {
+				t.Errorf("InternalURLs = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

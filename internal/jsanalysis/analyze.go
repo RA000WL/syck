@@ -43,7 +43,26 @@ var (
 
 	// Internal/hidden service patterns
 	internalServiceRE = regexp.MustCompile(`(?i)(?:internal|private|corp|intranet|staging|dev|sandbox|test)\s*[:=]\s*['"]([^'"]+)['"]`)
-	localhostRE       = regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+`)
+
+	// localhostRE is deliberately NOT delegated to internalurl.IsLoopback, and
+	// is narrower than that predicate on purpose. Two properties block the swap,
+	// both pinned by TestLocalhostRE_UnanchoredSubspanExtraction:
+	//
+	//  1. It is unanchored, so it extracts a SUBSPAN of a longer host and emits
+	//     the substring: "http://my-localhost:8080/" yields the finding
+	//     "localhost:8080". IsLoopback parses a host and answers false for
+	//     "my-localhost:8080", so delegating drops the finding — the span the
+	//     current code emits was never a host.
+	//  2. It knows three case-sensitive spellings and requires a :port.
+	//     IsLoopback knows 127/8, ::1, the unspecified address and any case, and
+	//     requires no port, so delegating moves findings in both directions.
+	//
+	// Recovering the port requirement means wrapping the predicate in a
+	// host:port tokenizer, which is the regex this refactor was meant to
+	// remove. IsLoopback's wider vocabulary is already covered where a parsed
+	// host exists: internal/recons classifyInternal consumes full URLs. Keep
+	// this as an extractor; see internal/internalurl.go.
+	localhostRE = regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+`)
 
 	// Sensitive file references
 	sensitiveFileRE = regexp.MustCompile(`['"]([^'"]*(?:\.env|\.key|\.pem|\.cert|\.p12|\.pfx|\.jks|\.keystore|credentials?\.json|secrets?\.json|service[_-]?account)[^'"]*)['"]`)
