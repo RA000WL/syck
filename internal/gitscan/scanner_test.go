@@ -216,3 +216,132 @@ func TestScanHistoryNonRepoErrors(t *testing.T) {
 		t.Errorf("expected no findings alongside the error, got %d", len(findings))
 	}
 }
+
+// collidingFCMKeys builds two distinct firebase_fcm_key-shaped secrets
+// sharing a 72-char prefix. firebase_fcm_key is the rule name (16 chars),
+// so RuleName+":"+Secret shares an 89-char prefix and the two distinct
+// secrets collapse onto the same 80-char truncated dedup key.
+const gitFCMCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+
+func gitFCMTail(seed uint64, n int) string {
+	var sb strings.Builder
+	x := seed
+	for i := 0; i < n; i++ {
+		x = x*6364136223846793005 + 1442695040888963407
+		sb.WriteByte(gitFCMCharset[(x>>33)%63])
+	}
+	return sb.String()
+}
+
+func collidingFCMKeys() (a, b string) {
+	head := "AAAAAb3dEf7:"
+	shared := gitFCMTail(42, 60)
+	endA := gitFCMTail(1234, 80)
+	endB := gitFCMTail(9876, 80)
+	endA = endA[:79] + "z"
+	endB = endB[:79] + "z"
+	return head + shared + endA, head + shared + endB
+}
+
+func TestScanHistoryCollidingCrossCommitSecrets(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	gitEnv(t)
+
+	a, b := collidingFCMKeys()
+	shared := 0
+	for i := 0; i < len(a) && i < len(b) && a[i] == b[i]; i++ {
+		shared++
+	}
+	t.Logf("secret shared prefix: %d chars; RuleName+':'+secret shared prefix: %d+17=%d chars",
+		shared, shared, shared+17)
+
+	dir := t.TempDir()
+	git(t, dir, "init")
+
+	// Commit 1: secret A
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"),
+		[]byte("api_key = \""+a+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "add A")
+
+	// Commit 2: a distinct secret B in the same file, sharing A's prefix
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"),
+		[]byte("api_key = \""+b+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "swap to B")
+
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	findings, err := ScanHistory(dir, cfg)
+	if err != nil {
+		t.Fatalf("ScanHistory: %v", err)
+	}
+	var nA, nB int
+	for _, f := range findings {
+		switch f.Secret {
+		case a:
+			nA++
+		case b:
+			nB++
+		}
+	}
+	t.Logf("colliding A+B across commits -> A findings: %d, B findings: %d", nA, nB)
+	if nA != 1 || nB != 1 {
+		t.Fatalf("want exactly one finding per distinct secret, got A=%d B=%d", nA, nB)
+	}
+}
+
+func TestScanHistorySameSecretInBothCommitsStillDedups(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	gitEnv(t)
+
+	a, _ := collidingFCMKeys()
+	dir := t.TempDir()
+	git(t, dir, "init")
+
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"),
+		[]byte("api_key = \""+a+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "add A")
+
+	if err := os.WriteFile(filepath.Join(dir, "config.txt"),
+		[]byte("# comment churn\napi_key = \""+a+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "config.txt")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "touch")
+
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	findings, err := ScanHistory(dir, cfg)
+	if err != nil {
+		t.Fatalf("ScanHistory: %v", err)
+	}
+	var nA int
+	for _, f := range findings {
+		if f.Secret == a {
+			nA++
+		}
+	}
+	if nA != 1 {
+		t.Fatalf("want exactly 1 finding for the same secret in both commits, got %d", nA)
+	}
+}

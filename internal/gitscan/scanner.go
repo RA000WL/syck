@@ -85,9 +85,6 @@ func ScanHistory(repoPath string, cfg scanner.Config) ([]finding.Finding, error)
 
 			for _, f := range findings {
 				key := f.RuleName + ":" + f.Secret
-				if len(key) > 80 {
-					key = key[:80]
-				}
 				if seen[key] {
 					continue
 				}
