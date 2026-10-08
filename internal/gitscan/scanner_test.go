@@ -174,7 +174,14 @@ func TestScanHistoryNoDoubleReportForRootAndLaterCommit(t *testing.T) {
 	}
 }
 
-func TestScanHistoryNonRepoIsCleanError(t *testing.T) {
+// TestScanHistoryNonRepoErrors pins the descriptive error for a path that was
+// never `git init`'d. ScanHistory previously swallowed the `git log` failure and
+// returned (nil, nil), so `syck scan --git-history /not/a/repo` was
+// indistinguishable from a clean scan. The caller still downgrades this to a
+// warning (see cmd/scan_run.go), which is why the error text is the only thing
+// telling the user that no history was scanned — hence the two message
+// assertions, not just a nil check.
+func TestScanHistoryNonRepoErrors(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -189,13 +196,23 @@ func TestScanHistoryNonRepoIsCleanError(t *testing.T) {
 	cfg := scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow}
 
 	findings, err := ScanHistory(dir, cfg)
-	// Pinned defect behavior: ScanHistory swallows the git log failure and
-	// returns (nil, nil) — no panic, no findings, and no error telling the
-	// user the path isn't a repo.
-	if err != nil {
-		t.Errorf("pinned current behavior is err == nil for non-repo, got %v — if this fires, the defect was fixed; invert this assertion to require an error", err)
+	if err == nil {
+		t.Fatalf("ScanHistory(%q) returned err == nil on a path that is not a git repo: "+
+			"findings=%d. A caller that asked for --git-history and got nothing back "+
+			"cannot tell that apart from a clean scan, so the git failure must be reported.",
+			dir, len(findings))
+	}
+	// The message must name the path, or the user has no way to tell WHICH
+	// repo failed when scanning several.
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("error %q does not name the offending path %q", err.Error(), dir)
+	}
+	// The message must also carry the underlying git failure, so the cause is
+	// diagnosable without re-running git by hand.
+	if !strings.Contains(err.Error(), "git") {
+		t.Errorf("error %q does not mention the underlying git failure", err.Error())
 	}
 	if len(findings) != 0 {
-		t.Errorf("expected no findings, got %d", len(findings))
+		t.Errorf("expected no findings alongside the error, got %d", len(findings))
 	}
 }

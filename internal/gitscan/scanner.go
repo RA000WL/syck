@@ -1,6 +1,8 @@
 package gitscan
 
 import (
+	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,23 @@ import (
 
 var textExts = fileutil.TextExtensions
 
+// gitStderr renders the git process's own stderr as a suffix for an error
+// message, or "" when git wrote nothing to stderr or the failure was not an
+// exec exit. exec.Cmd.Output leaves ExitError.Stderr populated with a prefix of
+// the child's stderr precisely because it leaves c.Stderr nil, which is where
+// the diagnostic text ("fatal: not a git repository ...") lands.
+func gitStderr(err error) string {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return ""
+	}
+	msg := strings.TrimSpace(string(ee.Stderr))
+	if msg == "" {
+		return ""
+	}
+	return ": " + msg
+}
+
 func ScanHistory(repoPath string, cfg scanner.Config) ([]finding.Finding, error) {
 	var allFindings []finding.Finding
 	seen := make(map[string]bool)
@@ -19,10 +38,18 @@ func ScanHistory(repoPath string, cfg scanner.Config) ([]finding.Finding, error)
 	logCmd := exec.Command("git", "-C", repoPath, "log", "--all", "--format=%H", "--diff-filter=AM")
 	logOut, err := logCmd.Output()
 	if err != nil {
-		// TODO(security): non-repo paths return (nil, nil) here — `syck scan
-		// --git-history /not/a/repo` silently reports nothing instead of
-		// erroring. Fix must return a descriptive error.
-		return nil, nil
+		// A failure here means the history could not be enumerated at all —
+		// almost always because repoPath is not a git repository. Returning
+		// (nil, nil) made `syck scan --git-history /not/a/repo` report exactly
+		// what a clean scan reports, so the user could not tell "no secrets"
+		// from "nothing was scanned". Name the path so that, when several
+		// repos are scanned, the failing one is identifiable, and carry the
+		// underlying git error so the cause is diagnosable without re-running
+		// git by hand.
+		//
+		// cmd/scan_run.go still downgrades this to a warning and exits 0;
+		// making it fatal is deliberately left as a separate decision.
+		return nil, fmt.Errorf("gitscan: git log failed in %q: %w%s", repoPath, err, gitStderr(err))
 	}
 	commits := strings.Fields(string(logOut))
 
