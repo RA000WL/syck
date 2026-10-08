@@ -74,9 +74,21 @@ implementation and recorded in the commit body.
 
 `internal/scanner/pipeline.go` and the `stage_*.go` files are reachable
 only from `internal/scanner/pipeline_test.go` — never from the CLI. The
-stages are **not** all redundant: `CorrelationStage` performs the
-correlation detectors' work and `VerifierStage` performs live secret
-validation, neither of which the current CLI path invokes.
+stages are **not** all redundant, and the two cases differ:
+
+- `CorrelationStage` is the **only** route to `internal/correlation`. Nothing
+  outside `NewPipeline` constructs a `Correlator`, so the correlation
+  detectors do not run on the CLI path at all. This is a real functional gap.
+- `VerifierStage` performs live secret validation via `internal/validator`.
+  The CLI performs the **same** validation and sets the same states, but only
+  behind `--validate` / `--verify` (`cmd/scan_run.go`). So this capability is
+  **duplicated, not missing** — the stage is unreachable but its effect is
+  already reachable another way.
+
+> Correction (2026-10-06, during Task 6): an earlier draft of this spec said
+> the CLI invokes "neither". That was wrong about `VerifierStage` — the CLI
+> does call `validator.Validate` directly. Caught by the Task 6 implementer,
+> who declined to write the false claim into the package doc.
 
 Decision: **delete nothing.** Add an explicit note to the
 `internal/scanner` package doc stating that `Pipeline` and the V1 stages
