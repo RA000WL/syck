@@ -293,7 +293,8 @@ breaking and touches no public API.
 
   `AllowFetch` now resolves the address those hosts denote and routes it through
   the **same** existing `IsBlockedIP` check — the checks are not waived or
-  loosened. `url.URL.Hostname()` percent-decodes `%25`, so the zone arrives as
+  loosened. url.Parse percent-decodes `%25` during host parsing, so the zone
+  arrives as
   `fe80::1%eth0`; the zone is stripped and the remainder re-parsed, which also
   stops `2130706433%foo` from using a zone to smuggle an address past.
 
@@ -365,7 +366,7 @@ breaking and touches no public API.
     `IsLoopback` still excludes the private ranges, `IsCloudMetadata` keeps its
     own equality semantics, and link-local (`fe80::/10`) still has no category
     here even though `netguard` blocks it. Only the parser changed. See
-    ARCHITECTURE.md §15 item 4's scope note.
+    ARCHITECTURE.md §15 item 9's still-open remainder.
 
 ### Benchmarks
 

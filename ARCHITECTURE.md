@@ -710,15 +710,14 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Items 3, 5, 6, 7 and 8 below remain open, plus a narrowed item 4. **The
+Items 3, 5, 6, 7 and 8 below remain open, plus the residual link-local asymmetry recorded under item 9. **The
 numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
 repointing at a different defect.
 
 Item 3 is pinned by a test and intentionally NOT fixed, because fixing it
-changes behavior. Item 4 was partially fixed in Batch 6 and survives as a
-narrower gap in `internalurl`. Item 5 is a performance gap, not a defect — it
+changes behavior. Item 4 was fixed in Batch 6 (`fab705d`). Item 5 is a performance gap, not a defect — it
 is recorded because a spec shipped a false claim that the work was done. Items
 6-8 are Batch 5's adjacent gaps: Batch 5 made the entropy floor *consistent*
 across paths and deliberately stopped there, so these three remain recorded
@@ -741,8 +740,9 @@ defects, each reproduced before it was fixed:
 
 Item 4's `netguard` half is also fixed, by `fab705d`, along with the four legacy
 `inet_aton` IPv4 spellings (`2130706433`, `127.1`, `010.0.0.1`, `0x7f.0.0.1`)
-that were never recorded here because they had not yet been reproduced. What
-remains of item 4 is below.
+that were never recorded here because they had not yet been reproduced. The
+follow-on `internalurl`/`netguard` disagreement — closed — and its residual
+link-local remainder are recorded as item 9.
 
 See `CHANGELOG.md` `[Unreleased]` for the user-visible effect of item 1:
 `--git-history` now reports secrets that were committed and later deleted, so
@@ -752,35 +752,13 @@ One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanE
 
 3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
 
-Item 4 is now fully closed. `internal/internalurl` misclassified zone-scoped and
-legacy-IPv4 hosts that `netguard` denied, because its three parsed predicates
-each called `net.ParseIP(hostOf(raw))` directly and so inherited every spelling
-`net.ParseIP` rejects. Fixed by Batch 6 Task 5: `netguard` exports the resolver
-it already owned as `ParseHostIP`, `AllowFetch` calls that same function, and
-the three predicates call it too. One parser, one answer per host.
+4. **CLOSED — `netguard`'s `AllowFetch` admitted zone-scoped IPv6 and legacy
+   `inet_aton` IPv4 spellings as if they were plain public hosts.** Fixed by
+   `fab705d`: the parser strips the zone and applies the same `IsBlockedIP`
+   checks, it does not waive them. No remainder; the classification-package
+   side of the same difference is item 9.
 
-4. **CLOSED — `internalurl` and `netguard` disagreed about legacy-IPv4 and
-   zoned-IPv6 hosts.** What the gap looked like before the fix:
 
-   | input | `hostOf` | `IsPrivateHost` | `IsLoopback` | `AllowFetch` |
-   |---|---|---|---|---|
-   | `http://[fe80::1%25eth0]/x` | `fe80::1%eth0` | `false` | `false` | **denied** |
-   | `http://127.1/` | `127.1` | `false` | `false` | **denied** |
-   | `http://2130706433/` | `2130706433` | `false` | `false` | **denied** |
-   | `http://127.0.0.1/` | `127.0.0.1` | `false` | `true` | denied |
-
-   The divergence was the problem: Batch 4c moved `classifyInternal` onto these
-   predicates specifically so one address could not be classified one way by
-   recon and another by the fetch gate. **Do NOT reintroduce it by calling
-   `net.ParseIP` in `internalurl`, or by adding a host→address step to any other
-   package** — the exported resolver exists for that, and a second copy is the
-   exact regression this item records.
-
-   Scope note, still binding: `fe80::1` classifies as a public host in
-   `internalurl` even though `netguard` blocks it. `IsPrivateHost` is RFC 1918
-   by contract and link-local is `IsBlockedIP`'s job, not its own. Task 5 fixed
-   the parser and did not widen a category; doing so would be a policy change
-   with its own blast radius.
 
 One `internal/crawler` gap (Batch 3 spec, work never implemented):
 
@@ -806,6 +784,39 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
 7. **Four rule-matching paths skip `entropy.IsFalsePositiveSecret` and `requires_context`** — the plain-file path applies both; the others do not. Applying them: `internal/scanner/helpers.go:558` (`IsFalsePositiveSecret`, plus `Token`/`Email` at 561/564) and `internal/scanner/scan_stream.go:104` (`IsFalsePositiveSecret`, plus 107/110). `RequiresContext` is enforced on the two **main** file-scanning paths, at `helpers.go:529` and `scan_stream.go:85`; `internal/scanner/stage_rule.go:26` also honors `RequiresContext`, but `stage_rule.go` is only reachable from `Pipeline`, which is test-only and not on the CLI path, so it is not a "main path" and is called out here for completeness rather than as coverage. Skipping them: `internal/jsrecon/reconstruct.go:416` and `internal/json_scanner/scanner.go:111` apply **neither**; `internal/decoder/pipeline.go:168` applies `Token`/`Email` (171/174) but not `IsFalsePositiveSecret` and not `RequiresContext`; and **`internal/scanner/multiline.go:35` skips all three** — it calls `rule.MatchAll`, slices the span at `:41`, and applies no `IsFalsePositiveSecret`, no `Token`/`Email`, no `RequiresContext`, **and no entropy floor of any kind** (there is no `entropy.Shannon` call in the file), so on that live path (`--multiline` defaults to true and `internal/lsp/server.go:180` forces it on) every threshold-less rule reports every span it matches regardless of entropy. `env_generic_secret` sets `requires_context: true` (`builtin.yaml:939`), so on the paths that skip `RequiresContext` that guard is inert. Note the direction: unlike item 6 this is a **widening blast radius with more suppression**, not a consistency alignment — adopting these filters would remove findings on those paths, so it needs its own batch with its own characterization and its own CHANGELOG entry. Do NOT fold it into a change promising "no behavior change".
 
 8. **`internal/scanner/url_secrets.go` cannot participate in per-rule thresholds** — `ExtractURLSecrets(line string, path string, lineno int)` takes no `*rules.RuleSet` and iterates a `map[string]string` of URL query-parameter names to synthetic rule names (`access_token` → `url_access_token`, etc.), so there is no `rule` in scope and no `entropy_threshold` to read. Its `url_*` names are heuristics, not rules; `grep '^  - name: url_' internal/rules/builtin.yaml` returns nothing. The `e := entropy.Shannon(val)` at `url_secrets.go:39` (over the parameter **value**, not a `KEY=value` span) keeps its hardcoded `if e < 2.0` at line 40 permanently unless the signature changes. This is recorded so nobody re-attempts the unification Batch 5 declined: `TestURLSecretsRuleNamesAreNotBuiltinRules` (`internal/scanner/url_secrets_entropy_test.go:113`) pins that these names are not builtin rules and fails if anyone tries to add them to the ruleset to make this path generically thresholdable.
+
+9. **`internalurl` and `netguard` disagreed about legacy-IPv4 and zoned-IPv6
+   hosts — the disagreement is CLOSED; the link-local asymmetry below remains
+   OPEN.** `internal/internalurl` misclassified zone-scoped and legacy-IPv4
+   hosts that `netguard` denied, because its three parsed predicates each
+   called `net.ParseIP(hostOf(raw))` directly and so inherited every spelling
+   `net.ParseIP` rejects. Fixed by Batch 6 Task 5: `netguard` exports the
+   resolver it already owned as `ParseHostIP`, `AllowFetch` calls that same
+   function, and the three predicates call it too. One parser, one answer per
+   host.
+
+   What the gap looked like before the fix:
+
+   | input | `hostOf` | `IsPrivateHost` | `IsLoopback` | `AllowFetch` |
+   |---|---|---|---|---|
+   | `http://[fe80::1%25eth0]/x` | `fe80::1%eth0` | `false` | `false` | **denied** |
+   | `http://127.1/` | `127.1` | `false` | `false` | **denied** |
+   | `http://2130706433/` | `2130706433` | `false` | `false` | **denied** |
+   | `http://127.0.0.1/` | `127.0.0.1` | `false` | `true` | denied |
+
+   The divergence was the problem: Batch 4c moved `classifyInternal` onto these
+   predicates specifically so one address could not be classified one way by
+   recon and another by the fetch gate. **Do NOT reintroduce it by calling
+   `net.ParseIP` in `internalurl`, or by adding a host→address step to any other
+   package** — the exported resolver exists for that, and a second copy is the
+   exact regression this item records.
+
+   **Still open — `fe80::1` classifies as a public host in `internalurl` even
+   though `netguard` blocks it.** `IsPrivateHost` is RFC 1918 by contract and
+   link-local is `IsBlockedIP`'s job, not its own. Task 5 fixed the parser and
+   did not widen a category; doing so would be a policy change with its own
+   blast radius. Pinned by the `link-local-zoned` group in the parity test so
+   the exemption is explicit rather than accidental.
 
 ---
 

@@ -2,6 +2,7 @@ package internalurl
 
 import (
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/netguard"
@@ -474,6 +475,17 @@ func TestIsPrivateIPIsNarrowerThanIsBlockedIP(t *testing.T) {
 // to understand. The plain spelling is the REFERENCE: every equivalent must
 // classify exactly as the plain form does. A nil classify means the range has no
 // category in this package at all — see the link-local note on the test.
+// rawOf builds the per-row URL. IPv6 literals must be bracketed exactly as
+// netguard's own tables do (netguard_test.go:831-834): "http://::1/" fails
+// url.Parse ("invalid port"), which would satisfy AllowFetch(...) == false via
+// the parse-error branch and prove nothing about the IP checks.
+func rawOf(h string) string {
+	if strings.Contains(h, ":") && !strings.HasPrefix(h, "[") {
+		return "http://[" + h + "]/"
+	}
+	return "http://" + h + "/"
+}
+
 type spellingEquiv struct {
 	name     string
 	addr     string   // the plain spelling, always accepted by net.ParseIP
@@ -498,7 +510,7 @@ type spellingEquiv struct {
 //
 //   - link-local (fe80::/10) is blocked for fetching but has no category here.
 //     IsPrivateHost is RFC 1918 by contract — see the scope note on
-//     ARCHITECTURE.md §15 item 4 — and IsLoopback covers only 127/8, ::1 and the
+//     ARCHITECTURE.md §15 item 9 — and IsLoopback covers only 127/8, ::1 and the
 //     unspecified address. "http://[fe80::1]/" classifies as public here today
 //     and must keep doing so; widening a category is a policy change, not a
 //     parsing fix, and is out of scope for this task.
@@ -537,7 +549,7 @@ func TestSpellingParityWithNetGuard(t *testing.T) {
 
 	for _, g := range groups {
 		t.Run(g.name, func(t *testing.T) {
-			if netguard.AllowFetch("http://" + g.addr + "/") {
+			if netguard.AllowFetch(rawOf(g.addr)) {
 				t.Fatalf("test bug: netguard PERMITS the reference address %q, "+
 					"so this group asserts nothing", g.addr)
 			}
@@ -546,7 +558,7 @@ func TestSpellingParityWithNetGuard(t *testing.T) {
 					"so this group cannot distinguish anything", g.name)
 			}
 			for _, h := range append([]string{g.addr}, g.equivs...) {
-				raw := "http://" + h + "/"
+				raw := rawOf(h)
 				if g.classify == nil {
 					if IsPrivateHost(raw) || IsLoopback(raw) || IsCloudMetadata(raw) {
 						t.Errorf("%q reports an internal surface, but link-local "+

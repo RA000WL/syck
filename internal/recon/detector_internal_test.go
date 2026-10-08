@@ -437,6 +437,11 @@ func TestInternalDetectorSeverityMapping(t *testing.T) {
 	}{
 		// cloud_metadata is the only High: it is an SSRF target.
 		{"cloud-metadata-high", "http://169.254.169.254/", finding.SeverityHigh},
+		// The legacy inet_aton spellings must reach Detect at High too, not
+		// just IsCloudMetadata in the http client — this is the claim Batch 6
+		// shipped: 2852039166 and 0xa9fea9fe both denote 169.254.169.254.
+		{"cloud-metadata-legacy-int", "http://2852039166/", finding.SeverityHigh},
+		{"cloud-metadata-legacy-hex", "http://0xa9fea9fe/", finding.SeverityHigh},
 		// private_ip is Medium: possible SSRF or misconfiguration.
 		{"private-ip-medium", "http://10.0.0.1/x", finding.SeverityMedium},
 		// Everything else is Low.

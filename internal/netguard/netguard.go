@@ -174,8 +174,9 @@ func AllowFetch(rawURL string) bool {
 
 // stripZone returns host with any IPv6 zone suffix removed.
 //
-// url.URL.Hostname() percent-decodes %25, so "[fe80::1%25eth0]" arrives as the
-// host "fe80::1%eth0". Stripping is not waiving a check: ParseHostIP re-parses
+// In Go's stdlib the percent-decoding of %25 happens in url.Parse's parseHost,
+// not in Hostname(): Hostname() is splitHostPort(u.Host) with no decoding.
+// "[fe80::1%25eth0]" therefore arrives already decoded, as "fe80::1%eth0". Stripping is not waiving a check: ParseHostIP re-parses
 // the remainder and runs the SAME checks on the address it denotes, which is
 // also why "2130706433%foo" cannot use a zone to smuggle an address past.
 func stripZone(host string) string {

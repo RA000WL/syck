@@ -118,6 +118,8 @@ func TestAllowFetchTable(t *testing.T) {
 		{"deny/legacy-leading-zero-octal", "http://010.0.0.1/", false},
 		{"deny/legacy-hex-first-part", "http://0x7f.0.0.1/", false},
 		{"deny/legacy-hex-int-127.0.0.1", "http://0x7f000001/", false},
+		{"deny/legacy-hex-int-upper-X", "http://0X7f000001/", false},
+		{"deny/legacy-hex-first-part-upper-X", "http://0X7F.0.0.1/", false},
 
 		// The other three blocked ranges, in legacy spellings, so the fix is not
 		// a loopback-only special case. "10.1" is 10.0.0.1, "169.254.0" is
@@ -150,8 +152,8 @@ func TestAllowFetchTable(t *testing.T) {
 		{"deny/legacy-ambiguous-bare-dot", "http://./", false},
 		{"deny/legacy-ambiguous-double-dot", "http://..//", false},
 
-		// --- IPv6 zone identifiers. url.URL.Hostname() percent-decodes %25,
-		// so "[fe80::1%25eth0]" arrives as the host "fe80::1%eth0";
+		// --- IPv6 zone identifiers. url.Parse percent-decodes %25 during host
+		// parsing, so "[fe80::1%25eth0]" arrives as the host "fe80::1%eth0";
 		// net.ParseIP rejects the zone, so it used to be allowed. The zone
 		// must be stripped and the SAME checks run — not waived.
 		{"deny/v6-zone-fe80-link-local", "http://[fe80::1%25eth0]/x", false},
@@ -406,6 +408,8 @@ func TestParseLegacyIPv4(t *testing.T) {
 		{"134744072", "8.8.8.8"},
 		{"3221225985", "192.0.2.1"},
 		{"0x7f000001", "127.0.0.1"},
+		{"0X7f000001", "127.0.0.1"},
+		{"0X7F000001", "127.0.0.1"},
 		{"0x08080808", "8.8.8.8"},
 
 		// --- 2-part: the second part fills the low 24 bits
@@ -425,6 +429,9 @@ func TestParseLegacyIPv4(t *testing.T) {
 
 		// --- 4-part with a hex or hex-low byte
 		{"0x7f.0.0.1", "127.0.0.1"},
+		{"0X7F.0.0.1", "127.0.0.1"},
+		{"0x7F.0.0.1", "127.0.0.1"},
+		{"0X7f.1", "127.0.0.1"},
 		{"0xa.0.0.1", "10.0.0.1"},
 		{"0xc0a80001", "192.168.0.1"},
 		{"8.8.0x800", "8.8.8.0"},
@@ -512,7 +519,7 @@ func TestLegacyIPv4CandidateRejectsNames(t *testing.T) {
 
 	// And the shapes that must be accepted, so the test above is not vacuous.
 	for _, h := range []string{"2130706433", "127.1", "1.2.3", "127.0.0.1",
-		"0x7f.0.0.1", "0x08080808", "192.168.1.1.", "999.1.1.1", "1.2.3.4.5"} {
+		"0x7f.0.0.1", "0X7F000001", "0X7f.1", "0x08080808", "192.168.1.1.", "999.1.1.1", "1.2.3.4.5"} {
 		if !legacyIPv4Candidate(h) {
 			t.Errorf("legacyIPv4Candidate(%q) = false, want true", h)
 		}
@@ -522,6 +529,13 @@ func TestLegacyIPv4CandidateRejectsNames(t *testing.T) {
 // allowFetchBatch1 is the gate as it behaved before Batch 6 Task 3: net.ParseIP
 // or nothing. It is reproduced here as an oracle so the "strictly tighter"
 // property is checkable rather than asserted.
+//
+// Scope, honestly: the oracle calls the SAME IsBlockedIP/IsMetadataHost helpers
+// production does, so it cannot detect a narrowed RANGE LIST — if the blocked
+// ranges shrank, both sides would shrink together and the implication loop
+// would still pass. What it checks is the commit-3 delta (legacy spellings and
+// zones reaching the SAME verdicts). The range list itself is pinned
+// independently by TestIsBlockedIP rows, so the total risk is low but real.
 func allowFetchBatch1(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -596,7 +610,12 @@ func TestAllowFetchNeverLoosens(t *testing.T) {
 	for _, h := range hosts {
 		raw := "http://" + h + "/"
 		if strings.Contains(h, ":") || strings.Contains(h, "%") {
-			raw = "http://[" + h + "]/"
+			// Zoned IPv6 literals must be bracketed AND their % percent-encoded
+			// ("%25"), the form a client actually sends: "http://[fe80::1%eth0]/"
+			// fails url.Parse with "invalid URL escape", so both sides of the
+			// comparison would return false for the parse error and the row
+			// would assert nothing.
+			raw = "http://[" + strings.ReplaceAll(h, "%", "%25") + "]/"
 		}
 		before, after := allowFetchBatch1(raw), AllowFetch(raw)
 		if !before && after {
@@ -712,8 +731,10 @@ func TestParseHostIP(t *testing.T) {
 		// The legacy inet_aton forms, resolved to their real meanings.
 		{"2130706433", "127.0.0.1"},
 		{"0x7f000001", "127.0.0.1"},
+		{"0X7F000001", "127.0.0.1"},
 		{"127.1", "127.0.0.1"},
 		{"0x7f.0.0.1", "127.0.0.1"},
+		{"0X7f.1", "127.0.0.1"},
 		{"10.1", "10.0.0.1"},
 		{"192.168.1", "192.168.0.1"},
 		{"169.254.0", "169.254.0.0"},
@@ -803,7 +824,8 @@ func TestParseHostIPIsUsedByAllowFetch(t *testing.T) {
 		// A zone must be percent-ENCODED in a URL: url.Parse rejects a raw
 		// "%eth0" ("invalid URL escape"), so AllowFetch would deny at the
 		// parse step and never reach the resolver. %25 is what a client
-		// actually sends, and url.URL.Hostname() decodes it back to "%eth0".
+		// actually sends; url.Parse decodes it during host parsing, so the
+		// host reaches the resolver as "fe80::1%eth0".
 		{"fe80::1%eth0", "fe80::1%25eth0", false, true, "blocked zoned literal"},
 		{"134744072", "", true, true, "public legacy literal"},
 		{"1.2.3", "", true, true, "public legacy 3-part"},
