@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**)
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored)
 
-This section carries five batches, so the title names them and flags the two
+This section carries six batches, so the title names them and flags the three
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -15,7 +15,11 @@ High-severity finding. Batch 3 (performance work) is not breaking. Batch 5 is a
 detection-consistency fix that **removes** findings on two paths; it is not
 breaking and touches no public API. Batch 7, like Batch 6, makes finding
 counts go **UP**: distinct secrets that share a long prefix used to be merged
-into a single finding (see its entry under "### Fixed" below).
+into a single finding (see its entry under "### Fixed" below). Batch 8 runs the
+other way — it **removes** false positives on three rule-matching paths — with
+one deliberate exception, stated in its own entry: it restores CRITICAL
+private-key blocks on the decoded path, which is a count going **up** for one
+class.
 
 ### Changed
 
@@ -389,6 +393,124 @@ into a single finding (see its entry under "### Fixed" below).
   finding (the merged-control fixtures pass at every path); distinct secrets
   sharing a 60/80-char prefix that previously surfaced as one finding now
   surface as two. Recorded as §15 item 10 (CLOSED) in ARCHITECTURE.md.
+
+### Fixed
+
+- **Batch 8 — `internal/jsrecon`, `internal/json_scanner` and the decoder's
+  decoded-content path now apply the plain-file path's false-positive and
+  context filters. Finding counts go DOWN.**
+
+  Batch 5 made the entropy floor consistent across these three paths. The
+  context guard and the three `IsFalsePositive*` filters were still missing, so
+  the same input that was silent on the plain-file path could still produce a
+  finding there. They are now applied in the plain-file path's order
+  (`internal/scanner/helpers.go:529`, then `:555-563`): `RequiresContext`
+  first — it needs the source text, before secret extraction narrows it — then,
+  after secret extraction and the entropy floor, `IsFalsePositiveSecret`,
+  `IsFalsePositiveToken`, `IsFalsePositiveEmail`.
+
+  | Path | Call site | What was added |
+  |---|---|---|
+  | `internal/jsrecon/reconstruct.go` (`scanReconstructed`) | `:416`, `:437-445` | `RequiresContext` + all three FP filters |
+  | `internal/json_scanner/scanner.go` (`scanValue`, ruleset branch) | `:112`, `:134-142` | `RequiresContext` + all three FP filters |
+  | `internal/decoder/pipeline.go` (`scanDecodedChunk`) | `:168`, `:182` | `RequiresContext` + `IsFalsePositiveSecret`; `Token`/`Email` were already applied at `:206`/`:209` and were left where they were, so each filter runs once |
+
+  Each `RequiresContext` check runs against the text that path actually matches
+  rules against, not against a narrower slice, so none of the three became
+  stricter than the plain path: jsrecon checks the **reconstructed string** (a
+  fragment synthesized from two or more JS lines has no natural source line —
+  `lineno` records only where the fragment started), json_scanner checks the
+  **key path plus the value** (that is what `{"<key>":"<value>"}` offers a
+  plain file), and the decoder checks the **decoded chunk** (the source line is
+  the encoded blob, whose keywords are whatever the caller happened to write
+  beside it). The choice and its reason are recorded in a comment at each site.
+
+  Measured on the seven-fixture premise corpus committed in
+  `internal/{jsrecon,json_scanner,decoder}/fp_filter_test.go`, each fixture
+  driven through all three paths and the emitted findings diffed:
+
+  | Path | Before | After | Removed | Added |
+  |---|---|---|---|---|
+  | jsrecon | 9 | 3 | 6 | **0** |
+  | json_scanner | 9 | 3 | 6 | **0** |
+  | decoder | 5 | 3 | 2 | **0** |
+  | **total** | **23** | **9** | **14** | **0** |
+
+  **No new secret span is reported.** The diff between the two runs is a strict
+  subset: every (rule, span) pair present after was present before. On the
+  decoder path that claim needs stating precisely, because `scanDecodedChunk`
+  dedups on the secret value alone (`pipeline.go:213-222`): suppressing a
+  finding for secret *S* can let a later rule that also matches *S* win the
+  slot, so a surviving finding's `RuleName`/`Severity` **can** change even
+  though the set of reported secret spans cannot grow. In this corpus it does
+  not — every surviving span had exactly one surviving rule.
+
+  What stops being reported, by filter: 7 placeholder-value spans
+  (`secret='user_name_d9f3a7c2b8e5d4'` is a config key name in a secret-shaped
+  slot; `IsFalsePositiveSecret` pulls the quoted value out via
+  `kvPlaceholderRe` and Token's snake_case branch rejects it), 3 context-less
+  auth spans (`basic_auth_header` with no context keyword anywhere in the
+  scanned text — this is the guard that was inert before), 2 hyphen-token spans
+  (`vault_token` on `hvs.a7f3-b9c2-d4e6-8f01`, Token's `>= 3` hyphens and
+  `len > 20` branch) and 2 image-filename email spans (`email_address` on
+  `opengraph-image@2x.jpeg`, Email's image/font-extension list).
+
+  What still gets reported, on every path: `basic_auth_header` **with**
+  `Authorization:` present (the negative control for the context guard — the
+  guard is not "drop every `requires_context` rule"), `stripe_secret_key` and
+  `env_generic_secret`. Note that `env_generic_secret` cannot be made
+  context-less by any input: its four pattern alternatives each contain a
+  literal (`_SECRET`, `_PASSWORD`, `_TOKEN`, `_API_KEY`) that is one of its own
+  `context_keywords`, so every match carries its own keyword. That is pinned by
+  three premise tests, one per path.
+
+  **This is a false-positive reduction, so a re-scan of the same target
+  reports fewer findings than before.** The suppressed shapes are still
+  scanned; they are now judged the way the plain-file path judges them.
+
+- **Batch 8 correction (`983ffab`) — `IsFalsePositiveToken` is not applied to
+  `multi_line` rules on the decoded path, so CRITICAL PEM private-key blocks
+  are still reported through decoded content. This is the one count in this
+  batch that goes UP, deliberately.**
+
+  `IsFalsePositiveToken`'s hyphen heuristic (`>= 3` hyphens and `len > 20`,
+  aimed at feature-flag names) cannot tell a full PEM block from a feature
+  flag: a PEM block is nothing but hyphens and base64. The decoder iterates
+  every rule, the `multi_line` ones included, and `rsa_private_key`,
+  `ec_private_key`, `openssh_private_key` and `pgp_private_key` are CRITICAL
+  and exist precisely so base64-decoded content can be scanned.
+
+  This is not a policy change, and the earlier framing of it as "parity" was
+  too weak. The single-line path does report nothing for the header line
+  (`scanLineForRegexRules` on `-----BEGIN RSA PRIVATE KEY-----` → 0 findings),
+  but `internal/scanner/multiline.go` applies **no filters at all** and still
+  reports the full block as **CRITICAL** from a plain file: `ScanMultiLine`
+  over a four-line block yields `rsa_private_key_multiline` at severity
+  CRITICAL, and `syck scan` on a real PEM file reports `Total findings: 1`,
+  all CRITICAL, exit 2. So base64-encoded key material would have been *less*
+  visible than the same material sitting on disk — a decoded-path loss, not a
+  consistency win.
+
+  Measured: a shape-accurate PEM block arriving base64-encoded on the decoded
+  path goes from **0 findings to 1** — `base64_rsa_private_key`, CRITICAL. That
+  suppression predates this batch (the decoded path applied Token before Batch
+  8 too, at what was then `pipeline.go:171`), so the carve-out closes a
+  pre-existing decoded-path gap rather than repairing damage this batch caused —
+  which is also why it belongs in this entry: it is the correction that keeps
+  the decoded path seeing what a plain file already shows.
+  `IsFalsePositiveSecret` and `IsFalsePositiveEmail` stay applied to
+  `multi_line` rules on that path: they are span-shape-agnostic (placeholders
+  and image-filename addresses are false positives at any length and arity),
+  unlike Token. `TestDecodedPathPEMBlockReported` pins the block and
+  `TestDecodedPathHyphenatedFlagStillSuppressed` pins the control, so the
+  carve-out cannot silently widen into "Token never applies".
+
+  **Residual, recorded rather than fixed:** the carve-out is decoder-only. The
+  same block reached through `internal/jsrecon` or `internal/json_scanner` is
+  still suppressed by Token (`rsa_private_key`'s span scores 5.5420 entropy
+  and `IsFalsePositiveToken` returns true for it), as is the header line on
+  every path including the plain one. Those shapes remain visible where the
+  content is a plain file.
 
 ### Benchmarks
 
