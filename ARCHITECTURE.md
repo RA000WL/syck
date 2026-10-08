@@ -212,6 +212,12 @@ syck-go/
 │   │   ├── detector_internal.go    # Enhanced internal link detection (private IPs, cloud metadata, K8s/Docker)
 │   │   └── detector_*.go           # 12 detectors (admin, auth, debug, graphql, headers, internal, metrics, staging, storage, swagger, techweb, waf)
 │   │
+│   ├── netguard/                   # SSRF gate for secondary fetches (Batch 1)
+│   │   └── netguard.go             # THE copy of the private/loopback/link-local CIDR list + metadata host. IsPrivateIP (RFC 1918), IsBlockedIP (private + loopback + link-local + unspecified, delegates to IsPrivateIP), IsMetadataHost, AllowFetch. Literal IPs only — no DNS resolution
+│   │
+│   ├── internalurl/                # "Is this URL internal?" predicates (Batch 4c)
+│   │   └── internalurl.go          # IsPrivateHost/IsLoopback/IsCloudMetadata (parsed host, delegate to netguard) + IsInternalHost/IsInternalPath/IsSensitivePort (raw text). One caller: recon's classifyInternal. No DNS resolution
+│   │
 │   ├── ignore/                     # .syckignore support
 │   │   └── ignore.go               # Fingerprint + regex pattern suppression
 │   │
@@ -700,7 +706,7 @@ syck ruletest
 
 ## 15. Known Defects (Deferred)
 
-Each item below is pinned by a test and intentionally NOT fixed in Batch 4, because fixing it changes behavior.
+Items 1-3 are each pinned by a test and intentionally NOT fixed, because fixing them changes behavior. Item 4 is not test-pinned (it is an unexercised gate, so there is nothing to pin); it is recorded because it is a real gap in Batch 1 security code that Batch 4c edited but did not introduce.
 
 Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsCleanError`, `TestScanHistoryFindsCommittedSecret`) and tracked with `// TODO(security):` comments in `internal/gitscan/scanner.go`:
 
@@ -710,6 +716,10 @@ Two `internal/gitscan` issues are pinned by tests (`TestScanHistoryNonRepoIsClea
 One `internal/jsanalysis` issue is pinned by `TestLocalhostRE_UnanchoredSubspanExtraction`:
 
 3. **`localhostRE` under-matches loopback hosts** — the regex at `internal/jsanalysis/analyze.go` knows only three case-sensitive spellings (`localhost`, `127.0.0.1`, `0.0.0.0`) and requires a `:port`, so a JS config value containing `LOCALHOST:8080`, `127.0.0.2:8080` or `[::1]:8080` yields no `InternalURLs` finding — even though `internalurl.IsLoopback` accepts all three and `internal/recon`'s `classifyInternal` already reports them for URLs. The fix is NOT a one-line swap to `IsLoopback`: the same regex is **unanchored**, so it emits a *subspan* of a longer host (`my-localhost:8080` produces the finding `localhost:8080`), which a host-parsing predicate rejects. Widening the vocabulary must therefore fix the anchoring in the same edit, or it trades under-matches for wrong findings; delegating to `IsLoopback` only becomes viable once the extractor emits whole hosts. See the comment at the declaration. Needs its own CHANGELOG'd task — do not fold it into a refactor promising "no behavior change".
+
+One `internal/netguard` issue (Batch 1 code, not a test-pinned regression):
+
+4. **Link-local IPv6 with a zone escapes `AllowFetch`** — `AllowFetch("http://[fe80::1%25eth0]/")` returns `true`. `url.URL.Hostname()` yields `fe80::1%eth0` (the zone, percent-decoded) and `net.ParseIP` rejects the zone form, so the `fe80::/10` membership test never runs and `IsBlockedIP` is not even consulted. `internalurl.hostOf` inherits the same blind spot for the same reason. Pre-existing and byte-identical to the pre-Batch-4c code — the `internalurl` extraction did not introduce it, which is why Batch 4c left it alone — but it is Batch 1 security code in a package this branch edited. Fix in `AllowFetch` (strip the zone before parsing) with a widened `netguard_test.go` row; do NOT fix it by loosening `IsBlockedIP`, whose contract is a `net.IP` and which cannot see a zone at all.
 
 ---
 

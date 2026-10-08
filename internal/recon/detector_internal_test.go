@@ -158,8 +158,8 @@ func TestClassifyInternalCharacterization(t *testing.T) {
 			"negative: matches no branch"},
 
 		// --- THE SEVEN TASK 4 DELTAS ------------------------------------
-		// Four widenings (the first four rows) and three narrowings (the last
-		// three). Each note records what changed and why. The delta ledger in
+		// Three narrowings (rows 1-3) and four widenings (rows 4-7). Each note
+		// records what changed and why. The delta ledger in
 		// detector_internal_delta_test.go re-derives all seven against the old
 		// regexes and sweeps for any transition outside this set, so these rows
 		// are the canonical list rather than a sample. Any OTHER row in this

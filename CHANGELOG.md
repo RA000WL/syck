@@ -3,7 +3,13 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 3: performance
+## [Unreleased] — Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance
+
+This section carries two batches, so the title names both and flags the
+breaking one. Batch 4c (below, first) **changes** recon's internal-surface
+output, including a class of input that no longer produces a High-severity
+finding — read it first if you are diffing finding counts between versions.
+Batch 3 (performance work) follows and is not breaking.
 
 ### Changed
 
@@ -32,11 +38,30 @@ This project follows [Semantic Versioning](https://semver.org/).
   metadata address, or the loopback name appearing anywhere other than the host
   no longer produces a finding. Three further narrowings are not separate
   classes but the same mechanism in positions the table does not name — a
-  query or fragment instead of a path, and a hostname that embeds an IP literal
+  query or fragment instead of a path, a hostname that embeds an IP literal
   (`127.0.0.1.nip.io`, `10.0.0.1.example.com`, `localhost.example.com`, all of
-  which the old text regexes matched *inside the host*). `127.0.0.1.nip.io` does
-  resolve to loopback, so that one drops a real signal; `internalurl`
-  deliberately resolves nothing, and `netguard` gates the actual fetch.
+  which the old text regexes matched *inside the host*), and userinfo
+  (`http://10.0.0.1@evil.com/x` was `private_ip`, now `""`, because `hostOf`
+  takes the part after the last `@`, which is the real host `evil.com`). None of
+  these forms are swept, since they are not in the generator's token vocabulary.
+
+  **One of those lost signals has no compensating control, and an earlier draft
+  of this entry wrongly claimed otherwise.** `127.0.0.1.nip.io` resolves to
+  loopback, so it is a real internal surface, but it is now classified as an
+  ordinary public host and **`netguard` does not catch it either**:
+  `netguard.AllowFetch("http://127.0.0.1.nip.io/")` returns `true`. `netguard`
+  performs literal-IP checks only — its own package doc says "Batch 1 performs
+  literal-IP checks only: no DNS resolution" — and `netguard_test.go` pins
+  `AllowFetch("http://localhost/") == true`. Nothing in the codebase resolves a
+  name before deciding to fetch it.
+
+  A real mitigation would require a gate that resolves the hostname and checks
+  the returned addresses, which is exactly the resolution Batch 1 deliberately
+  does not perform. That is a separate, security-relevant change with its own
+  risk profile (TOCTOU on the answer, DNS rebinding, latency per fetch) and is
+  **not** delivered by this batch. Until it exists, treat "a DNS name that
+  resolves to a private address is not detected" as a known gap, not a covered
+  case.
 
   **Loopback detection is now correct for IPv6, for all of 127/8, and for the
   case-insensitive name.** The old regex hardcoded
@@ -80,7 +105,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   generator also asserts that each declared mechanism is still exercised, so
   trimming the vocabulary cannot quietly reduce the claim.
 
-- `internalurl`'s host extractor no longer mistakes a `://` inside a URL's path,
+  - `internalurl`'s host extractor no longer mistakes a `://` inside a URL's path,
   query, or fragment for a scheme. It previously stripped a scheme by taking the
   first `://` anywhere in the string, so a scheme-less URL whose query carried an
   absolute URL had its host read out of that query:

@@ -70,12 +70,17 @@ var (
 	// tracked in ARCHITECTURE.md section 15 — and must not be folded into a
 	// refactor that promises "no behavior change".
 	//
-	// TRIPWIRE: point 1 is a snapshot of IsLoopback's current semantics. If
-	// IsLoopback ever starts accepting a suffix label — "*.localhost",
-	// "x127.0.0.1" — the predicate would agree with the emitted subspan and the
-	// tokenizing route would become viable. Revisit this decision then. The test
-	// named above will NOT catch it: it pins this package's output, not the
-	// predicate's answer.
+	// TRIPWIRE: revisiting this decision requires an ANCHORING change, not a
+	// vocabulary one. Widening IsLoopback's vocabulary does not unblock the
+	// tokenizing route: tokenizing "my-localhost:8080" yields host "my-localhost",
+	// so delegation would emit the finding "my-localhost:8080" where today's
+	// regex emits "localhost:8080" — a different finding value either way. The
+	// anchoring defect is orthogonal to what the predicate accepts. The tripwire
+	// is therefore: if this extractor is ever changed to emit WHOLE hosts (host
+	// plus optional port) rather than regex subspans, re-evaluate delegation then;
+	// until then a predicate change alone is not a reason to revisit it. The test
+	// named above pins this package's output and will NOT catch such a change:
+	// it does not check the predicate's answer.
 	localhostRE = regexp.MustCompile(`(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+`)
 
 	// Sensitive file references

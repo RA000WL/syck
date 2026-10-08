@@ -25,25 +25,34 @@
 
 ## The declared behavior changes in this batch
 
-Read this before Task 4. Batch 4's contract is zero observable behavior change. This batch holds to it **except for exactly four URL inputs**, all verified against the unmodified `classifyInternal`, and called out here so each is a decision rather than a surprise.
+Read this before Task 4. Batch 4's contract is zero observable behavior change. This batch holds to it **except for exactly seven URL inputs**, all verified against the unmodified `classifyInternal`, and called out here so each is a decision rather than a surprise.
 
-**Widening — 2 inputs.** `recon`'s `localhostRE` is `\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`, which under-matches: it misses `::1` and any loopback outside `127.0.0.x`. `IsLoopback` is the correct set.
+> Correction (2026-10-08, final whole-branch review): this section originally declared **four** deltas (2 widenings, 2 narrowings). The shipped branch has **seven** — the four declared plus three found while the delta sweep ran, all of the same two mechanisms. `CHANGELOG.md` is the authority for the count and carries the full table; the four inputs named below remain a subset. Nothing about the *mechanism* changed, only the census.
+
+**Widening — 4 inputs.** `recon`'s `localhostRE` is `\b(?:localhost|127\.0\.0\.\d+|0\.0\.0\.0)\b`, which under-matches: it misses `::1` and any loopback outside `127.0.0.x`. `IsLoopback` is the correct set.
 
 - `http://[::1]/x` → now `"localhost"` (was `""`)
 - `http://127.1.2.3/x` → now `"localhost"` (was `""`)
+- `http://[::]/x` → now `"localhost"` (was `""`) — the IPv6 unspecified address, the v6 counterpart of the `0.0.0.0` the regex *did* spell out
+- `http://LOCALHOST/api` → now `"localhost"` (was `""`) — `hostOf` lowercases the host; the old regex carried no `(?i)` flag
+
+All four only ever **add** a Low-severity finding.
 
 There is no way to express the old behavior through a correct `IsLoopback`, because the old behavior *is* the sloppiness. The alternatives are (a) accept the fix or (b) keep a regex that deliberately under-matches. This plan takes (a).
 
-**Narrowing — 2 inputs.** `privateIP*RE` and `cloudMetadataRE` are raw-**text** matches, so they fire on an address appearing anywhere in the URL. The shared predicates are host-**parsed** (required to reuse `netguard`'s CIDR list without duplicating it), so an address in a path no longer classifies.
+**Narrowing — 3 inputs.** `privateIP*RE` and `cloudMetadataRE` are raw-**text** matches, so they fire on an address appearing anywhere in the URL. The shared predicates are host-**parsed** (required to reuse `netguard`'s CIDR list without duplicating it), so an address in a path no longer classifies.
 
-- `http://foo.com/10.0.0.1/x` → now `""` (was `"private_ip"`)
-- `http://foo.com/169.254.169.254/x` → now `""` (was `"cloud_metadata"`)
+- `http://foo.com/10.0.0.1/x` → now `""` (was `"private_ip"`) — removes a **Medium**
+- `http://foo.com/169.254.169.254/x` → now `""` (was `"cloud_metadata"`) — removes a **High**
+- `http://example.com/localhost` → now `""` (was `"localhost"`) — removes a **Low**; `localhostRE` was raw text too, so it matched the loopback *name* in a path
+
+One per severity. The host-parse split also applies in positions the plan did not enumerate — a query or fragment, a hostname embedding an IP literal (`127.0.0.1.nip.io`), and userinfo (`http://10.0.0.1@evil.com/x`, was `private_ip`) — recorded in `CHANGELOG.md`. `127.0.0.1.nip.io` drops a real signal and has **no** compensating control: `netguard.AllowFetch` does not resolve names, so it returns `true` for that URL.
 
 This is a deliberate trade: single-sourcing the CIDR list is the point of the package, and reusing `netguard` is the only way to get it without a second copy. A private IP in a path is a different signal from a private-IP host.
 
 **Everything else is unchanged**, including `http://metadata.google.internal/`, which stays `"internal_host"` — `k8sServiceRE` matches it and `internal_host` is tested before `cloud_metadata`, so the metadata hostname never reaches the metadata branch. (An earlier draft of this plan claimed it changed. It does not.)
 
-**Requirement:** all four must be recorded in `CHANGELOG.md` under `[Unreleased]` in Task 4, and each must appear in the Task 3 characterization table as an explicit row with a comment naming the delta — not as a silently-absent case. If a reviewer cannot find both the code change and its CHANGELOG line from the commit alone, the task is not done.
+**Requirement:** all seven must be recorded in `CHANGELOG.md` under `[Unreleased]` in Task 4, and each must appear in the Task 3 characterization table as an explicit row with a comment naming the delta — not as a silently-absent case. If a reviewer cannot find both the code change and its CHANGELOG line from the commit alone, the task is not done.
 
 ---
 
@@ -222,7 +231,7 @@ Pin the category string for at least one input per category, plus the empty-stri
 | `http://h:33060/` | `""` — the `\b` terminator keeps this from matching `:3306` |
 | `https://example.com/api/users` | `""` |
 
-The four rows marked **today** carry a comment naming the Task 4 delta. They start at the current value so the test is a true characterization; Task 4 updates exactly those four and nothing else.
+> Correction (2026-10-08, final whole-branch review): this said four rows. The shipped table carries **seven** delta rows (three narrowings, then four widenings). The rows marked **today** start at the current value so the test is a true characterization; Task 4 updates exactly those seven and nothing else.
 
 Note that `http://foo.com/169.254.169.254/x` is in the table precisely because it exercises the text-vs-host split: it is `cloud_metadata` today only because the old regex matches raw text anywhere in the string.
 
@@ -275,11 +284,13 @@ Delete only the regexes whose sole consumer is `classifyInternal`. **Check with 
 - [ ] **Step 2: Verify behavior is unchanged apart from the declared deltas**
 
 Run: `go test ./internal/recon/ -count=1 -v`
-Expected: the Task 3 characterization table passes with **only** the four delta rows updated — `http://[::1]/x` and `http://127.1.2.3/x` (now `localhost`), and `http://foo.com/10.0.0.1/x` and `http://foo.com/169.254.169.254/x` (now `""`). **Any other row that changes is a bug in the mapping above** — fix the mapping, not the test.
+> Correction (2026-10-08, final whole-branch review): this gate listed four delta rows and told a maintainer to revert anything else as a bug. It is **seven**: `http://[::1]/x`, `http://[::]/x`, `http://127.1.2.3/x` and `http://LOCALHOST/api` (now `localhost`), and `http://foo.com/10.0.0.1/x`, `http://foo.com/169.254.169.254/x` and `http://example.com/localhost` (now `""`). The three that were missing were all found and confirmed during the sweep, and all three are the same two mechanisms already named above.
+
+Expected: the Task 3 characterization table passes with **only** the seven delta rows updated — listed above. **Any other row that changes is a bug in the mapping above** — fix the mapping, not the test. The row names in the shipped test are the authority: `DELTA-*`.
 
 - [ ] **Step 3: Record the deltas in `CHANGELOG.md`**
 
-Under `[Unreleased]`, note the four declared changes: recon's internal-surface detection now recognizes IPv6 loopback (`[::1]`) and loopback addresses outside `127.0.0.x`, and no longer reports a bare private or metadata IP appearing in a URL **path** as a `private_ip` / `cloud_metadata` surface finding. State the reason for the narrowing — the shared predicates parse the host so the CIDR list is not duplicated — so a future reader does not "restore" the text match and reintroduce the second copy.
+Under `[Unreleased]`, note the seven declared changes: recon's internal-surface detection now recognizes IPv6 loopback (`[::1]`), the IPv6 unspecified address (`[::]`), loopback addresses outside `127.0.0.x`, and any case of the `localhost` name; and it no longer reports a bare private or metadata IP, or the loopback name, appearing in a URL **path** as a `private_ip` / `cloud_metadata` / `localhost` surface finding. State the severities (one Medium, one High, one Low removed). State the reason for the narrowing — the shared predicates parse the host so the CIDR list is not duplicated — so a future reader does not "restore" the text match and reintroduce the second copy.
 
 - [ ] **Step 4: Run the wider gates**
 

@@ -1,11 +1,39 @@
-// Package internalurl is the single source of truth for "is this URL
-// internal?" — private network, loopback, cloud metadata, internal hostname,
-// internal path, or exposed sensitive service port.
+// Package internalurl answers "is this URL internal?" — private network,
+// loopback, cloud metadata, internal hostname, internal path, or exposed
+// sensitive service port. It is the single home for the ADDRESS half of that
+// vocabulary (the RFC 1918 ranges, the loopback set, the metadata address) and
+// for the service-port list, and it delegates the CIDR and metadata-hostname
+// authority to internal/netguard rather than keeping a second copy.
 //
-// It exists because that vocabulary was previously spelled out as a dozen
-// ad-hoc regexes spread across internal/recon, internal/jsanalysis, and
-// internal/endpoints, each with a subtly different token list. One definition
-// means a fix to the list cannot be applied to two of the three.
+// Those five lists were each spelled out as ad-hoc regexes inside
+// internal/recon alongside the predicates extracted from internal/netguard, so
+// one address could be classified one way by classifyInternal and another by
+// AllowFetch. Each has exactly one definition now.
+//
+// This is NOT a single source for the whole vocabulary, and this doc should not
+// be read as claiming it is. The *path and host token* half — admin, debug,
+// trace, staging, dev, test, private, hidden, legacy — is still spelled out
+// five times over:
+//
+//	internal/recon/detector_admin.go    adminRE
+//	internal/recon/detector_debug.go    debugRE
+//	internal/recon/detector_staging.go  stagingRE, stagingHostRE
+//	internal/endpoints/extract.go:95    internal/hidden path pattern
+//	internal/endpoints/risk.go:24       internal/debug/private risk pattern
+//
+// Deliberately not merged here. They are separate categories with separate
+// severities and different trailing rules, three of them are sibling detectors
+// this batch was forbidden to touch, and collapsing them would change recon's
+// output rather than de-duplicate it.
+//
+// The other two packages named in the original audit are deliberate non-callers.
+// internal/jsanalysis extracts config *values* from JS source rather than
+// classifying whole URLs, and its localhostRE is unanchored (see its comment and
+// ARCHITECTURE.md section 15). internal/endpoints extracts endpoint substrings
+// from ~30 patterns, one of which happens to contain internal-path vocabulary.
+// Neither has a whole URL to classify, so neither can delegate without
+// changing what it emits. Consequently this package has ONE production caller,
+// internal/recon's classifyInternal.
 //
 // # Parsed vs raw-text: which predicate is which, and why
 //
@@ -34,11 +62,17 @@
 // # Not for every "internal" question
 //
 // This package classifies a URL somebody typed. It deliberately does not
-// resolve DNS, so a public name that resolves to 127.0.0.1 is not detected;
-// that is netguard's concern at fetch time. It also does not replace
-// endpoint extraction (internal/endpoints) or config-value extraction
-// (internal/jsanalysis) — those capture substrings rather than classify
-// whole URLs, and merging them here would destroy their behavior.
+// resolve DNS, and nothing downstream resolves it either for classification
+// purposes: netguard's AllowFetch performs literal-IP checks only, so a name
+// that resolves to 127.0.0.1 — "127.0.0.1.nip.io" is the canonical case —
+// is classified as an ordinary public host by both this package and
+// AllowFetch. That signal is currently dropped with NO compensating control.
+// Closing it needs a gate that resolves the name and checks the answer, which
+// is precisely the resolution Batch 1 deliberately excluded; do not assume
+// netguard covers this. It also does not replace endpoint extraction
+// (internal/endpoints) or config-value extraction (internal/jsanalysis) —
+// those capture substrings rather than classify whole URLs, and merging them
+// here would destroy their behavior.
 package internalurl
 
 import (

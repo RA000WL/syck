@@ -49,6 +49,11 @@ func IsMetadataHost(host string) bool {
 // host?" is narrow (IsPrivateIP), and it is what a surface classifier needs:
 // a loopback URL is categorized as loopback, not as private, and conflating
 // the two would change recon's output. A nil ip is reported as not private.
+//
+// This function owns the RFC 1918 membership list: IsBlockedIP delegates to
+// it rather than iterating the three ranges again, so the list is written
+// once. The invariant IsPrivateIP ⟹ IsBlockedIP is pinned by
+// TestPrivateIPImpliesBlocked.
 func IsPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false
@@ -66,11 +71,20 @@ func IsPrivateIP(ip net.IP) bool {
 // unspecified address (0.0.0.0 or ::, either family).
 // Literal IPs only — callers must have already handled DNS names.
 // A nil ip is not a literal IP and is reported as not blocked.
+//
+// The RFC 1918 membership test is delegated to IsPrivateIP rather than
+// re-listed here. This is the only copy of that list in the package, so
+// widening IsPrivateIP cannot leave AllowFetch quietly allowing what
+// internalurl now classifies as private. See IsPrivateIP for the invariant
+// and TestPrivateIPImpliesBlocked.
 func IsBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	for _, n := range []*net.IPNet{private10, private172, private192, loopbackV4, linkLocalV4, linkLocalV6} {
+	if IsPrivateIP(ip) {
+		return true
+	}
+	for _, n := range []*net.IPNet{loopbackV4, linkLocalV4, linkLocalV6} {
 		if n.Contains(ip) {
 			return true
 		}

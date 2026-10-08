@@ -123,10 +123,9 @@ func deltaBranches() []branchPair {
 // recomputed from the old regexes at run time and compared against the
 // documented value, so the table cannot drift away from the code it describes.
 //
-// Three of the seven classes REMOVE a finding. Two of those three are Low
-// severity (localhost) and one is High (cloud_metadata); the private_ip class
-// removes a Medium one. The four widenings only ever add Low-severity
-// findings.
+// Three of the seven classes REMOVE a finding, one per severity: private_ip
+// removes a Medium, cloud_metadata a High, localhost a Low. The four
+// widenings only ever add Low-severity findings.
 func TestClassifyInternalDeltaLedger(t *testing.T) {
 	tests := []struct {
 		name   string

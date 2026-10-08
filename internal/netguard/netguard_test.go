@@ -210,6 +210,54 @@ func TestIsBlockedIP(t *testing.T) {
 	}
 }
 
+// TestPrivateIPImpliesBlocked pins the invariant that lets IsBlockedIP
+// delegate the RFC 1918 test to IsPrivateIP instead of re-listing the three
+// ranges: anything IsPrivateIP accepts is also blocked from being fetched.
+//
+// This test lives here, in the package that owns the list, rather than only in
+// internalurl's tests. It sweeps the boundaries of all three ranges plus a
+// band of public addresses, so adding a range to IsPrivateIP without adding
+// it to IsBlockedIP's reachable set fails HERE instead of quietly making
+// AllowFetch allow a range internalurl classifies as private.
+func TestPrivateIPImpliesBlocked(t *testing.T) {
+	addrs := []string{
+		// 10/8 boundaries, plus the v4-mapped forms the stdlib normalizes.
+		"10.0.0.0", "10.255.255.255", "9.255.255.255", "11.0.0.0",
+		"::ffff:10.0.0.0", "::ffff:10.255.255.255",
+		// 172.16/12 boundaries.
+		"172.16.0.0", "172.31.255.255", "172.15.255.255", "172.32.0.0",
+		"::ffff:172.16.0.0", "::ffff:172.31.255.255",
+		// 192.168/16 boundaries.
+		"192.168.0.0", "192.168.255.255", "192.167.255.255", "192.169.0.0",
+		"::ffff:192.168.0.0", "::ffff:192.168.255.255",
+	}
+	// Public and non-private controls, so the sweep also proves the test is
+	// not trivially passing. The CGNAT 100.64/10 boundaries are included
+	// specifically: it is the range most likely to be added to IsPrivateIP
+	// next, and it is NOT currently in either list — the invariant test then
+	// fails if it is added to IsPrivateIP without IsBlockedIP reaching it.
+	addrs = append(addrs, "8.8.8.8", "1.1.1.1", "172.16.0.1", "192.168.1.1",
+		"10.1.2.3", "127.0.0.1", "169.254.169.254", "fe80::1", "::1", "0.0.0.0",
+		"100.64.0.0", "100.127.255.255", "100.63.255.255", "100.128.0.0",
+		"100.64.0.1")
+
+	for _, s := range addrs {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("test bug: %q is not a valid IP literal", s)
+		}
+		if IsPrivateIP(ip) && !IsBlockedIP(ip) {
+			t.Errorf("IsPrivateIP(%q) = true but IsBlockedIP(%q) = false: "+
+				"the private CIDR list must not be re-listed in IsBlockedIP",
+				s, s)
+		}
+	}
+
+	if IsBlockedIP(nil) {
+		t.Error("IsBlockedIP(nil) = true, want false: a nil net.IP is not a literal IP")
+	}
+}
+
 // TestIsMetadataHost exercises the hostname denylist directly, pinning the
 // parameter contract: host must be a BARE hostname as produced by
 // url.URL.Hostname(). A "host:port" pair must not match, because the port is
