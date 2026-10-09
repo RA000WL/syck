@@ -278,6 +278,7 @@ syck scan . --cache-db scan.db --adaptive
 | `--git-history` | Scan files in git commit history |
 | `--validate` | Validate found secrets against provider APIs (live check) |
 | `--downgrade-fp` | Downgrade severity for findings in test/mock/vendor dirs (default: **on**) |
+| `--no-correlation` | Disable credential-pair correlation — `aws_credential_pair`, `stripe_credential_pair`, `twilio_credential_pair`, `database_url_with_credentials` (default: **on**, so pairs are reported in addition to their two components) |
 | `--ignore-file` | Path to `.syckignore` file |
 | `--rules`, `-r` | Custom rules YAML file |
 | `--pipe` | Scan from stdin (auto-detects URLs vs raw content) |

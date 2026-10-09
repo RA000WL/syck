@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change)
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change) + Batch 12: credential-pair correlation (**adds findings**) + dead-detector residual
 
-This section carries nine batches, so the title names them and flags the seven
+This section carries ten batches, so the title names them and flags the eight
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -28,6 +28,104 @@ host instead of a carved-up substring. Diffing on that emitted substring needs
 a read of its table, not just a count. Batch 11, like Batch 3, changes nothing
 about what syck reports; it pools one buffer and is benchmark-gated (see its
 entry under "### Performance" below). Batch 11 closes ARCHITECTURE §15 item 5.
+
+Batch 12 is an **addition that adds findings**: the eight credential-pair
+detectors in `internal/correlation` are wired onto the V6 scan path and run by
+default, so a scan now reports a pair in addition to its two components. It adds
+**no new detection rules** — `entropy_threshold` is still the only `entropy_threshold`
+line in `builtin.yaml` — and 5 of the 8 detectors remain dead because their
+component rules do not exist (see its entry under "### Added" below). Opt out
+with `--no-correlation`, which restores the previous finding count exactly. The
+same change fixes three defects that wiring the detectors in as they stood would
+have shipped: a zero severity, a `--severity` bypass, and an off-band confidence
+value. All three are named in the entry, with the tests that pin them.
+
+### Added
+
+- **Batch 12: credential pairs are now reported.** `internal/correlation` holds
+  eight detectors that recognise two findings which together form a working
+  credential — an AWS access key id and its secret, within N lines of each
+  other. They were reachable only through `Pipeline`/`CorrelationStage`, which
+  is test-only: `NewPipeline`'s only caller is `pipeline_test.go`, so no pair has
+  ever been reported by the CLI. They now run on the V6 scan path.
+
+  | Reported rule name | Fires on | Severity | Band |
+  |---|---|---|---|
+  | `aws_credential_pair` | `aws_access_key_id` + `aws_secret_access_key`, ≤ 20 lines | CRITICAL (max of two CRITICAL components) | MEDIUM |
+  | `stripe_credential_pair` | `stripe_secret_key` + `stripe_publishable_key`, ≤ 50 lines | CRITICAL (max of CRITICAL + MEDIUM) | MEDIUM |
+  | `twilio_credential_pair` | `twilio_account_sid` + `twilio_auth_token`, ≤ 10 lines | CRITICAL (max of HIGH + CRITICAL) | MEDIUM |
+  | `database_url_with_credentials` | a DB URL with embedded credentials in the matched value | from its one component | from its one component |
+
+  Findings only go **up** — the components are still reported separately, and the
+  pair is appended at the collection boundary (after dedup and after `--downgrade-fp`,
+  before the cross-run cache, so a pair participates in `--diff` and adaptive
+  weights like anything else). Measured on a 200-file corpus of 100 lines each:
+  **1401 → 1801 findings** (+200 `aws_credential_pair`, +200
+  `database_url_with_credentials`), wall time 0.55s → 0.56s — inside the noise.
+  The parity golden gains exactly one line (`config.yaml:5 stripe_credential_pair`).
+
+  A pair's `secret` column carries a **description**, not a secret
+  (`"aws_access_key_id + aws_secret_access_key found within 1 lines"`), and its
+  `context` carries the same text — deliberately, so `--redact` cannot leave a
+  real secret behind: the redactor masks `secret` inside `context`, so a context
+  holding the matched line would leak it. Its position still points at the first
+  component. Its `rule` is not a rule in the ruleset; `--diff`, `--validate`,
+  and the adaptive paths do not lookup on rule name and are unaffected.
+
+  **Three defects, fixed in the same edit.** Wiring the detectors in as they
+  stood would have shipped broken output:
+
+  1. **Zero severity.** A correlated finding carried `finding.Finding`'s zero
+     value `SeverityInfo` (0), which is below the CLI's default
+     `--severity LOW` (1) — so every pair would have been invisible by default.
+     Severity is now `max(a.Severity, b.Severity)`, derived rather than
+     constant, so it stays correct as the component rules are tuned.
+  2. **`--severity` bypass.** `MinSeverity` is applied *inside* the scan paths
+     (`internal/scanner/helpers.go:547` and the sub-scanner calls), not after
+     collection, so anything appended post-collection would sail past
+     `--severity CRITICAL`. Correlated findings are now filtered by
+     `MinSeverity` at the hook. Under the current ruleset every live pair
+     derives CRITICAL, so the only way to see the filter bite is
+     `--downgrade-fp` lowering a pair below the floor — pinned by
+     `TestCorrelationWiringCase4_MinSeverityStillFilters`.
+  3. **Off-band confidence.** `matchPair` set `Confidence: "VERY_HIGH"`
+     (`internal/correlation/helpers.go:30`), which `confidence.Band()` cannot
+     produce for an in-range score; there is no sixth band. The band is now
+     `confidence.Band(max component confidence score)` — pinned by
+     `TestCorrelatedBandStaysInVocabulary`.
+
+  **5 of the 8 detectors are dead, and that is the honest state.** Adding the
+  missing rules is a separate decision with its own blast radius and is
+  deliberately not made here:
+
+  | Detector | Why it cannot fire |
+  |---|---|
+  | `CloudflareDetector` | `cloudflare_email` and `cloudflare_api_key` are not rules in `builtin.yaml` |
+  | `GitHubAppDetector` | `github_app_id` and `github_app_private_key` are not rules |
+  | `JWTKeyDetector` | `jwt` and `jwt_signing_key` are not rules |
+  | `OAuthDetector` | `oauth_client_id` and `oauth_client_secret` are not rules |
+  | `DatabaseURLDetector` | **not a pair** — see below |
+
+  All eight are registered anyway, so they start working the day the missing
+  rule sets appear, with no edit to the scanner.
+  `TestComponentRulesExistForEachDetector` pins which are live and which are
+  dead, and fails if one becomes half-dead.
+
+  **`DatabaseURLDetector` turned out not to be a pair.**
+  `internal/correlation/detector_database_url.go` is a single-component
+  detector: it regex-matches each finding's `Secret` against
+  `postgres|postgresql|mysql|mongodb|redis|amqp://user:pass@` and reports the one
+  finding it fired on. So its `Components` slice has length 1, its severity and
+  band are derived from that single finding, and it needs no second rule to
+  exist — which is why it fires today alongside the three pairs, not instead of
+  them. Pinned by `TestDatabaseURLDetectorIsNotAPair`.
+
+  **Cost bound.** `matchPair` is quadratic in the findings that share a
+  component rule name, so the hook groups by file first —
+  `matchPair` refuses cross-file pairs anyway, so this changes nothing but keeps
+  the search inside one file. Equivalence is pinned by
+  `TestGroupByFileMatchesSingleCall`, the cost by
+  `BenchmarkCorrelateFindings`.
 
 ### Changed
 

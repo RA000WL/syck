@@ -412,7 +412,7 @@ type Detector interface {
 | `decoder/` | 9 decoder types + recursive pipeline (depth 3) |
 | `finding/` | Finding struct, severity enum, dedup, summary building |
 | `confidence/` | Multi-signal confidence scorer |
-| `correlation/` | 8 multi-finding correlation detectors |
+| `correlation/` | 8 multi-finding correlation detectors, 4 of which can fire under the current ruleset: 3 credential pairs (`aws_credential_pair`, `stripe_credential_pair`, `twilio_credential_pair`) plus `database_url_with_credentials`, which is single-component. The other 4 key off rules that do not exist (see §15 item 11). Wired to the scan path by `internal/scanner/correlation_wiring.go` |
 | `correlator/` | SQLite cross-run cache + file mtime cache for incremental scanning |
 | `sqliteutil/` | Shared SQLite open tuning: single-writer cap, WAL, busy timeout |
 | `netguard/` | SSRF gate for secondary fetches; literal private/loopback/link-local IPs and the cloud metadata hostname are denied (no DNS resolution). Also owns `ParseHostIP`, the one host→address resolver, which `internalurl` shares |
@@ -583,23 +583,39 @@ raw findings
      │
      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
+│  CORRELATION  (internal/scanner/correlation_wiring.go)             │
+│                                                                     │
+│  6. Credential pairs, once per scan at the collection boundary of  │
+│     ScanPaths / ScanURLs / ScanContent / ScanReader.               │
+│     Severity = max(components), band = Band(max(components)),      │
+│     and the pair is filtered by MinSeverity here — the rule paths  │
+│     already gated on it while matching, and nothing after          │
+│     collection repeats that. Findings only go UP; the pair is      │
+│     appended after its two components, which are unchanged.        │
+│     Opt out with --no-correlation.                                 │
+└─────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────┐
 │  SCORING                                                           │
 │                                                                     │
-│  6. Confidence — single unified scale (internal/confidence),        │
+│  7. Confidence — single unified scale (internal/confidence),        │
 │     0–120 points, every secret finding carries Confidence +        │
 │     ConfidenceBand (endpoints/juicy/internal-url do not)           │
 │       regex/decoded/expired-JWT match ......... 40  (PtsRegex)     │
 │       entropy + context keyword ................. 35  (20 + 15)     │
 │       URL query-param secret .................. 55  (40 + 15)     │
 │       live-verified secret .................... +50                │
-│       credential pair .......................... +30                │
+│       credential pair .......................... +30  (NOT         │
+│         REACHABLE: Signals.InCredentialPair is false in every      │
+│         caller, so PtsCredPair never applies. See §15 item 11.)    │
 │     Bands: <=30 LOW · <=60 MEDIUM · <=90 HIGH · <=120 CRITICAL     │
 │                                                                     │
-│  7. SQLite cache recording (--cache-db): fingerprint =              │
+│  8. SQLite cache recording (--cache-db): fingerprint =              │
 │     sha256(RuleName | Secret | File), first/last seen, IsNew        │
 │     (feeds --diff)                                                 │
 │                                                                     │
-│  8. Adaptive learning (--adaptive): Bayesian-smoothed per           │
+│  9. Adaptive learning (--adaptive): Bayesian-smoothed per           │
 │     (RuleName, filePattern) modifier, clamped [-40, +40];           │
 │     high-certainty rules capped at -10                             │
 └─────────────────────────────────────────────────────────────────────┘
@@ -711,16 +727,20 @@ syck ruletest
 ## 15. Known Defects (Deferred)
 
 Items 6 and 8 below remain open, plus the residual link-local asymmetry
-recorded under item 9 and the residual placeholder shape under item 7. **The
-numbering is deliberately left uncompacted**: items 1 and 2 were fixed in Batch
-6 and removed, and their numbers are kept as gaps so that existing
+recorded under item 9, the residual placeholder shape under item 7, and the new
+dead-detector residual under item 11. **The numbering is deliberately left
+uncompacted**: items 1 and 2 were fixed in
+Batch 6 and removed, and their numbers are kept as gaps so that existing
 cross-references (`§15 item 1`) stay resolvable rather than silently
-repointing at a different defect. Items 3, 4, 5, 7, 9 and 10 are CLOSED entries
-kept for the same reason. Item 7 is CLOSED by Batch 9 but not empty: it carries
-one OPEN residual (`IsFalsePositiveSecret` is unreachable on the multi-line
-path), so the number is kept in place rather than removed. Item 6 is OPEN by
-**explicit decision**, not by neglect — see its entry. Item 8 is structurally
-unactionable rather than neglected — see its entry.
+repointing at a different defect. Items 3, 4, 5, 7, 9, 10 and 11 are CLOSED
+entries kept for the same reason. Item 7 is CLOSED by Batch 9 but not empty: it
+carries one OPEN residual (`IsFalsePositiveSecret` is unreachable on the
+multi-line path), so the number is kept in place rather than removed. Item 6 is
+OPEN by **explicit decision**, not by neglect — see its entry. Item 8 is
+structurally unactionable rather than neglected — see its entry. Item 11 is
+CLOSED by Batch 12 and, like item 7, is CLOSED but not empty: it carries one OPEN
+residual (5 of `internal/correlation`'s 8 detectors are dead, four because their
+component rules do not exist and one because it is not a pair at all).
 
 Item 3 was closed by Batch 10, which changed behavior exactly as this entry
 predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5
@@ -993,6 +1013,75 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
     `internal/scanner/dedup_key_truncation_test.go` and the gitscan history
     collision test. A repo-wide check confirms no `key = key[:60]` /
     `key = key[:80]` truncation remains in production code.
+
+11. **CLOSED — `internal/correlation`'s credential-pair detectors never ran on
+    the CLI. Closed by Batch 12.** This was never given a §15 number while it
+    lived; it is recorded here as a CLOSED entry, the same way item 10 was,
+    rather than retro-inserted into the open numbering. While it lived, the fact
+    was recorded in three places that were not this list: the `scanner.go`
+    package comment ("CorrelationStage is the only route to
+    `internal/correlation`. Nothing outside `NewPipeline` constructs a
+    `Correlator`, so the correlation detectors do not run on the CLI path at
+    all."), Batch 4c's design spec, and the session handoff. Nothing on the scan
+    path constructed a `Correlator`, so the eight detectors were reachable only
+    through `Pipeline`/`CorrelationStage`, whose only constructor caller is
+    `pipeline_test.go`.
+
+    Fixed by Batch 12: `correlateFindings` (`internal/scanner/correlation_wiring.go`)
+    builds the detector set and runs it at the collection boundary of `ScanPaths`,
+    `ScanURLs`, `ScanContent` and `ScanReader` — once per scan, not once per
+    file. `ScanFile` is deliberately not hooked, because `ScanPaths` reaches its
+    findings through it and a second hook would double every pair. Users see
+    **four** reported rule names where they previously saw none, and finding
+    counts go **up** — a 200-file corpus goes 1401 → 1801. See `CHANGELOG.md`
+    `[Unreleased]` for the measured table and the opt-out (`--no-correlation`).
+
+    **Three defects were fixed in the same edit, because wiring the detectors in
+    as they stood would have shipped them.** All three were characterized first,
+    so they are on record rather than remembered: a pair carried
+    `finding.Finding`'s zero severity (`SeverityInfo`, below the default
+    `--severity LOW` floor — now `max` of its components' severities);
+    `MinSeverity` is applied inside the scan paths rather than after collection,
+    so an appended pair would have bypassed `--severity` entirely (now filtered at
+    the hook); and `matchPair` stamped `Confidence: "VERY_HIGH"`, which
+    `confidence.Band()` cannot produce for an in-range score (now derived from
+    the components' scores). Pinned by `TestCorrelatedFindingShape`,
+    `TestCorrelatedSeverityIsMaxOfComponents`, `TestCorrelatedBandStaysInVocabulary`
+    and `TestCorrelationWiringCase4_MinSeverityStillFilters`.
+
+    **Residual, OPEN — 5 of the 8 detectors are dead, and one of them is dead
+    for a reason that is not a missing rule.** `CloudflareDetector`,
+    `GitHubAppDetector`, `JWTKeyDetector` and `OAuthDetector` key off component
+    rule names that exist in neither `builtin.yaml`, so nothing on any scan path
+    can produce a component for them to match: `cloudflare_email` /
+    `cloudflare_api_key`, `github_app_id` / `github_app_private_key`, `jwt` /
+    `jwt_signing_key`, `oauth_client_id` / `oauth_client_secret`. All eight are
+    registered anyway — `newScanCorrelator` — so they start working the day the
+    rules appear, with no scan-path edit — but adding those four rule sets is a
+    detection decision with its own blast radius and is **not** made here.
+    `TestComponentRulesExistForEachDetector` pins live-vs-dead and fails if one
+    detector becomes half-dead.
+
+    `DatabaseURLDetector` is the fifth dead-in-spirit case, but for a different
+    reason: it is **not a pair**. It regex-matches each finding's `Secret`
+    against `postgres|postgresql|mysql|mongodb|redis|amqp://user:pass@` and
+    reports the single finding it fired on, so its `Components` slice has length
+    1. It does fire today (`postgres_url`, `mysql_url`, `mongodb_url` and
+    `redis_url` are all CRITICAL rules that match such URLs), which is why the
+    reported set is four rule names and not three. It is recorded here because
+    its shape is the one thing about the package that a reader will assume wrong
+    from the other seven.
+
+    A second residual, not fixed: `confidence.Signals.InCredentialPair` /
+    `PtsCredPair` is unreachable on the active path. `ConfidenceStage.Process`
+    sets `InCredentialPair: false` unconditionally
+    (`internal/scanner/stage_confidence.go:32`) and no other caller sets it, so
+    the scorer's credential-pair bonus never applies. A correlated finding's
+    confidence is therefore `max` of its components' scores — 40 for a
+    regex-matched pair — and not that plus 30. Deriving from the components was
+    the specified fix for the off-band literal; whether the bonus should ever be
+    reachable is a scoring-design question and is left open rather than decided
+    by a wiring batch.
 
 ---
 
