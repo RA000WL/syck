@@ -119,6 +119,7 @@ var (
 	scanReconWayback     bool
 	scanReconLive        bool
 	excludeDir           string
+	noCorrelation        bool
 )
 
 func init() {
@@ -202,6 +203,7 @@ func init() {
 	scanCmd.Flags().StringVar(&paramBruteWordlist, "param-wordlist", "", "custom wordlist for parameter brute-force (one per line)")
 	scanCmd.Flags().BoolVar(&allowPrivateIPs, "allow-private-ips", false, "allow secondary fetches and redirects to private IPs (disables SSRF guard)")
 	scanCmd.Flags().StringVar(&excludeDir, "exclude-dir", "", "regex pattern to exclude directories (e.g. 'node_modules|vendor')")
+	scanCmd.Flags().BoolVar(&noCorrelation, "no-correlation", false, "disable credential-pair correlation (aws_credential_pair, stripe_credential_pair, twilio_credential_pair, database_url_with_credentials)")
 }
 
 // clampWorkers returns n when positive, otherwise a sane default of

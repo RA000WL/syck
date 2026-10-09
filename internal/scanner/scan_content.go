@@ -71,7 +71,7 @@ func ScanContent(content string, path string, cfg Config) []finding.Finding {
 		}
 	}
 
-	return findings
+	return correlateFindings(cfg, findings)
 }
 
 func scanContent(content string, path string, cfg Config, tagPrefix string,

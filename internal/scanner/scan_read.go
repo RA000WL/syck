@@ -64,6 +64,11 @@ func ScanReader(r *os.File, cfg Config) ([]finding.Finding, error) {
 		findings = append(findings, jsFindings...)
 	}
 
+	// Credential pairs: ScanContent is the collection boundary for stdin, for
+	// every git blob gitscan walks, and for the LSP. It does no dedup and no FP
+	// downgrade of its own, so this is the only post-collection step it takes.
+	findings = correlateFindings(cfg, findings)
+
 	if cfg.CacheDB != "" {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {
 			recordFingerprints(cache, findings)

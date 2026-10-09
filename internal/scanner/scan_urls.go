@@ -72,6 +72,8 @@ func ScanURLs(urls []string, cfg Config) ([]finding.Finding, error) {
 		allFindings = DowngradeFP(allFindings)
 	}
 
+	allFindings = correlateFindings(cfg, allFindings)
+
 	// Cache and adaptive learning
 	if cfg.CacheDB != "" {
 		if cache, err := correlator.OpenCache(cfg.CacheDB); err == nil {

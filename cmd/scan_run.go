@@ -316,6 +316,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		TechDetect:         techDetect,
 		URLCacheDB:         urlCacheDB,
 		ExcludeDir:         parseExcludeDir(excludeDir),
+		NoCorrelation:      noCorrelation,
 	}
 
 	if progressFlag && !quiet && !pipe {

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,25 +12,8 @@ import (
 	"github.com/RA000WL/syck/internal/rules"
 )
 
-// fullCorrelator registers every detector internal/correlation ships. It is a
-// mirror of the production set: NewPipeline currently hands CorrelationStage a
-// bare correlator with no detectors registered at all, so a stage-level test has
-// to build one to see any correlation output.
-func fullCorrelator() *correlation.Correlator {
-	c := correlation.NewCorrelator()
-	c.RegisterDetector(correlation.AWSDetector{})
-	c.RegisterDetector(correlation.StripeDetector{})
-	c.RegisterDetector(correlation.TwilioDetector{})
-	c.RegisterDetector(correlation.CloudflareDetector{})
-	c.RegisterDetector(correlation.GitHubAppDetector{})
-	c.RegisterDetector(correlation.JWTKeyDetector{})
-	c.RegisterDetector(correlation.OAuthDetector{})
-	c.RegisterDetector(correlation.DatabaseURLDetector{})
-	return c
-}
-
-// awsPair is the two-component AWS credential pair on one line span, using the
-// access key id and secret access key from AWS's own documentation.
+// awsPair is the two-component AWS credential pair, using the access key id and
+// secret access key from AWS's own documentation.
 func awsPair(lineA, lineB int) []finding.Finding {
 	return []finding.Finding{
 		{
@@ -67,11 +51,14 @@ func correlated(lines []finding.Finding) []finding.Finding {
 	return out
 }
 
-// TestCorrelationStageEmitsAShape pins what CorrelationStage.Process actually
-// produces today for a credential pair. Every field below is asserted at its
-// real value so the three defects are on record rather than described.
-func TestCorrelationStageEmitsAShape(t *testing.T) {
-	s := NewCorrelationStage(fullCorrelator())
+// TestCorrelatedFindingShape pins the shape a credential pair now emits through
+// CorrelationStage.Process. The predecessor of this test pinned the same call at
+// its un-fixed values — SeverityInfo, Confidence 0, ConfidenceBand "VERY_HIGH",
+// Context = RuleName, DetectionMethod "" — which is where the three defects were
+// recorded. Every field below is either derived from the components or is
+// documentation text, never the struct's zero value or matchPair's literal.
+func TestCorrelatedFindingShape(t *testing.T) {
+	s := NewCorrelationStage(newScanCorrelator(), finding.SeverityLow)
 	got := s.Process(awsPair(1, 2))
 
 	if len(got) != 3 {
@@ -79,84 +66,62 @@ func TestCorrelationStageEmitsAShape(t *testing.T) {
 	}
 	p := got[2]
 
-	// Defect (a): no severity is derived, so the pair carries finding.Finding's
-	// zero value — SeverityInfo (0) — even though both of its components are
-	// CRITICAL. The CLI's default floor is --severity LOW (1).
-	if p.Severity != finding.SeverityInfo {
-		t.Errorf("Severity = %v, want %v (zero value: nothing derives it)", p.Severity, finding.SeverityInfo)
+	// Fix (a): severity is max(component severities), not the zero value.
+	if p.Severity != finding.SeverityCritical {
+		t.Errorf("Severity = %v, want CRITICAL (max of two CRITICAL components)", p.Severity)
 	}
 
-	// Defect (c): matchPair stamps Confidence "VERY_HIGH", which is outside the
-	// LOW/MEDIUM/HIGH/CRITICAL vocabulary confidence.Band can produce.
-	if p.ConfidenceBand != "VERY_HIGH" {
-		t.Errorf("ConfidenceBand = %q, want VERY_HIGH (matchPair's literal, passed through)", p.ConfidenceBand)
+	// Fix (c): the band is re-derived from a score, so it is inside the
+	// LOW/MEDIUM/HIGH/CRITICAL vocabulary. Both components score 40 → MEDIUM.
+	if p.ConfidenceBand != confidence.Band(confidence.PtsRegex) || p.ConfidenceBand != "MEDIUM" {
+		t.Errorf("ConfidenceBand = %q, want MEDIUM (Band(40))", p.ConfidenceBand)
 	}
-	if p.Confidence != 0 {
-		t.Errorf("Confidence = %d, want 0 (no score is derived either)", p.Confidence)
-	}
-	for _, band := range []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"} {
-		if p.ConfidenceBand == band {
-			t.Errorf("ConfidenceBand %q is in-band — the defect this pins would be gone", band)
-		}
+	if p.Confidence != confidence.PtsRegex {
+		t.Errorf("Confidence = %d, want %d (max of the components' scores)", p.Confidence, confidence.PtsRegex)
 	}
 
 	if p.RuleName != "aws_credential_pair" {
 		t.Errorf("RuleName = %q, want aws_credential_pair", p.RuleName)
 	}
-	// Secret is a description, not a secret: there is no matched value to show.
 	wantSecret := "aws_access_key_id + aws_secret_access_key found within 1 lines"
 	if p.Secret != wantSecret {
-		t.Errorf("Secret = %q, want %q", p.Secret, wantSecret)
+		t.Errorf("Secret = %q, want %q (the description, not a matched value)", p.Secret, wantSecret)
 	}
-	if p.Context != "aws_credential_pair" {
-		t.Errorf("Context = %q, want aws_credential_pair (it duplicates RuleName)", p.Context)
+	// Context carries no raw source text, so --redact cannot leave a secret in
+	// it: the redactor masks Secret inside Context, and here they are the same
+	// string.
+	if p.Context != wantSecret {
+		t.Errorf("Context = %q, want %q (description, not the matched line)", p.Context, wantSecret)
 	}
-	if p.DetectionMethod != "" {
-		t.Errorf("DetectionMethod = %q, want empty", p.DetectionMethod)
+	if p.DetectionMethod != "correlation" {
+		t.Errorf("DetectionMethod = %q, want correlation", p.DetectionMethod)
 	}
-	if p.File != "aws.txt" || p.Line != 1 {
-		t.Errorf("position = %s:%d, want aws.txt:1 (component A's)", p.File, p.Line)
-	}
-}
-
-// TestCorrelationStageIgnoresMinSeverity pins defect (b). MinSeverity is
-// applied inside the scan paths (helpers.go:547 and the sub-scanner calls), not
-// after collection, and CorrelationStage.Process takes no severity input at all
-// — so a pair appended after collection cannot be filtered no matter what floor
-// the scan was run at. Both components here are CRITICAL; the pair still comes
-// out at SeverityInfo, below every floor the CLI can be run at.
-func TestCorrelationStageIgnoresMinSeverity(t *testing.T) {
-	// The CLI's default floor is LOW, so the bypass bites on every floor the
-	// flag can actually be set to. INFO is excluded deliberately: at that floor
-	// an INFO pair is not below it, so there is nothing to bypass.
-	for _, floor := range []finding.Severity{
-		finding.SeverityLow, finding.SeverityMedium,
-		finding.SeverityHigh, finding.SeverityCritical,
-	} {
-		t.Run(finding.SeverityNames[floor], func(t *testing.T) {
-			s := NewCorrelationStage(fullCorrelator())
-			got := s.Process(awsPair(1, 2))
-
-			var pair *finding.Finding
-			for i := range got {
-				if got[i].RuleName == "aws_credential_pair" {
-					pair = &got[i]
-				}
-			}
-			if pair == nil {
-				t.Fatal("pair was not emitted at all — the bypass this pins would be gone")
-			}
-			if pair.Severity >= floor {
-				t.Fatalf("pair severity %v meets floor %v — it would be filtered, so the bypass is gone",
-					pair.Severity, floor)
-			}
-		})
+	if p.File != "aws.txt" || p.Line != 1 || p.Column != 20 {
+		t.Errorf("position = %s:%d:%d, want aws.txt:1:20 (component A's)", p.File, p.Line, p.Column)
 	}
 }
 
-// TestConfidenceBandVocabulary pins the band vocabulary the fix has to use, so
-// the off-band literal cannot be reintroduced silently.
-func TestConfidenceBandVocabulary(t *testing.T) {
+// TestCorrelatedSeverityIsMaxOfComponents pins fix (a) on mixed severities. A
+// constant would pass the CRITICAL+CRITICAL case above and fail here, which is
+// why the value is derived.
+func TestCorrelatedSeverityIsMaxOfComponents(t *testing.T) {
+	base := awsPair(1, 2)
+	base[0].Severity = finding.SeverityHigh
+	base[1].Severity = finding.SeverityCritical
+
+	s := NewCorrelationStage(newScanCorrelator(), finding.SeverityInfo)
+	got := s.Process(base)
+
+	want := finding.SeverityCritical
+	if got[2].Severity != want {
+		t.Errorf("Severity = %v, want %v (max of HIGH and CRITICAL)", got[2].Severity, want)
+	}
+}
+
+// TestCorrelatedBandStaysInVocabulary is the regression guard for fix (c): the
+// band may never be a string the scorer cannot produce. It sweeps every score
+// the components can carry, so a reintroduced "VERY_HIGH" literal fails here.
+func TestCorrelatedBandStaysInVocabulary(t *testing.T) {
 	inBand := map[string]bool{}
 	for score := 0; score <= confidence.MaxScore; score++ {
 		inBand[confidence.Band(score)] = true
@@ -169,32 +134,91 @@ func TestConfidenceBandVocabulary(t *testing.T) {
 			t.Errorf("Band() never produced %q", want)
 		}
 	}
+
+	base := awsPair(1, 2)
+	for _, score := range []int{0, 1, 15, 40, 61, 90, confidence.MaxScore} {
+		base[0].Confidence = score
+		base[1].Confidence = 0
+		s := NewCorrelationStage(newScanCorrelator(), finding.SeverityInfo)
+		got := s.Process(base)
+		if got[2].ConfidenceBand != confidence.Band(score) {
+			t.Errorf("component score %d: band = %q, want %q", score, got[2].ConfidenceBand, confidence.Band(score))
+		}
+	}
 }
 
-// TestDatabaseURLDetectorIsNotAPair documents what
-// internal/correlation/detector_database_url.go actually is: a single-component
-// detector that regex-matches finding.Secret, not a matchPair over two rule
-// names. Its "components" are the one finding it fired on.
-func TestDatabaseURLDetectorIsNotAPair(t *testing.T) {
-	c := correlation.NewCorrelator()
-	c.RegisterDetector(correlation.DatabaseURLDetector{})
+// TestCorrelationStageFiltersByMinSeverity pins fix (b): the stage receives
+// already-collected findings, so it applies the floor itself. The predecessor of
+// this test asserted the opposite — that a pair below the floor was still
+// emitted, because Process had no severity input at all.
+func TestCorrelationStageFiltersByMinSeverity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		min  finding.Severity
+		want int
+	}{
+		{"info floor keeps it", finding.SeverityInfo, 1},
+		{"critical floor keeps it", finding.SeverityCritical, 1},
+		{"pair below the floor is dropped", finding.SeverityLow, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := awsPair(1, 2)
+			if tc.want == 0 {
+				// A LOW component drags the pair below the LOW floor.
+				base[0].Severity = finding.SeverityInfo
+				base[1].Severity = finding.SeverityInfo
+			}
+			s := NewCorrelationStage(newScanCorrelator(), tc.min)
+			if got := len(correlated(s.Process(base))); got != tc.want {
+				t.Errorf("got %d pairs, want %d at floor %v", got, tc.want, tc.min)
+			}
+		})
+	}
+}
 
-	fs := []finding.Finding{
-		{RuleName: "postgres_url", File: "db.txt", Line: 7, Secret: "postgres://app:s3cret@db.example.com:5432/app", Severity: finding.SeverityCritical},
-		{RuleName: "google_api_key", File: "db.txt", Line: 9, Secret: "not-a-url"},
+// TestGroupByFileMatchesSingleCall pins that per-file grouping is a cost bound
+// and nothing else: it must produce exactly the pairs a single call over the
+// whole set produces. matchPair refuses cross-file pairs
+// (internal/correlation/helpers.go:18) and DatabaseURLDetector is per-finding,
+// so grouping is sound — but it is an optimisation, so it stays pinned.
+func TestGroupByFileMatchesSingleCall(t *testing.T) {
+	c := newScanCorrelator()
+	var corpus []finding.Finding
+	corpus = append(corpus, awsPair(1, 2)...)
+	corpus = append(corpus, finding.Finding{
+		RuleName: "postgres_url", File: "aws.txt", Line: 9,
+		Secret: "postgres://app:s3cret@db.example.com:5432/app", Severity: finding.SeverityCritical,
+	})
+	// Same rule names, different file: must not correlate across files.
+	corpus = append(corpus, finding.Finding{
+		RuleName: "aws_access_key_id", File: "other.txt", Line: 1, Secret: "AKIAIOSFODNN7EXAMPLE",
+	})
+	corpus = append(corpus, finding.Finding{
+		RuleName: "aws_secret_access_key", File: "third.txt", Line: 3,
+		Secret: `aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"`,
+	})
+
+	var single []correlation.CorrelatedFinding
+	single = append(single, c.Correlate(corpus)...)
+
+	var grouped []correlation.CorrelatedFinding
+	for _, g := range groupByFile(corpus) {
+		grouped = append(grouped, c.Correlate(g)...)
 	}
-	got := c.Correlate(fs)
-	if len(got) != 1 {
-		t.Fatalf("Correlate returned %d, want 1", len(got))
+
+	if len(single) != 2 || len(grouped) != 2 {
+		t.Fatalf("single call = %d pairs, grouped = %d pairs, want 2 each", len(single), len(grouped))
 	}
-	if got[0].Type != "database_url_with_credentials" {
-		t.Errorf("Type = %q, want database_url_with_credentials", got[0].Type)
-	}
-	if len(got[0].Components) != 1 {
-		t.Errorf("Components = %d, want 1 (single finding, no pair)", len(got[0].Components))
-	}
-	if got[0].Components[0].Line != 7 {
-		t.Errorf("component line = %d, want 7", got[0].Components[0].Line)
+	for _, g := range grouped {
+		found := false
+		for _, s := range single {
+			if s.Type == g.Type && s.File == g.File && s.Line == g.Line {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("grouped pair %s at %s:%d has no counterpart in the single call", g.Type, g.File, g.Line)
+		}
 	}
 }
 
@@ -249,6 +273,44 @@ func TestComponentRulesExistForEachDetector(t *testing.T) {
 	t.Logf("dead: %v", dead)
 }
 
+// TestDatabaseURLDetectorIsNotAPair documents what
+// internal/correlation/detector_database_url.go actually is: a single-component
+// detector that regex-matches finding.Secret, not a matchPair over two rule
+// names. So its "components" slice has one element, severity and confidence are
+// derived from that one finding, and it needs no second rule to exist.
+func TestDatabaseURLDetectorIsNotAPair(t *testing.T) {
+	c := correlation.NewCorrelator()
+	c.RegisterDetector(correlation.DatabaseURLDetector{})
+
+	fs := []finding.Finding{
+		{RuleName: "postgres_url", File: "db.txt", Line: 7, Secret: "postgres://app:s3cret@db.example.com:5432/app", Severity: finding.SeverityCritical},
+		{RuleName: "google_api_key", File: "db.txt", Line: 9, Secret: "not-a-url"},
+	}
+	got := c.Correlate(fs)
+	if len(got) != 1 {
+		t.Fatalf("Correlate returned %d, want 1", len(got))
+	}
+	if got[0].Type != "database_url_with_credentials" {
+		t.Errorf("Type = %q, want database_url_with_credentials", got[0].Type)
+	}
+	if len(got[0].Components) != 1 {
+		t.Errorf("Components = %d, want 1 (single finding, no pair)", len(got[0].Components))
+	}
+	if got[0].Components[0].Line != 7 {
+		t.Errorf("component line = %d, want 7", got[0].Components[0].Line)
+	}
+
+	// And it survives the shared conversion: one component still yields a real
+	// severity and an in-band confidence.
+	f := correlatedFinding(got[0])
+	if f.Severity != finding.SeverityCritical {
+		t.Errorf("Severity = %v, want CRITICAL (from its one component)", f.Severity)
+	}
+	if f.RuleName != "database_url_with_credentials" {
+		t.Errorf("RuleName = %q, want database_url_with_credentials", f.RuleName)
+	}
+}
+
 // The five cases below are the spec's characterization set, run through the
 // real V6 entry point (ScanPaths) against the real default ruleset.
 const fixtureAWSInSpan = "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n" +
@@ -278,14 +340,34 @@ func scanFixture(t *testing.T, cfg Config, files map[string]string) []finding.Fi
 	return got
 }
 
+// TestCorrelationWiringCase1_PairInSpan — an AWS pair inside the detected span
+// is reported, with severity and band derived from the components.
 func TestCorrelationWiringCase1_PairInSpan(t *testing.T) {
 	got := correlated(scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true},
 		map[string]string{"aws.txt": fixtureAWSInSpan}))
-	if len(got) != 0 {
-		t.Fatalf("got %d correlated findings, want 0", len(got))
+	if len(got) != 1 {
+		t.Fatalf("got %d correlated findings, want 1", len(got))
+	}
+	p := got[0]
+	if p.RuleName != "aws_credential_pair" {
+		t.Errorf("RuleName = %q, want aws_credential_pair", p.RuleName)
+	}
+	if p.Severity != finding.SeverityCritical {
+		t.Errorf("Severity = %v, want CRITICAL (max of two CRITICAL components)", p.Severity)
+	}
+	if p.ConfidenceBand != "MEDIUM" {
+		t.Errorf("ConfidenceBand = %q, want MEDIUM (Band(40) from the components)", p.ConfidenceBand)
+	}
+	if want := "aws_access_key_id + aws_secret_access_key found within 1 lines"; p.Secret != want {
+		t.Errorf("Secret = %q, want %q", p.Secret, want)
+	}
+	if p.Line != 1 {
+		t.Errorf("Line = %d, want 1 (component A's line)", p.Line)
 	}
 }
 
+// TestCorrelationWiringCase2_PairBeyondSpan — the same two findings 27 lines
+// apart is past AWSDetector's 20-line span, so no pair is reported.
 func TestCorrelationWiringCase2_PairBeyondSpan(t *testing.T) {
 	body := "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
 	for i := 0; i < 25; i++ {
@@ -298,8 +380,25 @@ func TestCorrelationWiringCase2_PairBeyondSpan(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("got %d correlated findings, want 0", len(got))
 	}
+	// The components themselves are still found: correlation only ever adds.
+	all := scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true},
+		map[string]string{"aws.txt": body})
+	sawA, sawB := false, false
+	for _, f := range all {
+		switch f.RuleName {
+		case "aws_access_key_id":
+			sawA = true
+		case "aws_secret_access_key":
+			sawB = true
+		}
+	}
+	if !sawA || !sawB {
+		t.Errorf("components found: A=%v B=%v, want both", sawA, sawB)
+	}
 }
 
+// TestCorrelationWiringCase3_SingleComponent — one component alone reports no
+// pair.
 func TestCorrelationWiringCase3_SingleComponent(t *testing.T) {
 	got := correlated(scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true},
 		map[string]string{"aws.txt": "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"}))
@@ -308,31 +407,209 @@ func TestCorrelationWiringCase3_SingleComponent(t *testing.T) {
 	}
 }
 
+// TestCorrelationWiringCase4_MinSeverityStillFilters — a pair is filtered by
+// MinSeverity like any other finding. Every detector that can fire under the
+// current ruleset derives CRITICAL, so the only way to get a live pair below a
+// floor is DowngradeFP, which is why the fixture sits in a "fixtures"
+// directory: DowngradeFP drops both components to HIGH.
 func TestCorrelationWiringCase4_MinSeverityStillFilters(t *testing.T) {
-	// A fixture in a "fixtures" directory is one that DowngradeFP already lowers
-	// by one severity, which is the only way to get a live pair below the
-	// CRITICAL floor under the current ruleset.
 	for _, tc := range []struct {
 		name string
 		min  finding.Severity
+		want int
 	}{
-		{"critical floor", finding.SeverityCritical},
-		{"high floor", finding.SeverityHigh},
+		{"critical floor drops the HIGH pair", finding.SeverityCritical, 0},
+		{"high floor keeps it", finding.SeverityHigh, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := correlated(scanFixture(t, Config{MinSeverity: tc.min, DowngradeFP: true},
 				map[string]string{"fixtures/aws.txt": fixtureAWSInSpan}))
-			if len(got) != 0 {
-				t.Fatalf("got %d correlated findings, want 0", len(got))
+			if len(got) != tc.want {
+				t.Fatalf("got %d correlated findings, want %d at floor %v", len(got), tc.want, tc.min)
+			}
+			if tc.want == 1 && got[0].Severity != finding.SeverityHigh {
+				t.Errorf("Severity = %v, want HIGH (DowngradeFP lowered both components)", got[0].Severity)
 			}
 		})
 	}
 }
 
+// TestCorrelationWiringCase5_NoCorrelation — the opt-out silences pairs without
+// touching the components.
 func TestCorrelationWiringCase5_NoCorrelation(t *testing.T) {
-	got := correlated(scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true},
-		map[string]string{"aws.txt": fixtureAWSInSpan}))
-	if len(got) != 0 {
-		t.Fatalf("got %d correlated findings, want 0", len(got))
+	files := map[string]string{"aws.txt": fixtureAWSInSpan}
+	if got := correlated(scanFixture(t, Config{
+		MinSeverity: finding.SeverityLow, DowngradeFP: true, NoCorrelation: true,
+	}, files)); len(got) != 0 {
+		t.Fatalf("got %d correlated findings with --no-correlation, want 0", len(got))
+	}
+
+	// Same fixture with correlation on still reports both components.
+	sawA, sawB := false, false
+	for _, f := range scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true}, files) {
+		switch f.RuleName {
+		case "aws_access_key_id":
+			sawA = true
+		case "aws_secret_access_key":
+			sawB = true
+		}
+	}
+	if !sawA || !sawB {
+		t.Errorf("components found: A=%v B=%v, want both (the opt-out removes pairs only)", sawA, sawB)
+	}
+}
+
+// TestCorrelationWiringOnOtherEntryPoints pins that the hook is on each V6
+// collection boundary, not just ScanPaths.
+func TestCorrelationWiringOnOtherEntryPoints(t *testing.T) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Config{Rules: rs, MinSeverity: finding.SeverityLow, DowngradeFP: true}
+
+	got := ScanContent(fixtureAWSInSpan, "stdin", base)
+	if len(correlated(got)) != 1 {
+		t.Errorf("ScanContent: got %d correlated findings, want 1", len(correlated(got)))
+	}
+
+	f, err := os.Create(filepath.Join(t.TempDir(), "aws.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(fixtureAWSInSpan); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	got, err = ScanReader(reader, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(correlated(got)) != 1 {
+		t.Errorf("ScanReader: got %d correlated findings, want 1", len(correlated(got)))
+	}
+}
+
+// TestCorrelationWiringDoesNotDuplicateThroughScanFiles guards the hook
+// placement: ScanPaths reaches findings through ScanFile, which must not
+// correlate a second time on the way up.
+func TestCorrelationWiringDoesNotDuplicateThroughScanFiles(t *testing.T) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "aws.txt")
+	if err := os.WriteFile(p, []byte(fixtureAWSInSpan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Rules: rs, MinSeverity: finding.SeverityLow, DowngradeFP: true}
+
+	viaPaths, err := ScanPaths([]string{p}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viaFile, err := ScanFile(p, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(correlated(viaPaths)); n != 1 {
+		t.Errorf("ScanPaths reported %d pairs, want 1 (a second hook in ScanFile would double it)", n)
+	}
+	if n := len(correlated(viaFile)); n != 0 {
+		t.Errorf("ScanFile reported %d pairs, want 0 (ScanPaths is the boundary)", n)
+	}
+}
+
+// TestCorrelationWiringMultiplePairsInOneFile checks a file holding one pair of
+// each kind that can fire under the current ruleset: three credential pairs plus
+// the single-component database-URL detector.
+func TestCorrelationWiringMultiplePairsInOneFile(t *testing.T) {
+	body := "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n" +
+		"aws_secret_access_key = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n" +
+		"sk_live_4eC39HqLyjWDarjtT1zdp7dc\n" +
+		"pk_live_TYooMQauvdEDq54NiTphI7jx\n" +
+		"twilio_account_sid = AC1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d\n" +
+		"twilio_auth_token = \"1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d\"\n" +
+		"db = \"postgres://app:s3cret@db-host.internal:5432/app\"\n"
+
+	all := scanFixture(t, Config{MinSeverity: finding.SeverityLow, DowngradeFP: true},
+		map[string]string{"all.txt": body})
+
+	// Guard the fixture itself: if a component rule stops matching, the pair
+	// assertions below would fail for a reason that has nothing to do with
+	// correlation.
+	for _, want := range []string{"aws_access_key_id", "aws_secret_access_key", "stripe_secret_key",
+		"stripe_publishable_key", "twilio_account_sid", "twilio_auth_token", "postgres_url"} {
+		found := false
+		for _, f := range all {
+			if f.RuleName == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("component %s not found — the fixture no longer trips it", want)
+		}
+	}
+
+	seen := map[string]bool{}
+	for _, p := range correlated(all) {
+		seen[p.RuleName] = true
+	}
+	for _, name := range []string{
+		"aws_credential_pair",
+		"stripe_credential_pair",
+		"twilio_credential_pair",
+		"database_url_with_credentials",
+	} {
+		if !seen[name] {
+			t.Errorf("%s not reported; pairs seen: %v", name, seen)
+		}
+	}
+}
+
+func BenchmarkCorrelateFindings(b *testing.B) {
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		b.Fatal(err)
+	}
+	cfg := Config{Rules: rs, MinSeverity: finding.SeverityLow}
+
+	// 2,000 pair components (1,000 pairs) plus 8,000 unrelated findings,
+	// spread across 500 files.
+	var findings []finding.Finding
+	for i := 0; i < 1000; i++ {
+		file := fmt.Sprintf("src/file%03d.go", i%500)
+		findings = append(findings, finding.Finding{
+			RuleName: "aws_access_key_id", File: file, Line: 2, Column: 20, Secret: "AKIAIOSFODNN7EXAMPLE",
+			Severity: finding.SeverityCritical, Confidence: confidence.PtsRegex,
+		})
+		findings = append(findings, finding.Finding{
+			RuleName: "aws_secret_access_key", File: file, Line: 3,
+			Secret:   `aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"`,
+			Severity: finding.SeverityCritical, Confidence: confidence.PtsRegex,
+		})
+	}
+	for i := 0; i < 8000; i++ {
+		findings = append(findings, finding.Finding{
+			RuleName: "high_entropy_token", File: fmt.Sprintf("src/file%03d.go", i%500), Line: 10 + i,
+			Secret: fmt.Sprintf("entropy-token-value-%d", i), Severity: finding.SeverityMedium,
+			Confidence: confidence.PtsEntropy + confidence.PtsContext,
+		})
+	}
+	n := len(findings)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Three-index slice so the append inside correlateFindings cannot grow
+		// the benchmark's own input: without it each iteration re-correlates
+		// the previous iteration's pairs too.
+		_ = correlateFindings(cfg, findings[:n:n])
 	}
 }

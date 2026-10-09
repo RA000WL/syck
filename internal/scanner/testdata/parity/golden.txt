@@ -6,6 +6,7 @@ app.js:4	aws_access_key_id	CRITICAL
 ci.json:0	json_github_personal_access_token	CRITICAL
 ci.json:3	github_personal_access_token	CRITICAL
 config.yaml:4	stripe_publishable_key	MEDIUM
+config.yaml:5	stripe_credential_pair	CRITICAL
 config.yaml:5	stripe_secret_key	CRITICAL
 config.yaml:6	generic_secret	HIGH
 config.yaml:6	stripe_webhook_signing_secret	HIGH

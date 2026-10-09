@@ -186,6 +186,12 @@ func ScanPaths(paths []string, cfg Config) ([]finding.Finding, error) {
 		allFindings = DowngradeFP(allFindings)
 	}
 
+	// Credential pairs run at the collection boundary, so a pair is described in
+	// terms of the components as they are actually reported (post-dedup,
+	// post-FP-downgrade) and is gated on MinSeverity itself — the rule paths
+	// already did that while matching, and nothing after collection repeats it.
+	allFindings = correlateFindings(cfg, allFindings)
+
 	if cfg.CacheDB != "" {
 		cache, err := correlator.OpenCache(cfg.CacheDB)
 		if err == nil {

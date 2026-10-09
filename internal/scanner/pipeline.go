@@ -24,7 +24,7 @@ func NewPipeline(cfg Config) *Pipeline {
 		Collector:   NewCollectorStage(cfg),
 		Decoder:     NewDecoderStage(cfg.Rules, cfg.MinSeverity, DecoderFlags{Base64: cfg.DecodeBase64, Hex: cfg.DecodeHex, Unicode: cfg.DecodeUnicode, URL: cfg.DecodeURL}),
 		Entropy:     NewEntropyStage(),
-		Correlation: NewCorrelationStage(correlation.NewCorrelator()),
+		Correlation: NewCorrelationStage(correlation.NewCorrelator(), cfg.MinSeverity),
 		Verifier:    NewVerifierStage(),
 		Confidence:  NewConfidenceStage(),
 		Reporter:    NewReporterStage(!cfg.NoDedup, cfg.DowngradeFP),

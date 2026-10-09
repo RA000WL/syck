@@ -8,7 +8,7 @@ import (
 )
 
 func TestCorrelationStagePassthrough(t *testing.T) {
-	s := NewCorrelationStage(correlation.NewCorrelator())
+	s := NewCorrelationStage(correlation.NewCorrelator(), finding.SeverityLow)
 	findings := []finding.Finding{{RuleName: "x", File: "a", Line: 1}}
 	got := s.Process(findings)
 	if len(got) != 1 {

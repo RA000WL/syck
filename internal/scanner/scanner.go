@@ -25,14 +25,31 @@
 // The stages are not uniformly redundant with the active path, so their status
 // is recorded here rather than assumed:
 //
-//   - CorrelationStage is the only route to internal/correlation. Nothing
-//     outside NewPipeline constructs a Correlator, so the correlation detectors
-//     do not run on the CLI path at all.
 //   - VerifierStage performs live secret validation via internal/validator and
 //     stamps VerificationStatus unconditionally. The CLI performs the same
 //     validation and sets the same states, but only behind the --validate and
 //     --verify flags (see cmd/scan_run.go), so this capability is duplicated
 //     rather than missing.
+//
+// # Correlation
+//
+// Scanner has one active route to internal/correlation and one dormant one.
+//
+//   - correlateFindings (correlation_wiring.go) is the active route. It builds a
+//     correlator, runs it over a completed collection, and appends the pairs it
+//     finds. It is called at the collection boundary of ScanPaths, ScanURLs,
+//     ScanContent and ScanReader, so it runs once per scan rather than once per
+//     file. ScanFile is deliberately not hooked: ScanPaths reaches its findings
+//     through ScanFile, so a second hook there would double every pair. Pinned
+//     by TestCorrelationWiringDoesNotDuplicateThroughScanFiles.
+//   - CorrelationStage is the dormant route. NewPipeline hands it a correlator
+//     with no detectors registered, so the Pipeline NewPipeline builds emits no
+//     pair; a caller that registers detectors gets the same conversion
+//     (correlatedFinding) and the same MinSeverity filter the active route has.
+//
+// Both routes share one conversion, so a pair has the same shape wherever it is
+// produced. The opt-out is --no-correlation (Config.NoCorrelation), on by
+// default because a pair is only ever reported in addition to its components.
 //
 // Pipeline is exported and remains a supported way to run the staged pipeline.
 // This comment describes what these types are and where they run; it does not
@@ -60,6 +77,7 @@ type Config struct {
 	MinEndpointScore   int  // 0-10; only show endpoints with score >= this
 	ProbeJuicyFiles    bool // enable juicy file probing after BFS
 	NoDedup            bool
+	NoCorrelation      bool // disable credential-pair correlation (--no-correlation); default is on
 	Debug              bool
 	DecodeBase64       bool
 	DecodeHex          bool
