@@ -1,13 +1,13 @@
 # Session handoff
 
-**Latest: 2026-10-10, tree clean at `36199e3`.** For earlier state see
+**Latest: 2026-10-10, tree clean at `521c41e`.** For earlier state see
 "Session 1" below; it is kept as history, not as the current position.
 
 ## State
 
-Tree clean at `36199e3`, on `main`, **67 commits ahead of `origin/main` and deliberately unpushed** (standing user preference: do not push).
+Tree clean at `521c41e`, on `main`, **77 commits ahead of `origin/main` and deliberately unpushed** (standing user preference: do not push).
 
-Final gates on `36199e3`: `gofmt -l .` empty · `go build ./...` OK · `go vet ./...` clean · `go test -race ./...` no failures · `TestParityFindingsUnchanged` PASS · `go run . ruletest` 40/40 · `grep -c entropy_threshold internal/rules/builtin.yaml` = 1.
+Final gates on `521c41e`: `gofmt -l .` empty · `go build ./...` OK · `go vet ./...` clean · `go test -race ./...` no failures · `TestParityFindingsUnchanged` PASS · `go run . ruletest` 40/40 · `grep -c entropy_threshold internal/rules/builtin.yaml` = 1.
 
 ## What landed this session
 
@@ -78,9 +78,55 @@ Parity golden gained exactly one line (`stripe_credential_pair`), because that
 fixture already held both Stripe components and the pair was previously
 invisible.
 
+## Session 3 — 2026-10-10 (later)
+
+Clean at `521c41e`. **Batches 13–14 landed.**
+
+- **Batch 13** — `--param-brute` appended findings after collection with no
+  severity floor, so `--severity CRITICAL` still printed `hidden_parameter`
+  rows. This is the invariant Batch 12 closed for credential pairs and left
+  open here. The subagent extracted the loop into `appendParamBruteFindings`
+  and filters at the append, in `cmd/` rather than `internal/parambrute`
+  because `BruteForce` returns `[]ParamFinding` which has no severity field.
+- **Batch 14** — `stage_confidence.go` hardcoded `InCredentialPair: false`, the
+  signal's only construction site, so `PtsCredPair` (30) never fired. Now
+  derived from a `_credential_pair` suffix on the rule name. **Inert on the
+  CLI** — the stage is test-only and skips findings that already carry a
+  score — so it corrects the dormant path without changing live output.
+
+Review then found four statements in the record that contradicted the code, all
+fixed in `521c41e`. The load-bearing one: `detector_jwt_key.go` emitted
+`jwt_key_pair`, breaking the suffix convention every doc claimed was universal.
+It was masked because the JWT detector is dead, but `ARCHITECTURE.md`
+anticipates its rules arriving "with no scan-path edit" — at which point that
+pair would silently lose the bonus. Renamed to `jwt_key_credential_pair`, and
+the pin widened from 3 to 7 detectors (it covers the dead ones too, because the
+detectors match on the rule names they are handed). Re-introducing the old name
+now fails with a message naming the type.
+
+Also corrected: a "40 → 70" claim in the CHANGELOG that was wrong on both
+numbers, and batch counts that said eleven/seven while adding an
+output-changing batch.
+
+**Two Minor items were left and are noted in the review, not fixed:** the
+`--param-brute` stderr line counts *unfiltered* results so
+`--severity CRITICAL --param-brute` prints "found N interesting parameters"
+over a report containing 0 (faithful to pre-existing behaviour, but the floor
+introduced the divergence); and `stage_confidence`'s comment cites the
+`Confidence != 0` guard as the reason for inertness when the operative reason
+is that `NewPipeline` is test-only.
+
 ## Suggested next step
 
-Nothing is left in `ARCHITECTURE.md` §15 that is actionable. Remaining items are
+The only remaining queued item is the four dead detector rule sets — adding
+`cloudflare_*`, `github_app_*`, `jwt`/`jwt_signing_key`, `oauth_*` so those four
+pairs start reporting. Adjacent rules exist to build on
+(`cloudflare_global_api_key`, `jwt_token`, `github_app_token`,
+`google_oauth_token`). This is a **detection-coverage decision**, not a defect
+fix: it will report findings nobody sees today, so it needs its own
+characterization, its own CHANGELOG entry, and a `ruletest` count change (199 →
+199+N). Everything else in §15 is either a deliberate decision or
+structurally unactionable. Remaining items are
 deliberate decisions, not work:
 - item 6 — the `env_generic_secret` floor, OPEN by explicit decision (measured:
   21/21 weak secrets pass, and raising the floor cannot help because the key name
