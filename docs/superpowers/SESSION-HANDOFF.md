@@ -1,10 +1,13 @@
-# Session handoff — 2026-10-09
+# Session handoff
+
+**Latest: 2026-10-10, tree clean at `36199e3`.** For earlier state see
+"Session 1" below; it is kept as history, not as the current position.
 
 ## State
 
-Tree clean at `b46fc6f`, on `main`, **60 commits ahead of `origin/main` and deliberately unpushed** (standing user preference: do not push).
+Tree clean at `36199e3`, on `main`, **67 commits ahead of `origin/main` and deliberately unpushed** (standing user preference: do not push).
 
-Final gates on `b46fc6f`: `gofmt -l .` empty · `go build ./...` OK · `go vet ./...` clean · `go test -race ./...` no failures · `TestParityFindingsUnchanged` PASS · `go run . ruletest` 40/40 · `grep -c entropy_threshold internal/rules/builtin.yaml` = 1.
+Final gates on `36199e3`: `gofmt -l .` empty · `go build ./...` OK · `go vet ./...` clean · `go test -race ./...` no failures · `TestParityFindingsUnchanged` PASS · `go run . ruletest` 40/40 · `grep -c entropy_threshold internal/rules/builtin.yaml` = 1.
 
 ## What landed this session
 
@@ -35,8 +38,64 @@ From `ARCHITECTURE.md` §15 as of `b46fc6f`:
 
 Recorded decisions not to relitigate: `--git-history` failure stays a stderr warning with exit 0; `env_generic_secret` floor stays as-is; `stage_rule.go` stays unfiltered because `Pipeline` is test-only.
 
+## Session 2 — 2026-10-10
+
+Clean at `36199e3`, 67 commits unpushed.
+
+**Batch 12 landed: credential-pair correlation now runs on the CLI.** Grounding
+before the spec found two things worth knowing:
+
+1. **Only 4 of 8 detectors can fire.** `CloudflareDetector`,
+   `GitHubAppDetector`, `JWTKeyDetector`, `OAuthDetector` are dead — their
+   component rules do not exist in `builtin.yaml`. Recorded, not fixed: adding
+   detection rules is its own decision. `DatabaseURLDetector` is live and is
+   *not* a pair — it matches each finding's own `Secret` and reports that one
+   finding, so `Components` has length 1.
+2. **Three latent defects, fixed as part of the same edit.** Correlated findings
+   carried the zero `SeverityInfo` (0), which is below the CLI default
+   `--severity LOW`; `MinSeverity` is applied *inside* the scan paths, so a
+   post-collection append bypassed `--severity` entirely; and `matchPair` stamped
+   a `Confidence` of `"VERY_HIGH"`, which `confidence.Band()` can never produce.
+
+All three are now derived: severity is `max(components)`, the band is
+`Band(max component score)`, and the hook self-filters by `MinSeverity`.
+
+Review then found two more, both fixed in `36199e3`:
+- `database_url_with_credentials` fired **per finding**, so one `.env` line with
+  a credential-bearing URL produced three rows with contradictory severities.
+  `collapsePairs` merges them and keeps the **max** severity — deliberately not
+  `finding.Deduplicate`, which keeps the first row and would silently lower the
+  pair below its own worst component. Mutation-verified in both directions.
+- A pair row's `Context` was identical to its `Secret`, so `--redact` masked the
+  whole row into `*****`. Context now names the two component rule names.
+
+Note the dead-detector count: my spec said 5, the truth is 4, because I counted
+`DatabaseURLDetector` as dead when it is live. The docs had it right two sections
+away from where I wrote it wrong — the same failure mode as the Batch 8 commit
+message.
+
+Parity golden gained exactly one line (`stripe_credential_pair`), because that
+fixture already held both Stripe components and the pair was previously
+invisible.
+
 ## Suggested next step
 
-**Batch 12: wire `internal/correlation` onto the CLI.** Its 8 detectors are reachable only from test-only `NewPipeline` — never on the CLI path. This was the largest queued item and the user approved wiring it in. It touches `internal/scanner` broadly, which is why it had to wait for Batch 9 to merge first. Expect a real blast radius on detection output; characterize before changing and CHANGELOG it as an addition.
+Nothing is left in `ARCHITECTURE.md` §15 that is actionable. Remaining items are
+deliberate decisions, not work:
+- item 6 — the `env_generic_secret` floor, OPEN by explicit decision (measured:
+  21/21 weak secrets pass, and raising the floor cannot help because the key name
+  dominates the span's entropy)
+- item 8 — `url_secrets.go` structurally cannot honor per-rule thresholds
+- residuals under items 7 and 9 (unreachable `IsFalsePositiveSecret` on the
+  multi-line path; no `internalurl` category for link-local)
+
+Batches worth considering, none of them defects:
+- add the four missing rule sets so the dead detectors start firing (a
+  detection-coverage decision with its own blast radius)
+- `PtsCredPair` is unreachable, so a pair scores 40 not 70 — a scoring-design
+  question
+- `--param-brute` appends findings post-collection with no severity floor, the
+  one remaining bypass of the `--severity` invariant Batch 12 closed for
+  correlation Its 8 detectors are reachable only from test-only `NewPipeline` — never on the CLI path. This was the largest queued item and the user approved wiring it in. It touches `internal/scanner` broadly, which is why it had to wait for Batch 9 to merge first. Expect a real blast radius on detection output; characterize before changing and CHANGELOG it as an addition.
 
 Do this one in a worktree of its own rather than in parallel — `internal/scanner` is the widest surface in the repo.
