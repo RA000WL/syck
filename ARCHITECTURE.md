@@ -739,8 +739,9 @@ multi-line path), so the number is kept in place rather than removed. Item 6 is
 OPEN by **explicit decision**, not by neglect — see its entry. Item 8 is
 structurally unactionable rather than neglected — see its entry. Item 11 is
 CLOSED by Batch 12 and, like item 7, is CLOSED but not empty: it carries one OPEN
-residual (5 of `internal/correlation`'s 8 detectors are dead, four because their
-component rules do not exist and one because it is not a pair at all).
+residual (4 of `internal/correlation`'s 8 detectors are dead, all four because
+their component rules do not exist; the other four fire, and one of those four
+— `DatabaseURLDetector` — is live but is not a pair at all).
 
 Item 3 was closed by Batch 10, which changed behavior exactly as this entry
 predicted — and CHANGELOG'd it. Item 4 was fixed in Batch 6 (`fab705d`). Item 5
@@ -1049,8 +1050,13 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
     `TestCorrelatedSeverityIsMaxOfComponents`, `TestCorrelatedBandStaysInVocabulary`
     and `TestCorrelationWiringCase4_MinSeverityStillFilters`.
 
-    **Residual, OPEN — 5 of the 8 detectors are dead, and one of them is dead
-    for a reason that is not a missing rule.** `CloudflareDetector`,
+    **Residual, OPEN — 4 of the 8 detectors are dead.** The other four fire: the
+    AWS, Stripe and Twilio credential pairs, which are real pairs of two
+    components, and `DatabaseURLDetector`, which is live but is not a pair — it
+    matches each finding's own `Secret` against a database-URL pattern and
+    reports that single finding, so `Components` has length 1 and its severity
+    and band derive from one finding rather than two.
+    `CloudflareDetector`,
     `GitHubAppDetector`, `JWTKeyDetector` and `OAuthDetector` key off component
     rule names that exist in neither `builtin.yaml`, so nothing on any scan path
     can produce a component for them to match: `cloudflare_email` /

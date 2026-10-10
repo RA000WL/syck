@@ -33,7 +33,7 @@ Batch 12 is an **addition that adds findings**: the eight credential-pair
 detectors in `internal/correlation` are wired onto the V6 scan path and run by
 default, so a scan now reports a pair in addition to its two components. It adds
 **no new detection rules** — `entropy_threshold` is still the only `entropy_threshold`
-line in `builtin.yaml` — and 5 of the 8 detectors remain dead because their
+line in `builtin.yaml` — and 4 of the 8 detectors remain dead because their
 component rules do not exist (see its entry under "### Added" below). Opt out
 with `--no-correlation`, which restores the previous finding count exactly. The
 same change fixes three defects that wiring the detectors in as they stood would
@@ -94,7 +94,7 @@ value. All three are named in the entry, with the tests that pin them.
      `confidence.Band(max component confidence score)` — pinned by
      `TestCorrelatedBandStaysInVocabulary`.
 
-  **5 of the 8 detectors are dead, and that is the honest state.** Adding the
+  **4 of the 8 detectors are dead, and that is the honest state.** Adding the
   missing rules is a separate decision with its own blast radius and is
   deliberately not made here:
 

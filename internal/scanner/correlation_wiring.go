@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"strings"
+
 	"github.com/RA000WL/syck/internal/confidence"
 	"github.com/RA000WL/syck/internal/correlation"
 	"github.com/RA000WL/syck/internal/finding"
@@ -39,6 +41,14 @@ func newScanCorrelator() *correlation.Correlator {
 // function exists rather than a plain call to Correlate: the rule paths gate on
 // MinSeverity while they match (helpers.go:547 and the sub-scanner calls), so
 // anything appended after collection would sail straight past --severity.
+//
+// The collected pairs are then deduplicated. database_url_with_credentials in
+// particular fires once per matching finding rather than once per URL, so a
+// single .env line carrying REDIS_URL=redis://default:s3cret@host:6379 reaches
+// this function three times — dotenv_file_secret (HIGH), redis_url (CRITICAL)
+// and redis_url_with_password (HIGH) all match the same URL — and without the
+// collapse the scan reports three rows with contradictory severities for one
+// URL, inflating totals and making --severity do triage the emission should do.
 func correlateFindings(cfg Config, findings []finding.Finding) []finding.Finding {
 	if cfg.NoCorrelation || len(findings) == 0 {
 		return findings
@@ -55,7 +65,56 @@ func correlateFindings(cfg Config, findings []finding.Finding) []finding.Finding
 			pairs = append(pairs, f)
 		}
 	}
+	pairs = collapsePairs(pairs)
 	return append(findings, pairs...)
+}
+
+// collapsePairs merges pairs that describe the same correlation and keeps the
+// most severe of the merged set.
+//
+// The identity is Type + File + Line + Context: those four are what make a
+// pair row identifiable in the output. Context is the detector's description
+// (finding.Finding has no Description field — correlatedFinding sets Secret and
+// Context to the same string), so it is the distinguishing value available.
+//
+// finding.Deduplicate is deliberately NOT used here. It keeps the first row of
+// a duplicate set, and the order the detectors run in puts the dotenv_file_secret
+// component first — so it would keep the HIGH row and silently discard the
+// CRITICAL one, lowering the pair below its own worst component. Keeping the max
+// severity and the max confidence of the collapsed set is the direction that
+// never loses information.
+func collapsePairs(pairs []finding.Finding) []finding.Finding {
+	if len(pairs) < 2 {
+		return pairs
+	}
+	type key struct {
+		typ, file, desc string
+		line            int
+	}
+	best := make(map[key]finding.Finding, len(pairs))
+	order := make([]key, 0, len(pairs))
+	for _, p := range pairs {
+		k := key{p.RuleName, p.File, p.Context, p.Line}
+		prev, seen := best[k]
+		if !seen {
+			order = append(order, k)
+			best[k] = p
+			continue
+		}
+		if p.Severity > prev.Severity {
+			prev.Severity = p.Severity
+		}
+		if p.Confidence > prev.Confidence {
+			prev.Confidence = p.Confidence
+		}
+		prev.ConfidenceBand = confidence.Band(prev.Confidence)
+		best[k] = prev
+	}
+	out := make([]finding.Finding, 0, len(order))
+	for _, k := range order {
+		out = append(out, best[k])
+	}
+	return out
 }
 
 // groupByFile splits findings into per-file groups, preserving first-appearance
@@ -106,6 +165,11 @@ func groupByFile(findings []finding.Finding) [][]finding.Finding {
 //     matched value, and Context deliberately carries no raw source text: the
 //     redactor masks Secret inside Context (internal/formatters/text.go:70), so
 //     a Context holding the matched line would leak that secret under --redact.
+//     Context is deliberately not identical to Secret either: with the two equal
+//     and --redact on, the mask covers the description and the context line is
+//     suppressed, leaving a row that says only "*****". A Context naming the two
+//     component rule names carries the same information without containing the
+//     secret, so the row stays readable when redacted.
 //     The pair's position still points at the first component, and the
 //     components themselves are reported alongside it.
 func correlatedFinding(cf correlation.CorrelatedFinding) finding.Finding {
@@ -114,7 +178,7 @@ func correlatedFinding(cf correlation.CorrelatedFinding) finding.Finding {
 		Line:            cf.Line,
 		RuleName:        cf.Type,
 		Secret:          cf.Description,
-		Context:         cf.Description,
+		Context:         pairContext(cf),
 		DetectionMethod: "correlation",
 		Severity:        finding.SeverityInfo,
 	}
@@ -131,4 +195,27 @@ func correlatedFinding(cf correlation.CorrelatedFinding) finding.Finding {
 	}
 	out.ConfidenceBand = confidence.Band(out.Confidence)
 	return out
+}
+
+// pairContext builds the Context for a correlated finding. It names the two
+// component rule names rather than echoing the description, for one reason:
+// Secret is already that description, and internal/formatters/text.go masks
+// Secret inside Context. With Context == Secret and --redact on, the mask
+// covers the whole line and the output shows an unreadable "*****". A context
+// that merely does not contain the secret survives redaction and still tells
+// the reader what the pair is.
+func pairContext(cf correlation.CorrelatedFinding) string {
+	names := make([]string, 0, len(cf.Components))
+	for _, comp := range cf.Components {
+		names = append(names, comp.RuleName)
+	}
+	if len(names) == 0 {
+		return cf.Description
+	}
+	switch len(names) {
+	case 1:
+		return "correlated finding on " + names[0]
+	default:
+		return "correlated pair: " + strings.Join(names, " + ")
+	}
 }

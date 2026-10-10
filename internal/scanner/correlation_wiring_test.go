@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/RA000WL/syck/internal/confidence"
@@ -87,11 +88,17 @@ func TestCorrelatedFindingShape(t *testing.T) {
 	if p.Secret != wantSecret {
 		t.Errorf("Secret = %q, want %q (the description, not a matched value)", p.Secret, wantSecret)
 	}
-	// Context carries no raw source text, so --redact cannot leave a secret in
-	// it: the redactor masks Secret inside Context, and here they are the same
-	// string.
-	if p.Context != wantSecret {
-		t.Errorf("Context = %q, want %q (description, not the matched line)", p.Context, wantSecret)
+	// Context names the two component rule names rather than echoing Secret.
+	// The redactor masks Secret inside Context (text.go:70), so with Context ==
+	// Secret a --redact'ed pair row printed only "*****" and said nothing about
+	// what the pair was. A context that does not contain the secret survives
+	// redaction and still identifies the pair.
+	wantContext := "correlated pair: aws_access_key_id + aws_secret_access_key"
+	if p.Context != wantContext {
+		t.Errorf("Context = %q, want %q (component rule names, not the matched line)", p.Context, wantContext)
+	}
+	if strings.Contains(p.Context, p.Secret) {
+		t.Errorf("Context %q contains Secret %q; --redact would mask the whole row", p.Context, p.Secret)
 	}
 	if p.DetectionMethod != "correlation" {
 		t.Errorf("DetectionMethod = %q, want correlation", p.DetectionMethod)
@@ -408,10 +415,15 @@ func TestCorrelationWiringCase3_SingleComponent(t *testing.T) {
 }
 
 // TestCorrelationWiringCase4_MinSeverityStillFilters — a pair is filtered by
-// MinSeverity like any other finding. Every detector that can fire under the
-// current ruleset derives CRITICAL, so the only way to get a live pair below a
-// floor is DowngradeFP, which is why the fixture sits in a "fixtures"
-// directory: DowngradeFP drops both components to HIGH.
+// MinSeverity like any other finding.
+//
+// The fixture sits in a "fixtures" directory because DowngradeFP is the
+// easiest way to get a live pair below a floor: it drops both components to
+// HIGH against a CRITICAL floor. It is not the only way — database_url_with_
+// credentials fires on amqp_connection_url (HIGH) and redis_url_with_password
+// (HIGH) as well as on the CRITICAL database-url rules, so a HIGH pair is
+// reachable with no downgrade at all. What those HIGH paths lack is a fixture
+// here; the filter itself is what this test pins, not the severity it drops.
 func TestCorrelationWiringCase4_MinSeverityStillFilters(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -611,5 +623,45 @@ func BenchmarkCorrelateFindings(b *testing.B) {
 		// the benchmark's own input: without it each iteration re-correlates
 		// the previous iteration's pairs too.
 		_ = correlateFindings(cfg, findings[:n:n])
+	}
+}
+
+// TestCollapsePairsMergesSameCorrelation pins the dedup that keeps one
+// .env line carrying a credential-bearing URL from producing three rows.
+//
+// database_url_with_credentials fires once per matching finding, not once per
+// URL: REDIS_URL=redis://default:s3cret@host:6379 matches dotenv_file_secret,
+// redis_url and redis_url_with_password, all three of which report the same
+// Secret. Without the collapse the scan prints three rows with contradictory
+// severities for one URL, on an ordinary .env line, and --severity ends up
+// doing triage the emission should have done.
+func TestCollapsePairsMergesSameCorrelation(t *testing.T) {
+	desc := "database_url_with_credential_probe"
+	mk := func(sev finding.Severity, conf int) finding.Finding {
+		return finding.Finding{
+			RuleName: "database_url_with_credentials", File: "a.env", Line: 1,
+			Secret: desc, Context: "correlated finding on redis_url",
+			DetectionMethod: "correlation", Severity: sev, Confidence: conf,
+		}
+	}
+
+	// The order deliberately puts the LOW-severity row first: finding.Deduplicate
+	// would keep it, silently lowering the pair below its own worst component.
+	in := []finding.Finding{mk(finding.SeverityHigh, 40), mk(finding.SeverityCritical, 40), mk(finding.SeverityHigh, 40)}
+	got := collapsePairs(in)
+	if len(got) != 1 {
+		t.Fatalf("collapsePairs returned %d rows, want 1: %+v", len(got), got)
+	}
+	if got[0].Severity != finding.SeverityCritical {
+		t.Errorf("collapsed severity = %v, want CRITICAL (max, not first)", got[0].Severity)
+	}
+
+	// Distinct correlations must not be merged: different rule name, different
+	// line, and different context each survive.
+	other := got[0]
+	other.RuleName = "aws_credential_pair"
+	other.Context = "correlated pair: aws_access_key_id + aws_secret_access_key"
+	if n := len(collapsePairs(append([]finding.Finding{got[0]}, other))); n != 2 {
+		t.Errorf("distinct pairs collapsed to %d, want 2", n)
 	}
 }
