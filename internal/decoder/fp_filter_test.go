@@ -45,13 +45,24 @@ import (
 //     is masked by the context guard rather than the FP filter; either way the
 //     span stops being reported, which is what the behavioral assertions below
 //     check. See decodedReportsSpan for why they are span-based here.
+//
 //   - decodedNoContextAuth: basic_auth_header matches
 //     Basic kR7mZp2WqL9xVb3HjTQ2wE8rT5yU1iO; its only context keyword
 //     ("authorization") is nowhere in the decoded chunk, and no FP filter fires
 //     on the span, so only RequiresContext can reject it.
-//   - decodedFPHyphenToken / decodedFPImageEmail: already suppressed by the
-//     Token (171) and Email (174) calls that exist today. They must stay
-//     suppressed after this batch and must not be reported twice-suppressed.
+//
+//   - decodedFPImageEmail: already suppressed by the Email (174) call that
+//     exists today. It must stay suppressed after this batch and must not be
+//     reported twice-suppressed.
+//
+//     decodedFPHyphenToken used to sit in that list, asserted as fpToken: true.
+//     It is a HashiCorp Vault token — `vault_token` is a CRITICAL rule whose
+//     pattern is \bhvs\.[a-zA-Z0-9\-_]{10,}\b, so the fixture was asserting
+//     that a real credential is discarded. No rule in builtin.yaml matches a
+//     flag-name-shaped string (the Token filter's other branches cover
+//     snake_case and Swift names, but nothing matches kebab-case words), which
+//     is why the only hyphenated match the ruleset can produce was a
+//     credential. It is now asserted to survive.
 const (
 	decodedFPPlaceholderValue = "secret='user_name_d9f3a7c2b8e5d4'"
 	decodedFPHyphenToken      = "hvs.a7f3-b9c2-d4e6-8f01"
@@ -83,9 +94,9 @@ var decodedFPFixtures = []decodedFPFixture{
 		fpSecret: true, wantNoContext: true,
 	},
 	{
-		name: "hyphenated_token", text: decodedFPHyphenToken,
+		name: "vault_token_survives", text: decodedFPHyphenToken,
 		rule: "vault_token", span: decodedFPHyphenToken, minEnt: 2.0,
-		fpToken: true, wantNoContext: true,
+		fpToken: false, wantNoContext: true,
 	},
 	{
 		name: "image_filename_email", text: decodedFPImageEmail,
@@ -292,13 +303,20 @@ func TestDecodedContextlessMatchIsSuppressed(t *testing.T) {
 	}
 }
 
-// TestDecodedTokenAndEmailAlreadyApplied pins the two filters this path already
-// had (pipeline.go:171 and :174). They suppressed these spans before this batch
-// and must keep suppressing them after — this is the regression guard against
-// double-applying them when completing the filter list, and against a future
-// edit that deletes the existing calls believing the batch owns them.
+// TestDecodedTokenAndEmailAlreadyApplied pins the Email filter this path
+// already had (pipeline.go:174). It suppressed this span before the batch and
+// must keep suppressing it after — the regression guard against double-applying
+// it when completing the filter list, and against a future edit that deletes the
+// existing call believing the batch owns it.
+//
+// The Token half of this loop was removed with the hyphen-branch fix: its
+// fixture was `hvs.a7f3-b9c2-d4e6-8f01`, a HashiCorp Vault token, so the loop
+// was pinning that a CRITICAL credential stays suppressed. No builtin rule
+// matches a flag-name-shaped string, so there is no Token fixture to keep here
+// — IsFalsePositiveToken's hyphen branch is covered directly in
+// internal/entropy, and the Vault token is now asserted to survive above.
 func TestDecodedTokenAndEmailAlreadyApplied(t *testing.T) {
-	for _, name := range []string{"hyphenated_token", "image_filename_email"} {
+	for _, name := range []string{"image_filename_email"} {
 		fx := decodedFixtureByName(t, name)
 		if decodedReportsSpan(t, fx) {
 			t.Fatalf("%s: %s already filters this span (Token at pipeline.go:171 / Email at :174); "+

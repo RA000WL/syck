@@ -391,9 +391,26 @@ func IsFalsePositiveToken(tok string) bool {
 		}
 	}
 
-	// Hyphenated experiment/feature-flag names (e.g. cowork-activation-checklist-v2-fired-completed)
+	// Hyphenated experiment/feature-flag names (e.g. cowork-activation-checklist-v2-fired-completed).
+	//
+	// The shape test matters, and it was previously absent. A bare
+	// `hyphens >= 3 && len > 20` counted every multi-hyphen token as a flag
+	// name, which silently swallowed real credentials on every path that calls
+	// this: `sk-ant-api03-…` (Anthropic) has exactly 3 hyphens and length 59,
+	// and `xoxb-…`/`xapp-…` (Slack), `AGE-SECRET-KEY-…` (age) and
+	// `sk-or-v1-…` (OpenRouter) all clear the bar too. All four providers were
+	// reported as CRITICAL by `list-rules` and were unrunnable in practice.
+	//
+	// What distinguishes a flag name is that its hyphen-separated segments are
+	// short lowercase words. A credential's payload is one long segment, with
+	// mixed case or a long alphanumeric run, because that is where its entropy
+	// lives. So: every segment must be non-empty, lowercase alphanumeric, and
+	// short. That keeps the flag names the test was written for and stops
+	// discarding the credentials, and the error direction is the safe one — a
+	// flag name with an unusually long segment survives as a finding rather
+	// than a secret being dropped without a word.
 	hyphens := strings.Count(tok, "-")
-	if hyphens >= 3 && len(tok) > 20 {
+	if hyphens >= 3 && len(tok) > 20 && looksLikeFlagName(tok) {
 		return true
 	}
 
@@ -533,4 +550,27 @@ func ExtractContextualSecrets(line string, minEntropy float64) []ContextualSecre
 		results = append(results, ContextualSecret{Token: tok, Entropy: e})
 	}
 	return results
+}
+
+// looksLikeFlagName reports whether tok is shaped like a hyphenated
+// experiment/feature-flag name: a run of short, lowercase, alphanumeric
+// segments.
+//
+// This is the guard on IsFalsePositiveToken's hyphen branch rather than a
+// standalone detector, so it is deliberately strict about what it accepts —
+// `false` means "keep the token", which for a secret scanner is the direction
+// that fails safe.
+func looksLikeFlagName(tok string) bool {
+	for _, seg := range strings.Split(tok, "-") {
+		if seg == "" || len(seg) > 12 {
+			return false
+		}
+		for i := 0; i < len(seg); i++ {
+			c := seg[i]
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+				return false
+			}
+		}
+	}
+	return true
 }

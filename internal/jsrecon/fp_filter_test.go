@@ -45,8 +45,13 @@ import (
 //     remove this finding — the fixture isolates that one filter.
 //
 //   - reconFPHyphenToken: `vault_token` matches hvs.a7f3-b9c2-d4e6-8f01.
-//     IsFalsePositiveToken's hyphenated-flag-name branch fires:
-//     strings.Count(tok, "-") >= 3 && len(tok) > 20. Same isolation argument —
+//     This fixture was written to isolate IsFalsePositiveToken's hyphenated
+//     flag-name branch (strings.Count >= 3 && len > 20). That was wrong: a
+//     HashiCorp Vault token is a CRITICAL credential, not a flag name, and no
+//     rule in builtin.yaml matches a flag-name-shaped string — so the only
+//     hyphenated match the ruleset can produce is a credential. The
+//     hyphen-branch fix narrowed the test to require short lowercase segments,
+//     and this fixture now asserts the token SURVIVES. Same isolation argument:
 //     vault_token has no requires_context and the span trips neither
 //     IsFalsePositiveSecret (no "[:=]" for kvPlaceholderRe to anchor on) nor
 //     IsFalsePositiveEmail (no image extension).
@@ -107,9 +112,9 @@ var reconFPFixtures = []reconFixture{
 		fpSecret: true, wantNoContext: true,
 	},
 	{
-		name: "hyphenated_token", text: reconFPHyphenToken,
+		name: "vault_token_survives", text: reconFPHyphenToken,
 		rule: "vault_token", span: reconFPHyphenToken, minEnt: 2.0,
-		fpToken: true, wantNoContext: true,
+		fpToken: false, wantNoContext: true,
 	},
 	{
 		name: "image_filename_email", text: reconFPImageEmail,
@@ -288,7 +293,7 @@ func reconSuppressed(t *testing.T, fx reconFixture) bool {
 // characterization recorded in the previous commit, and the fixture premises
 // above still assert exactly which filter rejects each one and why.
 func TestReconstructFPShapedMatchesAreSuppressed(t *testing.T) {
-	for _, name := range []string{"placeholder_value", "hyphenated_token", "image_filename_email"} {
+	for _, name := range []string{"placeholder_value", "image_filename_email"} {
 		fx := reconFixtureByName(t, name)
 		if reconSuppressed(t, fx) {
 			t.Fatalf("%s: %s still reported %q (entropy %.4f clears the floor). The FP filter this "+

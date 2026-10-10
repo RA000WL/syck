@@ -79,9 +79,9 @@ var jsonFPFixtures = []jsonFPFixture{
 		fpSecret: true, wantNoContext: true,
 	},
 	{
-		name: "hyphenated_token", key: "cfg", value: jsonFPHyphenToken,
+		name: "vault_token_survives", key: "cfg", value: jsonFPHyphenToken,
 		rule: "vault_token", span: jsonFPHyphenToken, minEnt: 2.0,
-		fpToken: true, wantNoContext: true,
+		fpToken: false, wantNoContext: true,
 	},
 	{
 		// key "contact" satisfies email_address's context guard, isolating
@@ -262,7 +262,7 @@ func jsonReports(t *testing.T, fx jsonFPFixture) bool {
 // characterization recorded in the previous commit, and the fixture premises
 // above still assert exactly which filter rejects each one and why.
 func TestJSONFPShapedMatchesAreSuppressed(t *testing.T) {
-	for _, name := range []string{"placeholder_value", "hyphenated_token", "image_filename_email"} {
+	for _, name := range []string{"placeholder_value", "image_filename_email"} {
 		fx := jsonFixtureByName(t, name)
 		if jsonReports(t, fx) {
 			t.Fatalf("%s: %s still reported value %q (entropy %.4f clears the floor). The FP filter "+

@@ -5,7 +5,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change) + Batch 12: credential-pair correlation (**adds findings**) + dead-detector residual + Batches 13-14: `--severity` now applies to `--param-brute`, and a dead confidence signal is wired
 
-This section carries twelve batches, so the title names them and flags the nine
+This section carries twelve batches, so the title names them and flags the ten
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -793,6 +793,39 @@ value. All three are named in the entry, with the tests that pin them.
   235291 vs 179737 ns/op) despite allocating 2 vs 29 allocs/op.
 
 ### Fixed
+
+- **`IsFalsePositiveToken`'s hyphenated-flag branch no longer discards real
+  credentials.** The branch was a bare `hyphens >= 3 && len > 20`, intended for
+  feature-flag names like `cowork-activation-checklist-v2-fired-completed`. It
+  also matched, and silently dropped, `sk-ant-api03-…` (Anthropic, 3 hyphens,
+  length 59), `xoxb-…` and `xapp-…` (Slack), `AGE-SECRET-KEY-…` (age) and
+  `sk-or-v1-…` (OpenRouter). Four providers the ruleset reports as CRITICAL were
+  unrunnable in practice — on every path that consults this filter, which after
+  Batches 8 and 9 was all of them.
+
+  Measured on a file of five fabricated, shape-accurate credentials: before this
+  fix the scan reported **2**; after, it reports **all five**.
+
+  The test now requires the token to actually be shaped like a flag name —
+  every hyphen-separated segment short, lowercase and alphanumeric — before
+  treating it as one. What distinguishes a flag name is that its segments are
+  short lowercase words; a credential's payload is one long segment carrying the
+  mixed case or long alphanumeric run where its entropy lives. The error
+  direction is the safe one: a flag name with an unusually long segment now
+  survives as a finding, rather than a secret being dropped without a word.
+
+  **This also corrects test fixtures from Batch 8.** Three of them
+  (`decoder`, `json_scanner`, `jsrecon`) asserted `fpToken: true` for
+  `hvs.a7f3-b9c2-d4e6-8f01` — a HashiCorp Vault token, which `vault_token`
+  matches at CRITICAL. No rule in `builtin.yaml` matches a flag-name-shaped
+  string, so the only hyphenated match the ruleset can produce was a
+  credential; those fixtures were pinning a real secret's suppression. They now
+  assert the token survives, and the one loop that existed only to check "Token
+  was already applied here" no longer has a fixture to check, which is recorded
+  in its place.
+
+  Flag names are still filtered, pinned directly in `internal/entropy` and by
+  the existing `entropy_extended_test.go` suite.
 
 - **Batch 13 — `--severity` now applies to `--param-brute` findings.** The
   `--param-brute` findings were appended after collection with no severity

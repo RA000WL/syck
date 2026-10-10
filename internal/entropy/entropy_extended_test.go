@@ -319,3 +319,47 @@ func TestIsFalsePositiveEmail_RealEmails(t *testing.T) {
 		}
 	}
 }
+
+// TestIsFalsePositiveTokenKeepsHyphenatedCredentials is the regression pin for
+// the hyphen branch swallowing real credentials.
+//
+// The branch was a bare `hyphens >= 3 && len > 20`, aimed at feature-flag
+// names. It also matched `sk-ant-api03-…` (Anthropic, 3 hyphens, length 59),
+// `xoxb-…` and `xapp-…` (Slack), `AGE-SECRET-KEY-…` (age) and `sk-or-v1-…`
+// (OpenRouter) — providers the ruleset reports as CRITICAL that were
+// unrunnable in practice, on every path that consults this filter.
+//
+// The values are fabricated but shape-accurate: the shape is what the filter
+// judges, so the shape is what has to be pinned.
+func TestIsFalsePositiveTokenKeepsHyphenatedCredentials(t *testing.T) {
+	credentials := []struct{ name, tok string }{
+		{"anthropic", "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghij"},
+		{"slack bot", "xoxb-2612345678-2612345678901-AbCdEfGhIjKlMnOpQrStUvWx"},
+		{"slack app", "xapp-1-A2612345678-2612345678901-AbCdEfGhIjKlMnOpQrStUvWxYz01"},
+		{"openrouter", "sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef"},
+		{"age", "AGE-SECRET-KEY-1QWERTYUIOPASDFGHJKLZXCVBNMQWERTYUI"},
+	}
+	for _, c := range credentials {
+		if IsFalsePositiveToken(c.tok) {
+			t.Errorf("%s: IsFalsePositiveToken(%s) = true; a hyphenated credential must survive the FP filter", c.name, c.tok)
+		}
+	}
+
+	// And the flag names the heuristic exists for must still be rejected —
+	// narrowing it must not re-open the hole it was written to close.
+	// Each must actually be in the branch's domain — >= 3 hyphens and longer
+	// than 20 chars — otherwise this would be asserting a suppression that
+	// never existed. "feature-flag-a-b-c-d" was dropped from this list for
+	// exactly that reason: it is 17 chars, so the old code never filtered it.
+	flags := []string{
+		"cowork-activation-checklist-v2-fired-completed",
+		"enable-the-new-dashboard-variant-experiment",
+		"my-long-running-experiment-variant-three",
+		"disable-legacy-checkout-flow-in-all-regions",
+	}
+	for _, f := range flags {
+		if !IsFalsePositiveToken(f) {
+			t.Errorf("IsFalsePositiveToken(%s) = false; a feature-flag name must still be filtered", f)
+		}
+	}
+}
