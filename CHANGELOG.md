@@ -3,9 +3,9 @@
 All notable changes to syck are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change) + Batch 12: credential-pair correlation (**adds findings**) + dead-detector residual
+## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change) + Batch 12: credential-pair correlation (**adds findings**) + dead-detector residual + Batches 13-14: `--severity` now applies to `--param-brute`, and a dead confidence signal is wired
 
-This section carries ten batches, so the title names them and flags the eight
+This section carries eleven batches, so the title names them and flags the seven
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -791,6 +791,46 @@ value. All three are named in the entry, with the tests that pin them.
 - The per-line goroutine regex fan-out was benchmarked against a sequential
   alternative and **kept**: sequential measured ~31% slower (median
   235291 vs 179737 ns/op) despite allocating 2 vs 29 allocs/op.
+
+### Fixed
+
+- **Batch 13 — `--severity` now applies to `--param-brute` findings.** The
+  `--param-brute` findings were appended after collection with no severity
+  floor, so `syck scan <url> --severity CRITICAL --param-brute` still printed
+  `hidden_parameter` rows at a severity the floor should have excluded. This is
+  the same invariant the Batch 12 correlation wiring enforces for credential
+  pairs; Batch 12 closed it for its call site and left this one open.
+
+  The floor is applied at the point of append, and deliberately inside `cmd/`
+  rather than inside `internal/parambrute`: `BruteForce` returns
+  `[]ParamFinding`, which has no severity field, so the severity mapping — and
+  therefore the floor that must respect it — lives with the caller. The
+  severity mapping itself is unchanged: `Interesting` remains HIGH,
+  `Reflected` MEDIUM, so a HIGH floor keeps interesting parameters and a LOW
+  floor keeps both, pinned by case.
+
+### Changed
+
+- **Batch 14 — a credential pair's confidence now includes the pair
+  contribution.** `confidence.Signals.InCredentialPair` had exactly one
+  construction site, `internal/scanner/stage_confidence.go`, and it hardcoded
+  `false`, so `PtsCredPair` (30 points) never fired and a correlated pair
+  scored 40 instead of 70.
+
+  The signal is now derived from the finding's rule name via a
+  `_credential_pair` suffix. Every `matchPair` detector already names its type
+  that way; `database_url_with_credentials` does not, because it is not a pair
+  — `DatabaseURLDetector` matches one finding's own `Secret` against a
+  database-URL pattern and reports that finding, so its component list has
+  length 1. It therefore does not collect the pair bonus, which is what stops a
+  single-component finding from claiming a pair's confidence.
+
+  **This is inert on the CLI.** `ConfidenceStage` runs only on the test-only
+  `Pipeline`, and correlated findings already carry a `Confidence` that the
+  stage respects. So this corrects the dormant path rather than changing live
+  output — stated plainly so nobody reads a 30-point change into their current
+  scores. The pin drives the real detectors, so a renamed detector type or a
+  new pair type fails the test rather than silently diverging.
 
 ### Performance — Batch 11: `fetchURL`'s scratch buffer is pooled (ARCHITECTURE §15 item 5, CLOSED)
 
