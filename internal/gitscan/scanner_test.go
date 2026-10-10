@@ -353,3 +353,65 @@ func TestScanHistorySameSecretInBothCommitsStillDedups(t *testing.T) {
 		t.Fatalf("want exactly 1 finding for the same secret in both commits, got %d", nA)
 	}
 }
+
+// TestScanHistoryDoesNotExecuteRepoConfig guards against the RCE that the
+// safeGitArgs flags exist to close.
+//
+// A secret scanner's core use case is pointing at a repo the user did not
+// write. That repo controls its own .git/config, and git honours config keys
+// that name a command to run — core.fsmonitor is the live one, invoked while
+// git refreshes the index, which diff-tree does as a side effect. A repo
+// carrying `core.fsmonitor = touch <marker>` therefore had <marker> created,
+// as the scanning user, from a repo the user merely scanned.
+//
+// This test deliberately does NOT use gitEnv() for the scan itself: the
+// ambient isolation that made the package's own tests correct is what let the
+// production path ship the gap, because GIT_CONFIG_GLOBAL cannot reach
+// repo-local config at all.
+func TestScanHistoryDoesNotExecuteRepoConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	git(t, dir, "init")
+	if err := os.WriteFile(filepath.Join(dir, "creds.txt"),
+		[]byte("AWS_KEY = \"AKIAIOSFODNN7EXAMPLE\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "-A")
+	git(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "add secret")
+
+	// A marker path the repo's config will try to create. Written to a file
+	// inside a second temp dir so the assertion cannot be satisfied by git's
+	// own bookkeeping.
+	markerDir := t.TempDir()
+	marker := filepath.Join(markerDir, "PWNED")
+	git(t, dir, "config", "core.fsmonitor", "touch "+marker)
+
+	rs, err := rules.LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault: %v", err)
+	}
+	findings, err := ScanHistory(dir, scanner.Config{Rules: rs, MinSeverity: finding.SeverityLow})
+	if err != nil {
+		t.Fatalf("ScanHistory: %v", err)
+	}
+
+	// The point: the repo's command must not have run.
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("core.fsmonitor from the scanned repo was executed — %s exists", marker)
+	}
+
+	// And the fix must not have cost the scan anything: a first-commit secret
+	// is still found, which is the --root behaviour Batch 6 added.
+	found := false
+	for _, f := range findings {
+		if f.RuleName == "aws_access_key_id" && strings.Contains(f.Secret, "AKIAIOSFODNN7EXAMPLE") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("secret not found: ScanHistory returned %d findings, want the initial commit's key", len(findings))
+	}
+}
