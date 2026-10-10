@@ -15,7 +15,7 @@
 
 ---
 
-### Task 1 (Batch 13): `--param-brute` honours `--severity`
+### Task 1: Batch 13 — `--param-brute` honours `--severity`
 
 **Files:** `cmd/scan_run.go` (the `--param-brute` loop, ~:450-469)
 
@@ -38,7 +38,7 @@ same invariant for correlation; this is the call site it left open."
 
 ---
 
-### Task 2 (Batch 14): wire the credential-pair confidence signal
+### Task 2: Batch 14 — wire the credential-pair confidence signal
 
 **Files:** `internal/scanner/stage_confidence.go`, `internal/scanner/correlation_wiring.go` or `internal/scanner/correlation_wiring_test.go` for the test
 
