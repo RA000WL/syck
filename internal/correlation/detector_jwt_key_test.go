@@ -16,8 +16,8 @@ func TestJWTKeyDetectorPositive(t *testing.T) {
 	if len(got) != 1 {
 		t.Errorf("Match returned %d, want 1", len(got))
 	}
-	if got[0].Type != "jwt_key_pair" {
-		t.Errorf("Type = %q, want jwt_key_pair", got[0].Type)
+	if got[0].Type != "jwt_key_credential_pair" {
+		t.Errorf("Type = %q, want jwt_key_credential_pair", got[0].Type)
 	}
 }
 

@@ -686,26 +686,39 @@ func TestIsCredentialPairPinsTheDetectorTypes(t *testing.T) {
 	awsSecret := "AMAZONFAKEACCESSKEYID1"
 	dbSecret := "postgres://user:hunter2@localhost:5432/db"
 
+	// Every matchPair detector, including the four whose component rules do not
+	// exist and which therefore cannot fire in a scan. The type name is what the
+	// pair-bonus predicate keys on, and a detector that stops carrying it fails
+	// here rather than silently losing the bonus the day its rules land — which
+	// is exactly how jwt_key_pair lost it until Batch 14's follow-up renamed it.
 	cases := []struct {
 		name      string
 		detector  correlation.Detector
 		component finding.Finding
+		partner   string
 		wantPair  bool
 	}{
-		{"aws pair", correlation.AWSDetector{}, finding.Finding{RuleName: awsRule, Secret: awsSecret, File: "f", Line: 1}, true},
-		{"stripe pair", correlation.StripeDetector{}, finding.Finding{RuleName: "stripe_secret_key", Secret: "s", File: "f", Line: 1}, true},
-		{"twilio pair", correlation.TwilioDetector{}, finding.Finding{RuleName: "twilio_account_sid", Secret: "s", File: "f", Line: 1}, true},
-		{"db url, one component", correlation.DatabaseURLDetector{}, finding.Finding{RuleName: "dotenv_file_secret", Secret: dbSecret, File: "f", Line: 1}, false},
+		{"aws pair", correlation.AWSDetector{}, finding.Finding{RuleName: awsRule, Secret: awsSecret, File: "f", Line: 1}, "aws_secret_access_key", true},
+		{"stripe pair", correlation.StripeDetector{}, finding.Finding{RuleName: "stripe_secret_key", Secret: "s", File: "f", Line: 1}, "stripe_publishable_key", true},
+		{"twilio pair", correlation.TwilioDetector{}, finding.Finding{RuleName: "twilio_account_sid", Secret: "s", File: "f", Line: 1}, "twilio_auth_token", true},
+		{"cloudflare pair", correlation.CloudflareDetector{}, finding.Finding{RuleName: "cloudflare_email", Secret: "s", File: "f", Line: 1}, "cloudflare_api_key", true},
+		{"github app pair", correlation.GitHubAppDetector{}, finding.Finding{RuleName: "github_app_id", Secret: "s", File: "f", Line: 1}, "github_app_private_key", true},
+		{"jwt key pair", correlation.JWTKeyDetector{}, finding.Finding{RuleName: "jwt", Secret: "s", File: "f", Line: 1}, "jwt_signing_key", true},
+		{"oauth pair", correlation.OAuthDetector{}, finding.Finding{RuleName: "oauth_client_id", Secret: "s", File: "f", Line: 1}, "oauth_client_secret", true},
+		{"db url, one component", correlation.DatabaseURLDetector{}, finding.Finding{RuleName: "dotenv_file_secret", Secret: dbSecret, File: "f", Line: 1}, "", false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var cfs []correlation.CorrelatedFinding
 			if tc.wantPair {
-				// matchPair detectors need both components present.
+				// matchPair detectors need both components present. The
+				// partner's rule name need not exist in builtin.yaml: the
+				// detectors match on the rule names of the findings they are
+				// handed, so this also covers the four dead detectors.
 				cfs = tc.detector.Match([]finding.Finding{
 					tc.component,
-					{RuleName: pairPartner(tc.detector), Secret: "s2", File: "f", Line: 3},
+					{RuleName: tc.partner, Secret: "s2", File: "f", Line: 3},
 				})
 				if len(cfs) == 0 {
 					t.Fatalf("detector produced no pair; fixture no longer matches")
@@ -727,17 +740,4 @@ func TestIsCredentialPairPinsTheDetectorTypes(t *testing.T) {
 			}
 		})
 	}
-}
-
-// pairPartner returns the other component's rule name for a matchPair detector.
-func pairPartner(d correlation.Detector) string {
-	switch d.(type) {
-	case correlation.AWSDetector:
-		return "aws_secret_access_key"
-	case correlation.StripeDetector:
-		return "stripe_publishable_key"
-	case correlation.TwilioDetector:
-		return "twilio_auth_token"
-	}
-	return ""
 }

@@ -606,9 +606,9 @@ raw findings
 │       entropy + context keyword ................. 35  (20 + 15)     │
 │       URL query-param secret .................. 55  (40 + 15)     │
 │       live-verified secret .................... +50                │
-│       credential pair .......................... +30  (NOT         │
-│         REACHABLE: Signals.InCredentialPair is false in every      │
-│         caller, so PtsCredPair never applies. See §15 item 11.)    │
+│       credential pair .......................... +30  (UNREACHABLE  │
+│         on the active path: the stage is test-only, and it skips      │
+│         findings that already carry a score. See §15 item 11.)      │
 │     Bands: <=30 LOW · <=60 MEDIUM · <=90 HIGH · <=120 CRITICAL     │
 │                                                                     │
 │  8. SQLite cache recording (--cache-db): fingerprint =              │
@@ -1078,16 +1078,25 @@ Three gaps adjacent to the Batch 5 entropy-floor work. Batch 5's scope was to ma
     its shape is the one thing about the package that a reader will assume wrong
     from the other seven.
 
-    A second residual, not fixed: `confidence.Signals.InCredentialPair` /
-    `PtsCredPair` is unreachable on the active path. `ConfidenceStage.Process`
-    sets `InCredentialPair: false` unconditionally
-    (`internal/scanner/stage_confidence.go:32`) and no other caller sets it, so
-    the scorer's credential-pair bonus never applies. A correlated finding's
-    confidence is therefore `max` of its components' scores — 40 for a
-    regex-matched pair — and not that plus 30. Deriving from the components was
-    the specified fix for the off-band literal; whether the bonus should ever be
-    reachable is a scoring-design question and is left open rather than decided
-    by a wiring batch.
+    **CLOSED — Closed by Batch 14.** `ConfidenceStage.Process` hardcoded
+    `InCredentialPair: false` (`internal/scanner/stage_confidence.go`), so
+    `PtsCredPair` never applied. It now derives the signal from the finding's
+    rule name. The bonus is still unreachable on the active path, for two
+    independent reasons: `ConfidenceStage` runs only on the test-only
+    `Pipeline` (`NewPipeline`'s only caller is `pipeline_test.go`), and
+    `Process` rescores only findings whose `Confidence` is 0, while correlated
+    findings already carry one derived from their components. So the fix
+    corrects the dormant path without changing live output — a pair's
+    confidence remains the maximum of its components' scores.
+
+    One caveat on the predicate, recorded because it is the repo's own
+    roadmap: it keys on a `_credential_pair` suffix, which six of the seven
+    `matchPair` detectors carry. `jwt_key_pair` does not. The JWT detector is
+    dead today (no component rules), so the mismatch is masked; the day
+    `jwt`/`jwt_signing_key` rules are added, that pair silently loses the
+    bonus. `TestIsCredentialPairPinsTheDetectorTypes` enumerates the live
+    detectors so the mismatch is visible, but the type name remains the
+    outlier.
 
 ---
 

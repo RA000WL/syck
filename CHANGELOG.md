@@ -5,7 +5,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — Batch 6: security fixes (**adds findings**) + Batch 4c: shared internal-URL predicates (**breaking**) + Batch 3: performance + Batch 5: entropy-floor consistency + Batch 7: dedup-key truncation fix (**adds findings**) + Batch 8: FP/context filters on the lagging paths (**removes findings**, one CRITICAL class restored) + Batch 9: FP filters on the multi-line path (**removes findings**) + Batch 10: localhostRE loopback vocabulary and anchoring (**adds findings**, changes emitted strings) + Batch 11: fetchURL scratch pooling (performance, no output change) + Batch 12: credential-pair correlation (**adds findings**) + dead-detector residual + Batches 13-14: `--severity` now applies to `--param-brute`, and a dead confidence signal is wired
 
-This section carries eleven batches, so the title names them and flags the seven
+This section carries twelve batches, so the title names them and flags the nine
 that change visible output. **Read the Batch 6 entry first if you are diffing
 finding counts between versions: it makes syck report findings it previously
 stayed silent about, so finding counts go UP.** Batch 6 is listed first for
@@ -818,8 +818,9 @@ value. All three are named in the entry, with the tests that pin them.
   scored 40 instead of 70.
 
   The signal is now derived from the finding's rule name via a
-  `_credential_pair` suffix. Every `matchPair` detector already names its type
-  that way; `database_url_with_credentials` does not, because it is not a pair
+  `_credential_pair` suffix. Six of the seven `matchPair` detectors name their
+  type that way (`jwt_key_pair` is the exception); `database_url_with_credentials`
+  does not, because it is not a pair
   — `DatabaseURLDetector` matches one finding's own `Secret` against a
   database-URL pattern and reports that finding, so its component list has
   length 1. It therefore does not collect the pair bonus, which is what stops a
@@ -829,8 +830,17 @@ value. All three are named in the entry, with the tests that pin them.
   `Pipeline`, and correlated findings already carry a `Confidence` that the
   stage respects. So this corrects the dormant path rather than changing live
   output — stated plainly so nobody reads a 30-point change into their current
-  scores. The pin drives the real detectors, so a renamed detector type or a
-  new pair type fails the test rather than silently diverging.
+  scores.
+
+  For precision about what the 30 points do and do not change: a pair's
+  `Confidence` *field* is still the maximum of its components' scores, which
+  this change does not touch. Had the stage rescored a pair, the move would be
+  0 → 30 rather than 40 → 70, because a pair's `DetectionMethod` is
+  `correlation` and `isRegexMatch` returns false for it, and the entropy of a
+  description string sits below the scorer's floor — so only the pair
+  contribution lands. The pin drives the real detectors, so a renamed type
+  among the enumerated detectors fails the test rather than silently
+  diverging.
 
 ### Performance — Batch 11: `fetchURL`'s scratch buffer is pooled (ARCHITECTURE §15 item 5, CLOSED)
 
