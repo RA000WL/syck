@@ -449,27 +449,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, u := range allURLs {
-			paramFindings := parambrute.BruteForce(u, paramCfg)
-			for _, pf := range paramFindings {
-				severity := finding.SeverityInfo
-				if pf.Reflected {
-					severity = finding.SeverityMedium
-				}
-				if pf.Interesting {
-					severity = finding.SeverityHigh
-				}
-				findings = append(findings, finding.Finding{
-					File:     u,
-					Line:     1,
-					RuleName: "hidden_parameter",
-					Severity: severity,
-					Secret:   pf.Parameter,
-					Context:  pf.Reason,
-				})
-			}
-			if len(paramFindings) > 0 {
-				fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))
-			}
+			findings = appendParamBruteFindings(findings, u, paramCfg, scanCfg.MinSeverity)
 		}
 	}
 
@@ -583,4 +563,54 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return errExitCode
 	}
 	return nil
+}
+
+// appendParamBruteFindings runs one URL through the parameter brute-force and
+// appends every finding that clears minSeverity.
+//
+// The floor is applied here, at the point of append, and deliberately not inside
+// internal/parambrute: BruteForce returns []ParamFinding, which has no severity
+// field, so the severity mapping lives in this file and the floor has to live
+// with it. It has to be applied at the append too: the rule paths gate on
+// MinSeverity while they match, so anything appended after collection sails
+// straight past --severity. That is the same invariant correlateFindings
+// (internal/scanner/correlation_wiring.go) enforces for credential pairs — this
+// is the call site Batch 12 left open.
+func appendParamBruteFindings(findings []finding.Finding, u string, cfg parambrute.Config, minSeverity finding.Severity) []finding.Finding {
+	paramFindings := parambrute.BruteForce(u, cfg)
+	for _, pf := range paramFindings {
+		f := hiddenParameterFinding(u, pf)
+		if f.Severity < minSeverity {
+			continue
+		}
+		findings = append(findings, f)
+	}
+	if len(paramFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))
+	}
+	return findings
+}
+
+// hiddenParameterFinding maps one ParamFinding onto an ordinary Finding so it
+// travels the same output path as everything else. Severity is HIGH when the
+// parameter is interesting and MEDIUM when it is only reflected; the INFO
+// starting point is defensive, because parambrute's testParameter drops any
+// parameter that is neither interesting nor reflected (parambrute.go:333), so
+// INFO is not a severity this site can currently produce.
+func hiddenParameterFinding(u string, pf parambrute.ParamFinding) finding.Finding {
+	severity := finding.SeverityInfo
+	if pf.Reflected {
+		severity = finding.SeverityMedium
+	}
+	if pf.Interesting {
+		severity = finding.SeverityHigh
+	}
+	return finding.Finding{
+		File:     u,
+		Line:     1,
+		RuleName: "hidden_parameter",
+		Severity: severity,
+		Secret:   pf.Parameter,
+		Context:  pf.Reason,
+	}
 }
