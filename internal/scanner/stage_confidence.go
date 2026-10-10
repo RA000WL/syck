@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"strings"
+
 	"github.com/RA000WL/syck/internal/confidence"
 	"github.com/RA000WL/syck/internal/entropy"
 	"github.com/RA000WL/syck/internal/finding"
@@ -29,7 +31,7 @@ func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 			Entropy:           in[i].Entropy,
 			HasContextKeyword: false,
 			Verified:          in[i].VerificationStatus == "VERIFIED",
-			InCredentialPair:  false,
+			InCredentialPair:  isCredentialPair(in[i].RuleName),
 		}
 		if sig.Entropy == 0 && in[i].Secret != "" {
 			sig.Entropy = entropy.Shannon(in[i].Secret)
@@ -40,7 +42,29 @@ func (s *ConfidenceStage) Process(in []finding.Finding) []finding.Finding {
 	return in
 }
 
-// isRegexMatch derives the regex signal from DetectionMethod. The pipeline
+// isCredentialPair reports whether ruleName names a correlation of two or more
+// findings into one credential.
+//
+// The credential-pair detectors all name their type with a _credential_pair
+// suffix; database_url_with_credentials does not, because it is not a pair —
+// DatabaseURLDetector matches a single finding's own Secret against a
+// database-URL pattern and reports that finding, so its Components list has
+// length 1. Giving it the pair bonus would inflate a one-component finding.
+//
+// The suffix is a derived predicate, not a hardcoded list, so a new
+// matchPair detector is picked up by following the existing naming convention.
+// TestIsCredentialPairPinsTheDetectorTypes enumerates the types
+// newScanCorrelator can emit for a pair and asserts each one clears it, which
+// is what fails if someone names a detector type differently.
+//
+// Note that on the CLI this signal is currently inert in practice: correlated
+// findings carry a Confidence set by correlateFindings, and Process rescores
+// only when Confidence is 0 (above), so it skips them. Wiring this makes the
+// dormant Pipeline correct rather than changing live output.
+func isCredentialPair(ruleName string) bool {
+	return strings.HasSuffix(ruleName, "_credential_pair")
+}
+
 // Rule/Decoder stages predate DetectionMethod and leave it empty, so an
 // empty method falls back to the rule-name heuristic (only "entropy_token"
 // is a known non-regex producer there); every other empty-method finding is

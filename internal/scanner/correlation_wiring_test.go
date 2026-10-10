@@ -665,3 +665,79 @@ func TestCollapsePairsMergesSameCorrelation(t *testing.T) {
 		t.Errorf("distinct pairs collapsed to %d, want 2", n)
 	}
 }
+
+// TestIsCredentialPairPinsTheDetectorTypes pins the predicate behind the
+// dormant InCredentialPair signal against the types the live correlator can
+// actually emit, rather than against a list maintained by hand.
+//
+// A credential pair is two findings correlated into one credential. The three
+// matchPair detectors that can fire (AWS, Stripe, Twilio — the other five are
+// dead for want of component rules) all name their type with a
+// _credential_pair suffix. database_url_with_credentials does not: it is one
+// finding matched on its own Secret, so Components has length 1 and it must not
+// collect the pair bonus.
+//
+// The test drives the real detectors with fabricated component findings, which
+// is what makes it a pin rather than a restatement: if a detector's type name
+// stops carrying the suffix, or a new detector emits a pair type that does, the
+// corresponding assertion fails.
+func TestIsCredentialPairPinsTheDetectorTypes(t *testing.T) {
+	awsRule := "aws_access_key_id"
+	awsSecret := "AMAZONFAKEACCESSKEYID1"
+	dbSecret := "postgres://user:hunter2@localhost:5432/db"
+
+	cases := []struct {
+		name      string
+		detector  correlation.Detector
+		component finding.Finding
+		wantPair  bool
+	}{
+		{"aws pair", correlation.AWSDetector{}, finding.Finding{RuleName: awsRule, Secret: awsSecret, File: "f", Line: 1}, true},
+		{"stripe pair", correlation.StripeDetector{}, finding.Finding{RuleName: "stripe_secret_key", Secret: "s", File: "f", Line: 1}, true},
+		{"twilio pair", correlation.TwilioDetector{}, finding.Finding{RuleName: "twilio_account_sid", Secret: "s", File: "f", Line: 1}, true},
+		{"db url, one component", correlation.DatabaseURLDetector{}, finding.Finding{RuleName: "dotenv_file_secret", Secret: dbSecret, File: "f", Line: 1}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfs []correlation.CorrelatedFinding
+			if tc.wantPair {
+				// matchPair detectors need both components present.
+				cfs = tc.detector.Match([]finding.Finding{
+					tc.component,
+					{RuleName: pairPartner(tc.detector), Secret: "s2", File: "f", Line: 3},
+				})
+				if len(cfs) == 0 {
+					t.Fatalf("detector produced no pair; fixture no longer matches")
+				}
+			} else {
+				cfs = tc.detector.Match([]finding.Finding{tc.component})
+				if len(cfs) == 0 {
+					t.Fatalf("detector produced no finding; fixture no longer matches")
+				}
+			}
+
+			for _, cf := range cfs {
+				if len(cf.Components) > 1 && !isCredentialPair(cf.Type) {
+					t.Errorf("type %q has %d components but isCredentialPair = false", cf.Type, len(cf.Components))
+				}
+				if len(cf.Components) <= 1 && isCredentialPair(cf.Type) {
+					t.Errorf("type %q has %d component(s) but isCredentialPair = true", cf.Type, len(cf.Components))
+				}
+			}
+		})
+	}
+}
+
+// pairPartner returns the other component's rule name for a matchPair detector.
+func pairPartner(d correlation.Detector) string {
+	switch d.(type) {
+	case correlation.AWSDetector:
+		return "aws_secret_access_key"
+	case correlation.StripeDetector:
+		return "stripe_publishable_key"
+	case correlation.TwilioDetector:
+		return "twilio_auth_token"
+	}
+	return ""
+}
