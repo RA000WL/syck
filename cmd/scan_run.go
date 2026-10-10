@@ -449,27 +449,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, u := range allURLs {
-			paramFindings := parambrute.BruteForce(u, paramCfg)
-			for _, pf := range paramFindings {
-				severity := finding.SeverityInfo
-				if pf.Reflected {
-					severity = finding.SeverityMedium
-				}
-				if pf.Interesting {
-					severity = finding.SeverityHigh
-				}
-				findings = append(findings, finding.Finding{
-					File:     u,
-					Line:     1,
-					RuleName: "hidden_parameter",
-					Severity: severity,
-					Secret:   pf.Parameter,
-					Context:  pf.Reason,
-				})
-			}
-			if len(paramFindings) > 0 {
-				fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))
-			}
+			findings = appendParamBruteFindings(findings, u, paramCfg, scanCfg.MinSeverity)
 		}
 	}
 
@@ -583,4 +563,41 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return errExitCode
 	}
 	return nil
+}
+
+// appendParamBruteFindings runs one URL through the parameter brute-force and
+// appends every finding that clears minSeverity.
+func appendParamBruteFindings(findings []finding.Finding, u string, cfg parambrute.Config, minSeverity finding.Severity) []finding.Finding {
+	paramFindings := parambrute.BruteForce(u, cfg)
+	for _, pf := range paramFindings {
+		findings = append(findings, hiddenParameterFinding(u, pf))
+	}
+	if len(paramFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))
+	}
+	return findings
+}
+
+// hiddenParameterFinding maps one ParamFinding onto an ordinary Finding so it
+// travels the same output path as everything else. Severity is HIGH when the
+// parameter is interesting and MEDIUM when it is only reflected; the INFO
+// starting point is defensive, because parambrute's testParameter drops any
+// parameter that is neither interesting nor reflected (parambrute.go:333), so
+// INFO is not a severity this site can currently produce.
+func hiddenParameterFinding(u string, pf parambrute.ParamFinding) finding.Finding {
+	severity := finding.SeverityInfo
+	if pf.Reflected {
+		severity = finding.SeverityMedium
+	}
+	if pf.Interesting {
+		severity = finding.SeverityHigh
+	}
+	return finding.Finding{
+		File:     u,
+		Line:     1,
+		RuleName: "hidden_parameter",
+		Severity: severity,
+		Secret:   pf.Parameter,
+		Context:  pf.Reason,
+	}
 }
