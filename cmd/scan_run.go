@@ -567,10 +567,23 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 // appendParamBruteFindings runs one URL through the parameter brute-force and
 // appends every finding that clears minSeverity.
+//
+// The floor is applied here, at the point of append, and deliberately not inside
+// internal/parambrute: BruteForce returns []ParamFinding, which has no severity
+// field, so the severity mapping lives in this file and the floor has to live
+// with it. It has to be applied at the append too: the rule paths gate on
+// MinSeverity while they match, so anything appended after collection sails
+// straight past --severity. That is the same invariant correlateFindings
+// (internal/scanner/correlation_wiring.go) enforces for credential pairs — this
+// is the call site Batch 12 left open.
 func appendParamBruteFindings(findings []finding.Finding, u string, cfg parambrute.Config, minSeverity finding.Severity) []finding.Finding {
 	paramFindings := parambrute.BruteForce(u, cfg)
 	for _, pf := range paramFindings {
-		findings = append(findings, hiddenParameterFinding(u, pf))
+		f := hiddenParameterFinding(u, pf)
+		if f.Severity < minSeverity {
+			continue
+		}
+		findings = append(findings, f)
 	}
 	if len(paramFindings) > 0 {
 		fmt.Fprintf(os.Stderr, "  [+] %s: found %d interesting parameters\n", u, len(paramFindings))

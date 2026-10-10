@@ -114,3 +114,43 @@ func TestAppendParamBruteFindingsAppendsAtDefaultFloor(t *testing.T) {
 		t.Errorf("first finding = %q, want the base collection preserved", got[0].RuleName)
 	}
 }
+
+// The bug: the append happened after collection with no severity floor, so
+// --severity CRITICAL still printed HIGH-severity hidden_parameter rows.
+// Batch 12 closed this invariant for credential-pair correlation
+// (internal/scanner/correlation_wiring.go:62) and left this call site open.
+//
+// The floor must also keep what it should: --severity HIGH still reports an
+// interesting parameter, and --severity LOW reports both the interesting and the
+// merely reflected case.
+func TestAppendParamBruteFindingsHonoursSeverityFloor(t *testing.T) {
+	tests := []struct {
+		name       string
+		minSev     finding.Severity
+		wantParams []string
+	}{
+		{"CRITICAL excludes HIGH parameters", finding.SeverityCritical, nil},
+		{"HIGH keeps interesting parameters", finding.SeverityHigh, []string{"size_change", "reflect"}},
+		{"LOW keeps everything", finding.SeverityLow, []string{"size_change", "reflect"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := paramBruteServer(t)
+			got := appendParamBruteFindings(nil, srv.URL, paramBruteCfg(srv), tt.minSev)
+
+			var params []string
+			for _, f := range got {
+				if f.RuleName != "hidden_parameter" {
+					t.Fatalf("unexpected rule %q", f.RuleName)
+				}
+				if f.Severity < tt.minSev {
+					t.Errorf("%s: Severity %v is below the %v floor", f.Secret, f.Severity, tt.minSev)
+				}
+				params = append(params, f.Secret)
+			}
+			if strings.Join(params, ",") != strings.Join(tt.wantParams, ",") {
+				t.Errorf("parameters = %v, want %v", params, tt.wantParams)
+			}
+		})
+	}
+}
